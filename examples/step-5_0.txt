@@ -1,0 +1,292 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] . 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5][1.x.6][1.x.7][1.x.8][1.x.9][1.x.10][1.x.11][1.x.12][1.x.13][1.x.14][1.x.15][1.x.16] 
+
+[1.x.17] [1.x.18][1.x.19] 
+
+
+ [2.x.3]  
+
+This example does not show revolutionary new things, but it shows many small improvements over the previous examples, and also many small things that can usually be found in finite element programs. Among them are:  [2.x.4]     [2.x.5]  Computations on successively refined grids. At least in the        mathematical sciences, it is common to compute solutions on        a hierarchy of grids, in order to get a feeling for the accuracy        of the solution; if you only have one solution on a single grid, you        usually can't guess the accuracy of the        solution. Furthermore, deal.II is designed to support adaptive        algorithms where iterative solution on successively refined        grids is at the heart of algorithms. Although adaptive grids        are not used in this example, the foundations for them is laid        here.    [2.x.6]  In practical applications, the domains are often subdivided        into triangulations by automatic mesh generators. In order to        use them, it is important to read coarse grids from a file. In        this example, we will read a coarse grid in UCD (unstructured        cell data) format. When this program was first written around        2000, UCD format was what the AVS Explorer used -- a program        reasonably widely used at the time but now no longer of        importance. (Nonetheless, the file format has survived and is        still understood by a number of programs.)    [2.x.7]  Finite element programs usually use extensive amounts of        computing time, so some optimizations are sometimes        necessary. We will show some of them.    [2.x.8]  On the other hand, finite element programs tend to be rather        complex, so debugging is an important aspect. We support safe        programming by using assertions that check the validity of        parameters and %internal states in a debug mode, but are removed        in optimized mode. ( [2.x.9]     [2.x.10]  Regarding the mathematical side, we show how to support a        variable coefficient in the elliptic operator and how to use        preconditioned iterative solvers for the linear systems of        equations.  [2.x.11]  
+
+The equation to solve here is as follows: 
+
+[1.x.20] 
+
+If  [2.x.12]  was a constant coefficient, this would simply be the Poisson equation. However, if it is indeed spatially variable, it is a more complex equation (often referred to as the "extended Poisson equation"). Depending on what the variable  [2.x.13]  refers to it models a variety of situations with wide applicability: 
+
+- If  [2.x.14]  is the electric potential, then  [2.x.15]  is the electric current   in a medium and the coefficient  [2.x.16]  is the conductivity of the medium at any   given point. (In this situation, the right hand side of the equation would   be the electric source density and would usually be zero or consist of   localized, Delta-like, functions.) 
+
+- If  [2.x.17]  is the vertical deflection of a thin membrane, then  [2.x.18]  would be a   measure of the local stiffness. This is the interpretation that will allow   us to interpret the images shown in the results section below. 
+
+Since the Laplace/Poisson equation appears in so many contexts, there are many more interpretations than just the two listed above. 
+
+When assembling the linear system for this equation, we need the weak form which here reads as follows: 
+
+[1.x.21] 
+
+The implementation in the  [2.x.19]  function follows immediately from this. [1.x.22] [1.x.23] 
+
+
+[1.x.24]  [1.x.25] 
+
+
+
+
+Again, the first few include files are already known, so we won't comment on them: 
+
+[1.x.26] 
+
+
+
+This one is new. We want to read a triangulation from disk, and the class which does this is declared in the following file: 
+
+[1.x.27] 
+
+
+
+We will use a circular domain, and the object describing the boundary of it comes from this file: 
+
+[1.x.28] 
+
+
+
+This is C++ ... 
+
+[1.x.29] 
+
+
+
+Finally, this has been discussed in previous tutorial programs before: 
+
+[1.x.30] 
+
+
+
+
+[1.x.31]  [1.x.32] 
+
+
+
+
+The main class is mostly as in the previous example. The most visible change is that the function  [2.x.20]  has been removed, since creating the grid is now done in the  [2.x.21]  function and the rest of its functionality is now in  [2.x.22] . Apart from this, everything is as before. 
+
+[1.x.33] 
+
+
+
+
+[1.x.34]  [1.x.35] 
+
+
+
+
+In  [2.x.23] , we showed how to use non-constant boundary values and right hand side.  In this example, we want to use a variable coefficient in the elliptic operator instead. Since we have a function which just depends on the point in space we can do things a bit more simply and use a plain function instead of inheriting from Function. 
+
+
+
+
+This is the implementation of the coefficient function for a single point. We let it return 20 if the distance to the origin is less than 0.5, and 1 otherwise. 
+
+[1.x.36] 
+
+
+
+
+[1.x.37]  [1.x.38] 
+
+
+
+
+
+[1.x.39]  [1.x.40] 
+
+
+
+
+This function is as before. 
+
+[1.x.41] 
+
+
+
+
+[1.x.42]  [1.x.43] 
+
+
+
+
+This is the function  [2.x.24]  from the previous example, minus the generation of the grid. Everything else is unchanged: 
+
+[1.x.44] 
+
+
+
+
+[1.x.45]  [1.x.46] 
+
+
+
+
+As in the previous examples, this function is not changed much with regard to its functionality, but there are still some optimizations which we will show. For this, it is important to note that if efficient solvers are used (such as the preconditioned CG method), assembling the matrix and right hand side can take a comparable time, and you should think about using one or two optimizations at some places. 
+
+
+
+
+The first parts of the function are completely unchanged from before: 
+
+[1.x.47] 
+
+
+
+Next is the typical loop over all cells to compute local contributions and then to transfer them into the global matrix and vector. The only change in this part, compared to  [2.x.25] , is that we will use the  [2.x.26]  function defined above to compute the coefficient value at each quadrature point. 
+
+[1.x.48] 
+
+
+
+With the matrix so built, we use zero boundary values again: 
+
+[1.x.49] 
+
+
+
+
+[1.x.50]  [1.x.51] 
+
+
+
+
+The solution process again looks mostly like in the previous examples. However, we will now use a preconditioned conjugate gradient algorithm. It is not very difficult to make this change. In fact, the only thing we have to alter is that we need an object which will act as a preconditioner. We will use SSOR (symmetric successive overrelaxation), with a relaxation factor of 1.2. For this purpose, the  [2.x.27]  class has a function which does one SSOR step, and we need to package the address of this function together with the matrix on which it should act (which is the matrix to be inverted) and the relaxation factor into one object. The  [2.x.28]  class does this for us. ( [2.x.29]  class takes a template argument denoting the matrix type it is supposed to work on. The default value is  [2.x.30] , which is exactly what we need here, so we simply stick with the default and do not specify anything in the angle brackets.) 
+
+
+
+
+Note that for the present case, SSOR doesn't really perform much better than most other preconditioners (though better than no preconditioning at all). A brief comparison of different preconditioners is presented in the Results section of the next tutorial program,  [2.x.31] . 
+
+
+
+
+With this, the rest of the function is trivial: instead of the  [2.x.32]  object we have created before, we now use the preconditioner we have declared, and the CG solver will do the rest for us: 
+
+[1.x.52] 
+
+
+
+
+[1.x.53]  [1.x.54] 
+
+
+
+
+Writing output to a file is mostly the same as for the previous tutorial. The only difference is that we now need to construct a different filename for each refinement cycle. 
+
+
+
+
+The function writes the output in VTU format, a variation of the VTK format that requires less disk space because it compresses the data. Of course, there are many other formats supported by the DataOut class if you desire to use a program for visualization that doesn't understand VTK or VTU. 
+
+[1.x.55] 
+
+
+
+
+[1.x.56]  [1.x.57] 
+
+
+
+
+The second to last thing in this program is the definition of the  [2.x.33]  function. In contrast to the previous programs, we will compute on a sequence of meshes that after each iteration is globally refined. The function therefore consists of a loop over 6 cycles. In each cycle, we first print the cycle number, and then have to decide what to do with the mesh. If this is not the first cycle, we simply refine the existing mesh once globally. Before running through these cycles, however, we have to generate a mesh: 
+
+
+
+
+In previous examples, we have already used some of the functions from the  [2.x.34]  class. Here we would like to read a grid from a file where the cells are stored and which may originate from someone else, or may be the product of a mesh generator tool. 
+
+
+
+
+In order to read a grid from a file, we generate an object of data type GridIn and associate the triangulation to it (i.e. we tell it to fill our triangulation object when we ask it to read the file). Then we open the respective file and initialize the triangulation with the data in the file: 
+
+[1.x.58] 
+
+
+
+We would now like to read the file. However, the input file is only for a two-dimensional triangulation, while this function is a template for arbitrary dimension. Since this is only a demonstration program, we will not use different input files for the different dimensions, but rather quickly kill the whole program if we are not in 2D. Of course, since the main function below assumes that we are working in two dimensions we could skip this check, in this version of the program, without any ill effects.    
+
+
+It turns out that more than 90 per cent of programming errors are invalid function parameters such as invalid array sizes, etc, so we use assertions heavily throughout deal.II to catch such mistakes. For this, the  [2.x.35]  macro is a good choice, since it makes sure that the condition which is given as first argument is valid, and if not throws an exception (its second argument) which will usually terminate the program giving information where the error occurred and what the reason was. (A longer discussion of what exactly the  [2.x.36]  macro does can be found in the  [2.x.37]  "exception documentation module".) This generally reduces the time to find programming errors dramatically and we have found assertions an invaluable means to program fast.    
+
+
+On the other hand, all these checks (there are over 10,000 of them in the library at present) should not slow down the program too much if you want to do large computations. To this end, the  [2.x.38]  macro is only used in debug mode and expands to nothing if in optimized mode. Therefore, while you test your program on small problems and debug it, the assertions will tell you where the problems are. Once your program is stable, you can switch off debugging and the program will run your real computations without the assertions and at maximum speed. More precisely: turning off all the checks in the library (which prevent you from calling functions with wrong arguments, walking off of arrays, etc.) by compiling your program in optimized mode usually makes things run about four times faster. Even though optimized programs are more performant, we still recommend developing in debug mode since it allows the library to find lots of common programming errors automatically. For those who want to try: The way to switch from debug mode to optimized mode is to recompile your program with the command <code>make release</code>. The output of the  [2.x.39]  program should now indicate to you that the program is now compiled in optimized mode, and it will later also be linked to libraries that have been compiled for optimized mode. In order to switch back to debug mode, simply recompile with the command  [2.x.40] . 
+
+[1.x.59] 
+
+
+
+ExcInternalError is a globally defined exception, which may be thrown whenever something is terribly wrong. Usually, one would like to use more specific exceptions, and particular in this case one would of course try to do something else if  [2.x.41]  is not equal to two, e.g. create a grid using library functions. Aborting a program is usually not a good idea and assertions should really only be used for exceptional cases which should not occur, but might due to stupidity of the programmer, user, or someone else. The situation above is not a very clever use of Assert, but again: this is a tutorial and it might be worth to show what not to do, after all. 
+
+
+
+
+So if we got past the assertion, we know that dim==2, and we can now actually read the grid. It is in UCD (unstructured cell data) format (though the convention is to use the suffix  [2.x.42]  for UCD files): 
+
+[1.x.60] 
+
+
+
+If you like to use another input format, you have to use one of the other  [2.x.43]  function. (See the documentation of the  [2.x.44]  class to find out what input formats are presently supported.) 
+
+
+
+
+The grid in the file describes a circle. Therefore we have to use a manifold object which tells the triangulation where to put new points on the boundary when the grid is refined. Unlike  [2.x.45] , since GridIn does not know that the domain has a circular boundary (unlike  [2.x.46]  we have to explicitly attach a manifold to the boundary after creating the triangulation to get the correct result when we refine the mesh. 
+
+[1.x.61] 
+
+
+
+Now that we have a mesh for sure, we write some output and do all the things that we have already seen in the previous examples. 
+
+[1.x.62] 
+
+
+
+
+[1.x.63]  [1.x.64] 
+
+
+
+
+The main function looks mostly like the one in the previous example, so we won't comment on it further: 
+
+[1.x.65] 
+
+[1.x.66][1.x.67] 
+
+
+
+
+Here is the console output: 
+
+[1.x.68] 
+
+
+
+
+
+
+In each cycle, the number of cells quadruples and the number of CG iterations roughly doubles. Also, in each cycle, the program writes one output graphic file in VTU format. They are depicted in the following: 
+
+ [2.x.47]  
+
+
+
+
+Due to the variable coefficient (the curvature there is reduced by the same factor by which the coefficient is increased), the top region of the solution is flattened. The gradient of the solution is discontinuous along the interface, although this is not very clearly visible in the pictures above. We will look at this in more detail in the next example. 
+
+The pictures also show that the solution computed by this program is actually pretty wrong on a very coarse mesh (its magnitude is wrong). That's because no numerical method guarantees that the solution on a coarse mesh is particularly accurate -- but we know that the solution [1.x.69] to the exact solution, and indeed you can see how the solutions from one mesh to the next seem to not change very much any more at the end. [1.x.70] [1.x.71]  [2.x.48]  
+
+ [2.x.49] 

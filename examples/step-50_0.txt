@@ -1,0 +1,529 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] ,  [2.x.3] . 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5][1.x.6][1.x.7][1.x.8][1.x.9][1.x.10][1.x.11][1.x.12][1.x.13][1.x.14][1.x.15][1.x.16][1.x.17][1.x.18][1.x.19][1.x.20][1.x.21][1.x.22][1.x.23][1.x.24][1.x.25][1.x.26][1.x.27] 
+
+ [2.x.4]  
+
+[1.x.28] 
+
+ [2.x.5]  
+
+ [2.x.6]  As a prerequisite of this program, you need to have both p4est and either the PETSc or Trilinos library installed. The installation of deal.II together with these additional libraries is described in the [1.x.29] file. 
+
+
+[1.x.30] [1.x.31][1.x.32] 
+
+
+
+
+This example shows the usage of the multilevel functions in deal.II on parallel, distributed meshes and gives a comparison between geometric and algebraic multigrid methods. The algebraic multigrid (AMG) preconditioner is the same used in  [2.x.7] . Two geometric multigrid (GMG) preconditioners are considered: a matrix-based version similar to that in  [2.x.8]  (but for parallel computations) and a matrix-free version discussed in  [2.x.9] . The goal is to find out which approach leads to the best solver for large parallel computations. 
+
+This tutorial is based on one of the numerical examples in  [2.x.10] . Please see that publication for a detailed background on the multigrid implementation in deal.II. We will summarize some of the results in the following text. 
+
+Algebraic multigrid methods are obviously the easiest to implement with deal.II since classes such as  [2.x.11]  and  [2.x.12]  are, in essence, black box preconditioners that require only a couple of lines to set up even for parallel computations. On the other hand, geometric multigrid methods require changes throughout a code base -- not very many, but one has to know what one is doing. 
+
+What the results of this program will show is that algebraic and geometric multigrid methods are roughly comparable in performance [1.x.33], and that matrix-free geometric multigrid methods are vastly better for the problem under consideration here. A secondary conclusion will be that matrix-based geometric multigrid methods really don't scale well strongly when the number of unknowns per processor becomes smaller than 20,000 or so. 
+
+
+[1.x.34][1.x.35] 
+
+
+We consider the variable-coefficient Laplacian weak formulation 
+
+[1.x.36] 
+
+on the domain  [2.x.13]  (an L-shaped domain for 2D and a Fichera corner for 3D) with  [2.x.14]  if  [2.x.15]  and  [2.x.16]  otherwise. In other words,  [2.x.17]  is small along the edges or faces of the domain that run into the reentrant corner, as will be visible in the figure below. 
+
+The boundary conditions are  [2.x.18]  on the whole boundary and the right-hand side is  [2.x.19] . We use continuous  [2.x.20]  elements for the discrete finite element space  [2.x.21] , and use a residual-based, cell-wise a posteriori error estimator  [2.x.22]  from  [2.x.23]  with 
+
+[1.x.37] 
+
+to adaptively refine the mesh. (This is a generalization of the Kelly error estimator used in the KellyErrorEstimator class that drives mesh refinement in most of the other tutorial programs.) The following figure visualizes the solution and refinement for 2D:  [2.x.24]  In 3D, the solution looks similar (see below). On the left you can see the solution and on the right we show a slice for  [2.x.25]  close to the center of the domain showing the adaptively refined mesh.  [2.x.26]  Both in 2D and 3D you can see the adaptive refinement picking up the corner singularity and the inner singularity where the viscosity jumps, while the interface along the line that separates the two viscosities is (correctly) not refined as it is resolved adequately. This is because the kink in the solution that results from the jump in the coefficient is aligned with cell interfaces. 
+
+
+[1.x.38][1.x.39] 
+
+
+As mentioned above, the purpose of this program is to demonstrate the use of algebraic and geometric multigrid methods for this problem, and to do so for parallel computations. An important component of making algorithms scale to large parallel machines is ensuring that every processor has the same amount of work to do. (More precisely, what matters is that there are no small fraction of processors that have substantially more work than the rest since, if that were so, a large fraction of processors will sit idle waiting for the small fraction to finish. Conversely, a small fraction of processors having substantially [1.x.40] work is not a problem because the majority of processors continues to be productive and only the small fraction sits idle once finished with their work.) 
+
+For the active mesh, we use the  [2.x.27]  class as done in  [2.x.28]  which uses functionality in the external library [1.x.41] for the distribution of the active cells among processors. For the non-active cells in the multilevel hierarchy, deal.II implements what we will refer to as the "first-child rule" where, for each cell in the hierarchy, we recursively assign the parent of a cell to the owner of the first child cell. The following figures give an example of such a distribution. Here the left image represents the active cells for a sample 2D mesh partitioned using a space-filling curve (which is what p4est uses to partition cells); the center image gives the tree representation of the active mesh; and the right image gives the multilevel hierarchy of cells. The colors and numbers represent the different processors. The circular nodes in the tree are the non-active cells which are distributed using the "first-child rule". 
+
+ [2.x.29]  
+
+Included among the output to screen in this example is a value "Partition efficiency" given by one over  [2.x.30]  This value, which will be denoted by  [2.x.31] ,  quantifies the overhead produced by not having a perfect work balance on each level of the multigrid hierarchy. This imbalance is evident from the example above: while level  [2.x.32]  is about as well balanced as is possible with four cells among three processors, the coarse level  [2.x.33]  has work for only one processor, and level  [2.x.34]  has work for only two processors of which one has three times as much work as the other. 
+
+For defining  [2.x.35] , it is important to note that, as we are using local smoothing to define the multigrid hierarchy (see the  [2.x.36]  "multigrid paper" for a description of local smoothing), the refinement level of a cell corresponds to that cell's multigrid level. Now, let  [2.x.37]  be the number of cells on level  [2.x.38]  (both active and non-active cells) and  [2.x.39]  be the subset owned by process  [2.x.40] . We will also denote by  [2.x.41]  the total number of processors. Assuming that the workload for any one processor is proportional to the number of cells owned by that processor, the optimal workload per processor is given by 
+
+[1.x.42] 
+
+Next, assuming a synchronization of work on each level (i.e., on each level of a V-cycle, work must be completed by all processors before moving on to the next level), the limiting effort on each level is given by 
+
+[1.x.43] 
+
+and the total parallel complexity 
+
+[1.x.44] 
+
+Then we define  [2.x.42]  as a ratio of the optimal partition to the parallel complexity of the current partition 
+
+[1.x.45] 
+
+For the example distribution above, we have 
+
+[1.x.46] 
+
+The value  [2.x.43]   [2.x.44]  then represents the factor increase in timings we expect for GMG methods (vmults, assembly, etc.) due to the imbalance of the mesh partition compared to a perfectly load-balanced workload. We will report on these in the results section below for a sequence of meshes, and compare with the observed slow-downs as we go to larger and larger processor numbers (where, typically, the load imbalance becomes larger as well). 
+
+These sorts of considerations are considered in much greater detail in  [2.x.45] , which contains a full discussion of the partition efficiency model and the effect the imbalance has on the GMG V-cycle timing. In summary, the value of  [2.x.46]  is highly dependent on the degree of local mesh refinement used and has an optimal value  [2.x.47]  for globally refined meshes. Typically for adaptively refined meshes, the number of processors used to distribute a single mesh has a negative impact on  [2.x.48]  but only up to a leveling off point, where the imbalance remains relatively constant for an increasing number of processors, and further refinement has very little impact on  [2.x.49] . Finally,  [2.x.50]  was shown to give an accurate representation of the slowdown in parallel scaling expected for the timing of a V-cycle. 
+
+It should be noted that there is potential for some asynchronous work between multigrid levels, specifically with purely nearest neighbor MPI communication, and an adaptive mesh could be constructed such that the efficiency model would far overestimate the V-cycle slowdown due to the asynchronous work "covering up" the imbalance (which assumes synchronization over levels). However, for most realistic adaptive meshes the expectation is that this asynchronous work will only cover up a very small portion of the imbalance and the efficiency model will describe the slowdown very well. 
+
+
+[1.x.47][1.x.48] 
+
+
+The considerations above show that one has to expect certain limits on the scalability of the geometric multigrid algorithm as it is implemented in deal.II because even in cases where the finest levels of a mesh are perfectly load balanced, the coarser levels may not be. At the same time, the coarser levels are weighted less (the contributions of  [2.x.51]  to  [2.x.52]  are small) because coarser levels have fewer cells and, consequently, do not contribute to the overall run time as much as finer levels. In other words, imbalances in the coarser levels may not lead to large effects in the big picture. 
+
+Algebraic multigrid methods are of course based on an entirely different approach to creating a hierarchy of levels. In particular, they create these purely based on analyzing the system matrix, and very sophisticated algorithms for ensuring that the problem is well load-balanced on every level are implemented in both the hypre and ML/MueLu packages that underly the  [2.x.53]  and  [2.x.54]  classes. In some sense, these algorithms are simpler than for geometric multigrid methods because they only deal with the matrix itself, rather than all of the connotations of meshes, neighbors, parents, and other geometric entities. At the same time, much work has also been put into making algebraic multigrid methods scale to very large problems, including questions such as reducing the number of processors that work on a given level of the hierarchy to a subset of all processors, if otherwise processors would spend less time on computations than on communication. (One might note that it is of course possible to implement these same kinds of ideas also in geometric multigrid algorithms where one purposefully idles some processors on coarser levels to reduce the amount of communication. deal.II just doesn't do this at this time.) 
+
+These are not considerations we typically have to worry about here, however: For most purposes, we use algebraic multigrid methods as black-box methods. 
+
+
+
+
+[1.x.49][1.x.50] 
+
+
+As mentioned above, this program can use three different ways of solving the linear system: matrix-based geometric multigrid ("MB"), matrix-free geometric multigrid ("MF"), and algebraic multigrid ("AMG"). The directory in which this program resides has input files with suffix `.prm` for all three of these options, and for both 2d and 3d. 
+
+You can execute the program as in 
+
+[1.x.51] 
+
+and this will take the run-time parameters from the given input file (here, `gmg_mb_2d.prm`). 
+
+The program is intended to be run in parallel, and you can achieve this using a command such as 
+
+[1.x.52] 
+
+if you want to, for example, run on four processors. (That said, the program is also ready to run with, say, `-np 28672` if that's how many processors you have available.) [1.x.53] [1.x.54] 
+
+
+[1.x.55]  [1.x.56] 
+
+
+
+
+The include files are a combination of  [2.x.55] ,  [2.x.56] , and  [2.x.57] : 
+
+
+
+
+
+
+
+[1.x.57] 
+
+
+
+We use the same strategy as in  [2.x.58]  to switch between PETSc and Trilinos: 
+
+
+
+
+
+
+
+[1.x.58] 
+
+
+
+Comment the following preprocessor definition in or out if you have PETSc and Trilinos installed and you prefer using PETSc in this example: 
+
+[1.x.59] 
+
+
+
+The following files are used to assemble the error estimator like in  [2.x.59] : 
+
+[1.x.60] 
+
+
+
+
+[1.x.61]  [1.x.62] 
+
+
+
+
+MatrixFree operators must use the  [2.x.60]  vector type. Here we define operations which copy to and from Trilinos vectors for compatibility with the matrix-based code. Note that this functionality does not currently exist for PETSc vector types, so Trilinos must be installed to use the MatrixFree solver in this tutorial. 
+
+[1.x.63] 
+
+
+
+Let's move on to the description of the problem we want to solve. We set the right-hand side function to 1.0. The  [2.x.61]  function returning a VectorizedArray is used by the matrix-free code path. 
+
+[1.x.64] 
+
+
+
+This next class represents the diffusion coefficient. We use a variable coefficient which is 100.0 at any point where at least one coordinate is less than -0.5, and 1.0 at all other points. As above, a separate value() returning a VectorizedArray is used for the matrix-free code. An @p average() function computes the arithmetic average for a set of points. 
+
+[1.x.65] 
+
+
+
+When using a coefficient in the MatrixFree framework, we also need a function that creates a Table of coefficient values for a set of cells provided by the MatrixFree operator argument here. 
+
+[1.x.66] 
+
+
+
+
+[1.x.67]  [1.x.68] 
+
+
+
+
+We will use ParameterHandler to pass in parameters at runtime.  The structure  [2.x.62]  parses and stores these parameters to be queried throughout the program. 
+
+[1.x.69] 
+
+
+
+
+[1.x.70]  [1.x.71] 
+
+
+
+
+This is the main class of the program. It looks very similar to  [2.x.63] ,  [2.x.64] , and  [2.x.65] . For the MatrixFree setup, we use the  [2.x.66]  class which defines `local_apply()`, `compute_diagonal()`, and `set_coefficient()` functions internally. Note that the polynomial degree is a template parameter of this class. This is necesary for the matrix-free code. 
+
+[1.x.72] 
+
+
+
+We will use the following types throughout the program. First the matrix-based types, after that the matrix-free classes. For the matrix-free implementation, we use  [2.x.67]  for the level operators. 
+
+[1.x.73] 
+
+
+
+The only interesting part about the constructor is that we construct the multigrid hierarchy unless we use AMG. For that, we need to parse the run time parameters before this constructor completes. 
+
+[1.x.74] 
+
+
+
+
+[1.x.75]  [1.x.76] 
+
+
+
+
+Unlike  [2.x.68]  and  [2.x.69] , we split the set up into two parts, setup_system() and setup_multigrid(). Here is the typical setup_system() function for the active mesh found in most tutorials. For matrix-free, the active mesh set up is similar to  [2.x.70] ; for matrix-based (GMG and AMG solvers), the setup is similar to  [2.x.71] . 
+
+[1.x.77] 
+
+
+
+
+[1.x.78]  [1.x.79] 
+
+
+
+
+This function does the multilevel setup for both matrix-free and matrix-based GMG. The matrix-free setup is similar to that of  [2.x.72] , and the matrix-based is similar to  [2.x.73] , except we must use appropriate distributed sparsity patterns. 
+
+
+
+
+The function is not called for the AMG approach, but to err on the safe side, the main `switch` statement of this function nevertheless makes sure that the function only operates on known multigrid settings by throwing an assertion if the function were called for anything other than the two geometric multigrid methods. 
+
+[1.x.80] 
+
+
+
+
+[1.x.81]  [1.x.82] 
+
+
+
+
+The assembly is split into three parts: `assemble_system()`, `assemble_multigrid()`, and `assemble_rhs()`. The `assemble_system()` function here assembles and stores the (global) system matrix and the right-hand side for the matrix-based methods. It is similar to the assembly in  [2.x.74] . 
+
+
+
+
+Note that the matrix-free method does not execute this function as it does not need to assemble a matrix, and it will instead assemble the right-hand side in assemble_rhs(). 
+
+[1.x.83] 
+
+
+
+
+[1.x.84]  [1.x.85] 
+
+
+
+
+The following function assembles and stores the multilevel matrices for the matrix-based GMG method. This function is similar to the one found in  [2.x.75] , only here it works for distributed meshes. This difference amounts to adding a condition that we only assemble on locally owned level cells and a call to compress() for each matrix that is built. 
+
+[1.x.86] 
+
+
+
+
+[1.x.87]  [1.x.88] 
+
+
+
+
+The final function in this triptych assembles the right-hand side vector for the matrix-free method -- because in the matrix-free framework, we don't have to assemble the matrix and can get away with only assembling the right hand side. We could do this by extracting the code from the `assemble_system()` function above that deals with the right hand side, but we decide instead to go all in on the matrix-free approach and do the assembly using that way as well. 
+
+
+
+
+The result is a function that is similar to the one found in the "Use  [2.x.76]  to avoid resolving constraints" subsection in the "Possibilities for extensions" section of  [2.x.77] . 
+
+
+
+
+The reason for this function is that the MatrixFree operators do not take into account non-homogeneous Dirichlet constraints, instead treating all Dirichlet constraints as homogeneous. To account for this, the right-hand side here is assembled as the residual  [2.x.78] , where  [2.x.79]  is a zero vector except in the Dirichlet values. Then when solving, we have that the solution is  [2.x.80] . This can be seen as a Newton iteration on a linear system with initial guess  [2.x.81] . The CG solve in the `solve()` function below computes  [2.x.82]  and the call to `constraints.distribute()` (which directly follows) adds the  [2.x.83] . 
+
+
+
+
+Obviously, since we are considering a problem with zero Dirichlet boundary, we could have taken a similar approach to  [2.x.84]  `assemble_rhs()`, but this additional work allows us to change the problem declaration if we so choose. 
+
+
+
+
+This function has two parts in the integration loop: applying the negative of matrix  [2.x.85]  to  [2.x.86]  by submitting the negative of the gradient, and adding the right-hand side contribution by submitting the value  [2.x.87] . We must be sure to use `read_dof_values_plain()` for evaluating  [2.x.88]  as `read_dof_vaues()` would set all Dirichlet values to zero. 
+
+
+
+
+Finally, the system_rhs vector is of type  [2.x.89]  but the MatrixFree class only work for  [2.x.90]   Therefore we must compute the right-hand side using MatrixFree funtionality and then use the functions in the `ChangeVectorType` namespace to copy it to the correct type. 
+
+[1.x.89] 
+
+
+
+
+[1.x.90]  [1.x.91] 
+
+
+
+
+Here we set up the multigrid preconditioner, test the timing of a single V-cycle, and solve the linear system. Unsurprisingly, this is one of the places where the three methods differ the most. 
+
+[1.x.92] 
+
+
+
+The solver for the matrix-free GMG method is similar to  [2.x.91] , apart from adding some interface matrices in complete analogy to  [2.x.92] . 
+
+[1.x.93] 
+
+
+
+Copy the solution vector and right-hand side from  [2.x.93]  to  [2.x.94]  so that we can solve. 
+
+[1.x.94] 
+
+
+
+Timing for 1 V-cycle. 
+
+[1.x.95] 
+
+
+
+Solve the linear system, update the ghost values of the solution, copy back to  [2.x.95]  and distribute constraints. 
+
+[1.x.96] 
+
+
+
+Solver for the matrix-based GMG method, similar to  [2.x.96] , only using a Jacobi smoother instead of a SOR smoother (which is not implemented in parallel). 
+
+[1.x.97] 
+
+
+
+Timing for 1 V-cycle. 
+
+[1.x.98] 
+
+
+
+Solve the linear system and distribute constraints. 
+
+[1.x.99] 
+
+
+
+Solver for the AMG method, similar to  [2.x.97] . 
+
+[1.x.100] 
+
+
+
+Timing for 1 V-cycle. 
+
+[1.x.101] 
+
+
+
+Solve the linear system and distribute constraints. 
+
+[1.x.102] 
+
+
+
+
+[1.x.103]  [1.x.104] 
+
+
+
+
+We use the FEInterfaceValues class to assemble an error estimator to decide which cells to refine. See the exact definition of the cell and face integrals in the introduction. To use the method, we define Scratch and Copy objects for the  [2.x.98]  with much of the following code being in essence as was set up in  [2.x.99]  already (or at least similar in spirit). 
+
+[1.x.105] 
+
+
+
+Assembler for cell residual  [2.x.100]  
+
+[1.x.106] 
+
+
+
+Assembler for face term  [2.x.101]  
+
+[1.x.107] 
+
+
+
+We need to assemble each interior face once but we need to make sure that both processes assemble the face term between a locally owned and a ghost cell. This is achieved by setting the  [2.x.102]  flag. We need to do this, because we do not communicate the error estimator contributions here. 
+
+[1.x.108] 
+
+
+
+
+[1.x.109]  [1.x.110] 
+
+
+
+
+We use the cell-wise estimator stored in the vector  [2.x.103]  and refine a fixed number of cells (chosen here to roughly double the number of DoFs in each step). 
+
+[1.x.111] 
+
+
+
+
+[1.x.112]  [1.x.113] 
+
+
+
+
+The output_results() function is similar to the ones found in many of the tutorials (see  [2.x.104]  for example). 
+
+[1.x.114] 
+
+
+
+
+[1.x.115]  [1.x.116] 
+
+
+
+
+As in most tutorials, this function calls the various functions defined above to setup, assemble, solve, and output the results. 
+
+[1.x.117] 
+
+
+
+We only output level cell data for the GMG methods (same with DoF data below). Note that the partition efficiency is irrelevant for AMG since the level hierarchy is not distributed or used during the computation. 
+
+[1.x.118] 
+
+
+
+Only set up the multilevel hierarchy for GMG. 
+
+[1.x.119] 
+
+
+
+For the matrix-free method, we only assemble the right-hand side. For both matrix-based methods, we assemble both active matrix and right-hand side, and only assemble the multigrid matrices for matrix-based GMG. 
+
+[1.x.120] 
+
+
+
+
+[1.x.121]  [1.x.122] 
+
+
+
+
+This is a similar main function to  [2.x.105] , with the exception that we require the user to pass a .prm file as a sole command line argument (see  [2.x.106]  and the documentation of the ParameterHandler class for a complete discussion of parameter files). 
+
+[1.x.123] 
+
+[1.x.124][1.x.125] 
+
+
+When you run the program using the following command 
+
+[1.x.126] 
+
+the screen output should look like the following: 
+
+[1.x.127] 
+
+Here, the timing of the `solve()` function is split up in 3 parts: setting up the multigrid preconditioner, execution of a single multigrid V-cycle, and the CG solver. The V-cycle that is timed is unnecessary for the overall solve and only meant to give an insight at the different costs for AMG and GMG. Also it should be noted that when using the AMG solver, "Workload imbalance" is not included in the output since the hierarchy of coarse meshes is not required. 
+
+All results in this section are gathered on Intel Xeon Platinum 8280 (Cascade Lake) nodes which have 56 cores and 192GB per node and support AVX-512 instructions, allowing for vectorization over 8 doubles (vectorization used only in the matrix-free computations). The code is compiled using gcc 7.1.0 with intel-mpi 17.0.3. Trilinos 12.10.1 is used for the matrix-based GMG/AMG computations. 
+
+We can then gather a variety of information by calling the program with the input files that are provided in the directory in which  [2.x.107]  is located. Using these, and adjusting the number of mesh refinement steps, we can produce information about how well the program scales. 
+
+The following table gives weak scaling timings for this program on up to 256M DoFs and 7,168 processors. (Recall that weak scaling keeps the number of degrees of freedom per processor constant while increasing the number of processors; i.e., it considers larger and larger problems.) Here,  [2.x.108]  is the partition efficiency from the  introduction (also equal to 1.0/workload imbalance), "Setup" is a combination of setup, setup multigrid, assemble, and assemble multigrid from the timing blocks, and "Prec" is the preconditioner setup. Ideally all times would stay constant over each problem size for the individual solvers, but since the partition efficiency decreases from 0.371 to 0.161 from largest to smallest problem size, we expect to see an approximately  [2.x.109]  times increase in timings for GMG. This is, in fact, pretty close to what we really get: 
+
+ [2.x.110]  
+
+On the other hand, the algebraic multigrid in the last set of columns is relatively unaffected by the increasing imbalance of the mesh hierarchy (because it doesn't use the mesh hierarchy) and the growth in time is rather driven by other factors that are well documented in the literature (most notably that the algorithmic complexity of some parts of algebraic multigrid methods appears to be  [2.x.111]  instead of  [2.x.112]  for geometric multigrid). 
+
+The upshort of the table above is that the matrix-free geometric multigrid method appears to be the fastest approach to solving this equation if not by a huge margin. Matrix-based methods, on the other hand, are consistently the worst. 
+
+The following figure provides strong scaling results for each method, i.e., we solve the same problem on more and more processors. Specifically, we consider the problems after 16 mesh refinement cycles (32M DoFs) and 19 cycles (256M DoFs), on between 56 to 28,672 processors: 
+
+ [2.x.113]  
+
+While the matrix-based GMG solver and AMG scale similarly and have a similar time to solution (at least as long as there is a substantial number of unknowns per processor -- say, several 10,000), the matrix-free GMG solver scales much better and solves the finer problem in roughly the same time as the AMG solver for the coarser mesh with only an eighth of the number of processors. Conversely, it can solve the same problem on the same number of processors in about one eighth the time. 
+
+
+[1.x.128][1.x.129] 
+
+
+[1.x.130][1.x.131] 
+
+
+The finite element degree is currently hard-coded as 2, see the template arguments of the main class. It is easy to change. To test, it would be interesting to switch to a test problem with a reference solution. This way, you can compare error rates. 
+
+[1.x.132][1.x.133] 
+
+
+A more interesting example would involve a more complicated coarse mesh (see  [2.x.114]  for inspiration). The issue in that case is that the coarsest level of the mesh hierarchy is actually quite large, and one would have to think about ways to solve the coarse level problem efficiently. (This is not an issue for algebraic multigrid methods because they would just continue to build coarser and coarser levels of the matrix, regardless of their geometric origin.) 
+
+In the program here, we simply solve the coarse level problem with a Conjugate Gradient method without any preconditioner. That is acceptable if the coarse problem is really small -- for example, if the coarse mesh had a single cell, then the coarse mesh problems has a  [2.x.115]  matrix in 2d, and a  [2.x.116]  matrix in 3d; for the coarse mesh we use on the  [2.x.117] -shaped domain of the current program, these sizes are  [2.x.118]  in 2d and  [2.x.119]  in 3d. But if the coarse mesh consists of hundreds or thousands of cells, this approach will no longer work and might start to dominate the overall run-time of each V-cyle. A common approach is then to solve the coarse mesh problem using an algebraic multigrid preconditioner; this would then, however, require assembling the coarse matrix (even for the matrix-free version) as input to the AMG implementation. [1.x.134] [1.x.135]  [2.x.120]  
+
+ [2.x.121] 

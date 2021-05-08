@@ -1,0 +1,27 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ [2.x.0]  @defgroup Integrators Integrators A collection of namespaces and functions which simplify the coding of forms and bilinear forms on finite element spaces. Functions for two different purposes are gathered here: the abstract integration on finite element meshes in MeshWorker and actual implementations of the integration of cell and face terms for concrete problems in LocalIntegrators. 
+
+ [2.x.1]  Documentation on coding conventions, relations between classes, and details of the implementation is found in the documentation of namespaces in this module. [1.x.0] When we integrate a function or a functional on a finite element space, the structure of the integration loop is always the same. We have between 3 and 5 nested loops, from outside to inside:  [2.x.2]   [2.x.3]  Loop over all cells  [2.x.4]  Optionally, loop over all faces to compute fluxes  [2.x.5]  Loop over all quadrature points of the cell/face  [2.x.6]  Optionally, loop over all test functions to compute forms  [2.x.7]  Optionally, loop over all trial functions to compute bilinear forms  [2.x.8]  These loops naturally fall into two classes, namely the computation of cell and face contributions (loops 3 to 5), and the outer loops over the mesh objects, often referred to as  [2.x.9] assembling [2.x.10] . Support for the outer loop in deal.II can be found in the namespace MeshWorker (see the documentation there). In order to support the cell and face contributions (referred to as local contributions from now on), deal.II offers FEValuesBase and its derived classes. While the outer loop is generic (with exception of the data types), the computation of local contributions is problem dependent. Therefore, no generic algorithm is possible here. Nevertheless, we can define a generic interface for functions for this purpose and provide a library of local integrators for use in applications. These are collected in the namespace LocalIntegrators   [2.x.11] 

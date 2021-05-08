@@ -1,0 +1,7 @@
+# temporary and backup files
+*~
+*#
+*.swp
+
+# test file
+/test

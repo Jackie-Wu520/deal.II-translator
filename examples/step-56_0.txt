@@ -1,0 +1,460 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] ,  [2.x.3] . 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5][1.x.6][1.x.7][1.x.8][1.x.9][1.x.10][1.x.11][1.x.12][1.x.13][1.x.14][1.x.15][1.x.16][1.x.17][1.x.18][1.x.19][1.x.20][1.x.21][1.x.22][1.x.23][1.x.24][1.x.25][1.x.26][1.x.27][1.x.28] 
+
+[1.x.29] 
+
+ [2.x.4]  
+
+[1.x.30] [1.x.31][1.x.32] 
+
+
+[1.x.33][1.x.34] 
+
+
+The purpose of this tutorial is to create an efficient linear solver for the Stokes equation and compare it to alternative approaches.  Here, we will use FGMRES with geometric multigrid as a preconditioner velocity block, and we will show in the results section that this is a fundamentally better approach than the linear solvers used in  [2.x.5]  (including the scheme described in "Possible Extensions").  Fundamentally, this is because only with multigrid it is possible to get  [2.x.6]  solve time, where  [2.x.7]  is the number of unknowns of the linear system. Using the Timer class, we collect some statistics to compare setup times, solve times, and number of iterations. We also compute errors to make sure that what we have implemented is correct. 
+
+Let  [2.x.8]  and  [2.x.9] . The Stokes equations read as follows in non-dimensionalized form: 
+
+[1.x.35] 
+
+
+
+Note that we are using the deformation tensor instead of  [2.x.10]  (a detailed description of the difference between the two can be found in  [2.x.11] , but in summary, the deformation tensor is more physical as well as more expensive). 
+
+[1.x.36][1.x.37] 
+
+
+The weak form of the discrete equations naturally leads to the following linear system for the nodal values of the velocity and pressure fields: [1.x.38] 
+
+
+
+Our goal is to compare several solution approaches.  While  [2.x.12]  solves the linear system using a "Schur complement approach" in two separate steps, we instead attack the block system at once using FMGRES with an efficient preconditioner, in the spirit of the approach outlined in the "Results" section of  [2.x.13] . The idea is as follows: if we find a block preconditioner  [2.x.14]  such that the matrix 
+
+[1.x.39] 
+
+
+
+is simple, then an iterative solver with that preconditioner will converge in a few iterations. Notice that we are doing right preconditioning here.  Using the Schur complement  [2.x.15] , we find that 
+
+[1.x.40] 
+
+
+
+is a good choice. Let  [2.x.16]  be an approximation of  [2.x.17]  and  [2.x.18]  of  [2.x.19] , we see [1.x.41] 
+
+
+
+Since  [2.x.20]  is aimed to be a preconditioner only, we shall use the approximations on the right in the equation above. 
+
+As discussed in  [2.x.21] ,  [2.x.22] , where  [2.x.23]  is the pressure mass matrix and is solved approximately by using CG with ILU as a preconditioner, and  [2.x.24]  is obtained by one of multiple methods: solving a linear system with CG and ILU as preconditioner, just using one application of an ILU, solving a linear system with CG and GMG (Geometric Multigrid as described in  [2.x.25] ) as a preconditioner, or just performing a single V-cycle of GMG. 
+
+As a comparison, instead of FGMRES, we also use the direct solver UMFPACK on the whole system to compare our results with.  If you want to use a direct solver (like UMFPACK), the system needs to be invertible. To avoid the one dimensional null space given by the constant pressures, we fix the first pressure unknown  to zero. This is not necessary for the iterative solvers. 
+
+
+[1.x.42][1.x.43] 
+
+
+The test problem is a "Manufactured Solution" (see  [2.x.26]  for details), and we choose  [2.x.27]  and  [2.x.28] . We apply Dirichlet boundary conditions for the velocity on the whole boundary of the domain  [2.x.29] . To enforce the boundary conditions we can just use our reference solution. 
+
+If you look up in the deal.II manual what is needed to create a class derived from  [2.x.30] , you will find that this class has numerous  [2.x.31]  functions, including  [2.x.32]   [2.x.33]   [2.x.34]  etc., all of which can be overloaded.  Different parts of deal.II will require different ones of these particular functions. This can be confusing at first, but luckily the only thing you actually have to implement is  [2.x.35]   The other virtual functions in the Function class have default implementations inside that will call your implementation of  [2.x.36]  by default. 
+
+Notice that our reference solution fulfills  [2.x.37] . In addition, the pressure is chosen to have a mean value of zero.  For the "Method of Manufactured Solutions" of  [2.x.38] , we need to find  [2.x.39]  such that: 
+
+[1.x.44] 
+
+
+
+Using the reference solution above, we obtain: 
+
+[1.x.45] 
+
+
+
+[1.x.46][1.x.47] 
+
+
+Because we do not enforce the mean pressure to be zero for our numerical solution in the linear system, we need to post process the solution after solving. To do this we use the  [2.x.40]  function to compute the mean value of the pressure to subtract it from the pressure. 
+
+
+[1.x.48][1.x.49] 
+
+
+The way we implement geometric multigrid here only executes it on the velocity variables (i.e., the  [2.x.41]  matrix described above) but not the pressure. One could implement this in different ways, including one in which one considers all coarse grid operations as acting on  [2.x.42]  block systems where we only consider the top left block. Alternatively, we can implement things by really only considering a linear system on the velocity part of the overall finite element discretization. The latter is the way we want to use here. 
+
+To implement this, one would need to be able to ask questions such as "May I have just part of a DoFHandler?". This is not possible at the time when this program was written, so in order to answer this request for our needs, we simply create a separate, second DoFHandler for just the velocities. We then build linear systems for the multigrid preconditioner based on only this second DoFHandler, and simply transfer the first block of (overall) vectors into corresponding vectors for the entire second DoFHandler. To make this work, we have to assure that the [1.x.50] in which the (velocity) degrees of freedom are ordered in the two DoFHandler objects is the same. This is in fact the case by first distributing degrees of freedom on both, and then using the same sequence of DoFRenumbering operations on both. 
+
+
+[1.x.51][1.x.52] 
+
+
+The main difference between  [2.x.43]  and  [2.x.44]  is that we use block solvers instead of the Schur Complement approach used in  [2.x.45] . Details of this approach can be found under the "Block Schur complement preconditioner" subsection of the "Possible Extensions" section of  [2.x.46] . For the preconditioner of the velocity block, we borrow a class from [1.x.53] called  [2.x.47]  that has the option to solve for the inverse of  [2.x.48]  or just apply one preconditioner sweep for it instead, which provides us with an expensive and cheap approach, respectively. [1.x.54] [1.x.55] 
+
+
+[1.x.56]  [1.x.57] 
+
+
+
+
+
+
+
+[1.x.58] 
+
+
+
+We need to include the following file to do timings: 
+
+[1.x.59] 
+
+
+
+This includes the files necessary for us to use geometric Multigrid 
+
+[1.x.60] 
+
+
+
+In order to make it easy to switch between the different solvers that are being used, we declare an enum that can be passed as an argument to the constructor of the main class. 
+
+[1.x.61] 
+
+
+
+
+[1.x.62]  [1.x.63]    
+
+
+The class Solution is used to define the boundary conditions and to compute errors of the numerical solution. Note that we need to define the values and gradients in order to compute L2 and H1 errors. Here we decided to separate the implementations for 2d and 3d using template specialization.    
+
+
+Note that the first dim components are the velocity components and the last is the pressure. 
+
+[1.x.64] 
+
+
+
+Note that for the gradient we need to return a Tensor<1,dim> 
+
+[1.x.65] 
+
+
+
+Implementation of  [2.x.49] . See the introduction for more information. 
+
+[1.x.66] 
+
+
+
+
+[1.x.67]  [1.x.68] 
+
+
+
+
+In the following, we will implement a preconditioner that expands on the ideas discussed in the Results section of  [2.x.50] . Specifically, we 1. use an upper block-triangular preconditioner because we want to use right preconditioning. 2. optionally allow using an inner solver for the velocity block instead of a single preconditioner application. 3. do not use InverseMatrix but explicitly call SolverCG. This approach is also used in the ASPECT code (see https://aspect.geodynamics.org) that solves the Stokes equations in the context of simulating convection in the earth mantle, and which has been used to solve problems on many thousands of processors.    
+
+
+The bool flag  [2.x.51]  in the constructor allows us to either apply the preconditioner for the velocity block once or use an inner iterative solver for a more accurate approximation instead.    
+
+
+Notice how we keep track of the sum of the inner iterations (preconditioner applications). 
+
+[1.x.69] 
+
+
+
+First solve with the approximation for S 
+
+[1.x.70] 
+
+
+
+Second, apply the top right block (B^T) 
+
+[1.x.71] 
+
+
+
+Finally, either solve with the top left block or just apply one preconditioner sweep 
+
+[1.x.72] 
+
+
+
+
+[1.x.73]  [1.x.74]    
+
+
+This is the main class of the problem. 
+
+[1.x.75] 
+
+
+
+Finite element for the velocity only: 
+
+[1.x.76] 
+
+
+
+Finite element for the whole system: 
+
+[1.x.77] 
+
+
+
+
+[1.x.78]  [1.x.79] 
+
+
+
+
+This function sets up the DoFHandler, matrices, vectors, and Multigrid structures (if needed). 
+
+[1.x.80] 
+
+
+
+The main DoFHandler only needs active DoFs, so we are not calling distribute_mg_dofs() here 
+
+[1.x.81] 
+
+
+
+This block structure separates the dim velocity components from the pressure component (used for reordering). Note that we have 2 instead of dim+1 blocks like in  [2.x.52] , because our FESystem is nested and the dim velocity components appear as one block. 
+
+[1.x.82] 
+
+
+
+Velocities start at component 0: 
+
+[1.x.83] 
+
+
+
+ILU behaves better if we apply a reordering to reduce fillin. There is no advantage in doing this for the other solvers. 
+
+[1.x.84] 
+
+
+
+This ensures that all velocities DoFs are enumerated before the pressure unknowns. This allows us to use blocks for vectors and matrices and allows us to get the same DoF numbering for dof_handler and velocity_dof_handler. 
+
+[1.x.85] 
+
+
+
+This distributes the active dofs and multigrid dofs for the velocity space in a separate DoFHandler as described in the introduction. 
+
+[1.x.86] 
+
+
+
+The following block of code initializes the MGConstrainedDofs (using the boundary conditions for the velocity), and the sparsity patterns and matrices for each level. The resize() function of MGLevelObject<T> will destroy all existing contained objects. 
+
+[1.x.87] 
+
+
+
+The following makes use of a component mask for interpolation of the boundary values for the velocity only, which is further explained in the vector valued dealii  [2.x.53]  tutorial. 
+
+[1.x.88] 
+
+
+
+As discussed in the introduction, we need to fix one degree of freedom of the pressure variable to ensure solvability of the problem. We do this here by marking the first pressure dof, which has index n_u as a constrained dof. 
+
+[1.x.89] 
+
+
+
+
+[1.x.90]  [1.x.91] 
+
+
+
+
+In this function, the system matrix is assembled. We assemble the pressure mass matrix in the (1,1) block (if needed) and move it out of this location at the end of this function. 
+
+[1.x.92] 
+
+
+
+If true, we will assemble the pressure mass matrix in the (1,1) block: 
+
+[1.x.93] 
+
+
+
+
+[1.x.94]  [1.x.95] 
+
+
+
+
+Here, like in  [2.x.54] , we have a function that assembles the level and interface matrices necessary for the multigrid preconditioner. 
+
+[1.x.96] 
+
+
+
+This iterator goes over all cells (not just active) 
+
+[1.x.97] 
+
+
+
+
+[1.x.98]  [1.x.99] 
+
+
+
+
+This function sets up things differently based on if you want to use ILU or GMG as a preconditioner.  Both methods share the same solver (FGMRES) but require a different preconditioner to be initialized. Here we time not only the entire solve function, but we separately time the setup of the preconditioner as well as the solve itself. 
+
+[1.x.100] 
+
+
+
+Here we must make sure to solve for the residual with "good enough" accuracy 
+
+[1.x.101] 
+
+
+
+This is used to pass whether or not we want to solve for A inside the preconditioner.  One could change this to false to see if there is still convergence and if so does the program then run faster or slower 
+
+[1.x.102] 
+
+
+
+Transfer operators between levels 
+
+[1.x.103] 
+
+
+
+Setup coarse grid solver 
+
+[1.x.104] 
+
+
+
+Multigrid, when used as a preconditioner for CG, needs to be a symmetric operator, so the smoother must be symmetric 
+
+[1.x.105] 
+
+
+
+Now, we are ready to set up the V-cycle operator and the multilevel preconditioner. 
+
+[1.x.106] 
+
+
+
+
+[1.x.107]  [1.x.108] 
+
+
+
+
+This function computes the L2 and H1 errors of the solution. For this, we need to make sure the pressure has mean zero. 
+
+[1.x.109] 
+
+
+
+Compute the mean pressure  [2.x.55]  and then subtract it from each pressure coefficient. This will result in a pressure with mean value zero. Here we make use of the fact that the pressure is component  [2.x.56]  and that the finite element space is nodal. 
+
+[1.x.110] 
+
+
+
+
+[1.x.111]  [1.x.112] 
+
+
+
+
+This function generates graphical output like it is done in  [2.x.57] . 
+
+[1.x.113] 
+
+
+
+
+[1.x.114]  [1.x.115] 
+
+
+
+
+The last step in the Stokes class is, as usual, the function that generates the initial grid and calls the other functions in the respective order. 
+
+[1.x.116] 
+
+
+
+
+[1.x.117]  [1.x.118] 
+
+[1.x.119] 
+
+
+
+options for SolverType: UMFPACK FGMRES_ILU FGMRES_GMG 
+
+[1.x.120] 
+
+[1.x.121][1.x.122] 
+
+
+[1.x.123][1.x.124] 
+
+
+We first run the code and confirm that the finite element solution converges with the correct rates as predicted by the error analysis of mixed finite element problems. Given sufficiently smooth exact solutions  [2.x.58]  and  [2.x.59] , the errors of the Taylor-Hood element  [2.x.60]  should be 
+
+[1.x.125] 
+
+see for example Ern/Guermond "Theory and Practice of Finite Elements", Section 4.2.5 p195. This is indeed what we observe, using the  [2.x.61]  element as an example (this is what is done in the code, but is easily changed in  [2.x.62] ): 
+
+ [2.x.63]  
+
+[1.x.126][1.x.127] 
+
+
+Let us compare the direct solver approach using UMFPACK to the two methods in which we choose  [2.x.64]  and  [2.x.65]  by solving linear systems with  [2.x.66]  using CG. The preconditioner for CG is then either ILU or GMG. The following table summarizes solver iterations, timings, and virtual memory (VM) peak usage: 
+
+ [2.x.67]  
+
+As can be seen from the table: 
+
+1. UMFPACK uses large amounts of memory, especially in 3d. Also, UMFPACK timings do not scale favorably with problem size. 
+
+2. Because we are using inner solvers for  [2.x.68]  and  [2.x.69] , ILU and GMG require the same number of outer iterations. 
+
+3. The number of (inner) iterations for  [2.x.70]  increases for ILU with refinement, leading to worse than linear scaling in solve time. In contrast, the number of inner iterations for  [2.x.71]  stays constant with GMG leading to nearly perfect scaling in solve time. 
+
+4. GMG needs slightly more memory than ILU to store the level and interface matrices. 
+
+[1.x.128][1.x.129] 
+
+
+[1.x.130][1.x.131] 
+
+
+Experiment with higher order stable FE pairs and check that you observe the correct convergence rates. 
+
+[1.x.132][1.x.133] 
+
+
+The introduction also outlined another option to precondition the overall system, namely one in which we do not choose  [2.x.72]  as in the table above, but in which  [2.x.73]  is only a single preconditioner application with GMG or ILU, respectively. 
+
+This is in fact implemented in the code: Currently, the boolean  [2.x.74]  is set to  [2.x.75]  The option mentioned above is obtained by setting it to  [2.x.76]  
+
+What you will find is that the number of FGMRES iterations stays constant under refinement if you use GMG this way. This means that the Multigrid is optimal and independent of  [2.x.77] . [1.x.134] [1.x.135]  [2.x.78]  
+
+ [2.x.79] 

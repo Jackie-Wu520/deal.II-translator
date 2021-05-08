@@ -1,0 +1,477 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] . 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5][1.x.6][1.x.7][1.x.8][1.x.9][1.x.10][1.x.11][1.x.12][1.x.13][1.x.14][1.x.15] 
+
+ [2.x.3]  
+
+[1.x.16] 
+
+[1.x.17] [1.x.18][1.x.19] 
+
+
+Matrix-free operator evaluation enables very efficient implementations of discretization with high-order polynomial bases due to a method called sum factorization. This concept has been introduced in the  [2.x.4]  and  [2.x.5]  tutorial programs. In this tutorial program, we extend those concepts to discontinuous Galerkin (DG) schemes that include face integrals, a class of methods where high orders are particularly widespread. 
+
+The underlying idea of the matrix-free evaluation is the same as for continuous elements: The matrix-vector product that appears in an iterative solver or multigrid smoother is not implemented by a classical sparse matrix kernel, but instead applied implicitly by the evaluation of the underlying integrals on the fly. For tensor product shape functions that are integrated with a tensor product quadrature rule, this evaluation is particularly efficient by using the sum-factorization technique, which decomposes the initially  [2.x.6]  operations for interpolation involving  [2.x.7]  vector entries with associated shape functions at degree  [2.x.8]  in  [2.x.9]  dimensions to  [2.x.10]  quadrature points into  [2.x.11]  one-dimensional operations of cost  [2.x.12]  each. In 3D, this reduces the order of complexity by two powers in  [2.x.13] . When measured as the complexity per degree of freedom, the complexity is  [2.x.14]  in the polynomial degree. Due to the presence of face integrals in DG, and due to the fact that operations on quadrature points involve more memory transfer, which both scale as  [2.x.15] , the observed complexity is often constant for moderate  [2.x.16] . This means that a high order method can be evaluated with the same throughput in terms of degrees of freedom per second as a low-order method. 
+
+More information on the algorithms are available in the preprint  [2.x.17]  [1.x.20] by Martin Kronbichler and Katharina Kormann, arXiv:1711.03590. 
+
+[1.x.21][1.x.22] 
+
+
+For this tutorial program, we exemplify the matrix-free DG framework for the interior penalty discretization of the Laplacian, i.e., the same scheme as the one used for the  [2.x.18]  tutorial program. The discretization of the Laplacian is given by the following weak form 
+
+[1.x.23] 
+
+where  [2.x.19]  denotes the directed jump of the quantity  [2.x.20]  from the two associated cells  [2.x.21]  and  [2.x.22] , and  [2.x.23]  is the average from both sides. 
+
+The terms in the equation represent the cell integral after integration by parts, the primal consistency term that arises at the element interfaces due to integration by parts and insertion of an average flux, the adjoint consistency term that is added for restoring symmetry of the underlying matrix, and a penalty term with factor  [2.x.24] , whose magnitude is equal the length of the cells in direction normal to face multiplied by  [2.x.25] , see  [2.x.26] . The penalty term is chosen such that an inverse estimate holds and the final weak form is coercive, i.e., positive definite in the discrete setting. The adjoint consistency term and the penalty term involve the jump  [2.x.27]  at the element interfaces, which disappears for the analytic solution  [2.x.28] . Thus, these terms are consistent with the original PDE, ensuring that the method can retain optimal orders of convergence. 
+
+In the implementation below, we implement the weak form above by moving the normal vector  [2.x.29]  from the jump terms to the derivatives to form a [1.x.24] derivative of the form  [2.x.30] . This makes the implementation on quadrature points slightly more efficient because we only need to work with scalar terms rather than tensors, and is mathematically equivalent. 
+
+For boundary conditions, we use the so-called mirror principle that defines [1.x.25] exterior values  [2.x.31]  by extrapolation from the interior solution  [2.x.32]  combined with the given boundary data, setting  [2.x.33]  and  [2.x.34]  on Dirichlet boundaries and  [2.x.35]  and  [2.x.36]  on Neumann boundaries, for given Dirichlet values  [2.x.37]  and Neumann values  [2.x.38] . These expressions are then inserted in the above weak form. Contributions involving the known quantities  [2.x.39]  and  [2.x.40]  are eventually moved to the right hand side, whereas the unknown value  [2.x.41]  is retained on the left hand side and contributes to the matrix terms similarly as interior faces. Upon these manipulations, the same weak form as in  [2.x.42]  is obtained. 
+
+[1.x.26][1.x.27] 
+
+
+The matrix-free framework of deal.II provides the necessary infrastructure to implement the action of the discretized equation above. As opposed to the  [2.x.43]  that we used in  [2.x.44]  and  [2.x.45] , we now build a code in terms of  [2.x.46]  that takes three function pointers, one for the cell integrals, one for the inner face integrals, and one for the boundary face integrals (in analogy to the design of MeshWorker used in the  [2.x.47]  tutorial program). In each of these three functions, we then implement the respective terms on the quadrature points. For interpolation between the vector entries and the values and gradients on quadrature points, we use the class FEEvaluation for cell contributions and FEFaceEvaluation for face contributions. The basic usage of these functions has been discussed extensively in the  [2.x.48]  tutorial program. 
+
+In  [2.x.49]  all interior faces are visited exactly once, so one must make sure to compute the contributions from both the test functions  [2.x.50]  and  [2.x.51] . Given the fact that the test functions on both sides are indeed independent, the weak form above effectively means that we submit the same contribution to both an FEFaceEvaluation object called `phi_inner` and `phi_outer` for testing with the normal derivative of the test function, and values with opposite sign for testing with the values of the test function, because the latter involves opposite signs due to the jump term. For faces between cells of different refinement level, the integration is done from the refined side, and FEFaceEvaluation automatically performs interpolation to a subface on the coarse side. Thus, a hanging node never appears explicitly in a user implementation of a weak form. 
+
+The fact that each face is visited exactly once also applies to those faces at subdomain boundaries between different processors when parallelized with MPI, where one cell belongs to one processor and one to the other. The setup in  [2.x.52]  splits the faces between the two sides, and eventually only reports the faces actually handled locally in  [2.x.53]  and  [2.x.54]  respectively. Note that, in analogy to the cell integrals discussed in  [2.x.55] , deal.II applies vectorization over several faces to use SIMD, working on something we call a [1.x.28] with a single instruction. The face batches are independent from the cell batches, even though the time at which face integrals are processed is kept close to the time when the cell integrals of the respective cells are processed, in order to increase the data locality. 
+
+Another thing that is new in this program is the fact that we no longer split the vector access like  [2.x.56]  or  [2.x.57]  from the evaluation and integration steps, but call combined functions  [2.x.58]  and  [2.x.59]  respectively. This is useful for face integrals because, depending on what gets evaluated on the faces, not all vector entries of a cell must be touched in the first place. Think for example of the case of the nodal element FE_DGQ with node points on the element surface: If we are interested in the shape function values on a face, only  [2.x.60]  degrees of freedom contribute to them in a non-trivial way (in a more technical way of speaking, only  [2.x.61]  shape functions have a nonzero support on the face and return true for  [2.x.62]  When compared to the  [2.x.63]  degrees of freedom of a cell, this is one power less. 
+
+Now of course we are not interested in only the function values, but also the derivatives on the cell. Fortunately, there is an element in deal.II that extends this property of reduced access also for derivatives on faces, the FE_DGQHermite element. 
+
+[1.x.29][1.x.30] 
+
+
+The element FE_DGQHermite belongs to the family of FE_DGQ elements, i.e., its shape functions are a tensor product of 1D polynomials and the element is fully discontinuous. As opposed to the nodal character in the usual FE_DGQ element, the FE_DGQHermite element is a mixture of nodal contributions and derivative contributions based on a Hermite-like concept. The underlying polynomial class is  [2.x.64]  and can be summarized as follows: For cubic polynomials, we use two polynomials to represent the function value and first derivative at the left end of the unit interval,  [2.x.65] , and two polynomials to represent the function value and first derivative and the right end of the unit interval,  [2.x.66] . At the opposite ends, both the value and first derivative of the shape functions are zero, ensuring that only two out of the four basis functions contribute to values and derivative on the respective end. However, we deviate from the classical Hermite interpolation in not strictly assigning one degree of freedom for the value and one for the first derivative, but rather allow the first derivative to be a linear combination of the first and the second shape function. This is done to improve the conditioning of the interpolation. Also, when going to degrees beyond three, we add node points in the element interior in a Lagrange-like fashion, combined with double zeros in the points  [2.x.67]  and  [2.x.68] . The position of these extra nodes is determined by the zeros of some Jacobi polynomials as explained in the description of the class  [2.x.69]  
+
+Using this element, we only need to access  [2.x.70]  degrees of freedom for computing both values and derivatives on a face. The check whether the Hermite property is fulfilled is done transparently inside  [2.x.71]  and  [2.x.72]  that check the type of the basis and reduce the access to data if possible. Obviously, this would not be possible if we had separated  [2.x.73]  from  [2.x.74]  because the amount of entries we need to read depends on the type of the derivative (only values, first derivative, etc.) and thus must be given to `read_dof_values()`. 
+
+This optimization is not only useful for computing the face integrals, but also for the MPI ghost layer exchange: In a naive exchange, we would need to send all degrees of freedom of a cell to another processor if the other processor is responsible for computing the face's contribution. Since we know that only some of the degrees of freedom in the evaluation with FEFaceEvaluation are touched, it is natural to only exchange the relevant ones. The  [2.x.75]  function has support for a selected data exchange when combined with  [2.x.76]  To make this happen, we need to tell the loop what kind of evaluation on faces we are going to do, using an argument of type  [2.x.77]  as can be seen in the implementation of  [2.x.78]  below. The way data is exchanged in that case is as follows: The ghost layer data in the vector still pretends to represent all degrees of freedom, such that FEFaceEvaluation can continue to read the values as if the cell were a locally owned one. The data exchange routines take care of the task for packing and unpacking the data into this format. While this sounds pretty complicated, we will show in the results section below that this really pays off by comparing the performance to a baseline code that does not specify the data access on faces. 
+
+[1.x.31][1.x.32] 
+
+
+In the tradition of the  [2.x.79]  program, we again solve a Poisson problem with a geometric multigrid preconditioner inside a conjugate gradient solver. Instead of computing the diagonal and use the basic PreconditionChebyshev as a smoother, we choose a different strategy in this tutorial program. We implement a block-Jacobi preconditioner, where a block refers to all degrees of freedom on a cell. Rather than building the full cell matrix and applying its LU factorization (or inverse) in the preconditioner &mdash; an operation that would be heavily memory bandwidth bound and thus pretty slow &mdash; we approximate the inverse of the block by a special technique called fast diagonalization method. 
+
+The idea of the method is to take use of the structure of the cell matrix. In case of the Laplacian with constant coefficients discretized on a Cartesian mesh, the cell matrix  [2.x.80]  can be written as 
+
+[1.x.33] 
+
+in 2D and 
+
+[1.x.34] 
+
+in 3D. The matrices  [2.x.81]  and  [2.x.82]  denote the 1D Laplace matrix (including the cell and face term associated to the current cell values  [2.x.83]  and  [2.x.84] ) and  [2.x.85]  and  [2.x.86]  are the mass matrices. Note that this simple tensor product structure is lost once there are non-constant coefficients on the cell or the geometry is not constant any more. We mention that a similar setup could also be used to replace the computed integrals with this final tensor product form of the matrices, which would cut the operations for the operator evaluation into less than half. However, given the fact that this only holds for Cartesian cells and constant coefficients, which is a pretty narrow case, we refrain from pursuing this idea. 
+
+Interestingly, the exact inverse of the matrix  [2.x.87]  can be found through tensor products due to a method introduced by [1.x.35] from 1964, 
+
+[1.x.36] 
+
+where  [2.x.88]  is the matrix of eigenvectors to the generalized eigenvalue problem in the given tensor direction  [2.x.89] : 
+
+[1.x.37] 
+
+and  [2.x.90]  is the diagonal matrix representing the generalized eigenvalues  [2.x.91] . Note that the vectors  [2.x.92]  are such that they simultaneously diagonalize  [2.x.93]  and  [2.x.94] , i.e.  [2.x.95]  and  [2.x.96] . 
+
+The deal.II library implements a class using this concept, called TensorProductMatrixSymmetricSum. 
+
+For the sake of this program, we stick with constant coefficients and Cartesian meshes, even though an approximate version based on tensor products would still be possible for a more general mesh, and the operator evaluation itself is of course generic. Also, we do not bother with adaptive meshes where the multigrid algorithm would need to get access to flux matrices over the edges of different refinement, as explained in  [2.x.97] . One thing we do, however, is to still wrap our block-Jacobi preconditioner inside PreconditionChebyshev. That class relieves us from finding an appropriate relaxation parameter (which would be around 0.7 in 2D and 0.5 in 3D for the block-Jacobi smoother), and often increases smoothing efficiency a bit over plain Jacobi smoothing in that it enables lower the time to solution when setting the degree of the Chebyshev polynomial to one or two. 
+
+Note that the block-Jacobi smoother has an additional benefit: The fast diagonalization method can also be interpreted as a change from the Hermite-like polynomials underlying FE_DGQHermite to a basis where the cell Laplacian is diagonal. Thus, it cancels the effect of the basis, and we get the same iteration counts irrespective of whether we use FE_DGQHermite or FE_DGQ. This is in contrast to using the PreconditionChebyshev class with only the diagonal (a point-Jacobi scheme), where FE_DGQ and FE_DGQHermite do indeed behave differently and FE_DGQ needs 2-5 less iterations than FE_DGQHermite, despite the modification made to the Hermite-like shape functions to ensure a good conditioning. [1.x.38] [1.x.39] 
+
+The include files are essentially the same as in  [2.x.98] , with the exception of the finite element class FE_DGQHermite instead of FE_Q. All functionality for matrix-free computations on face integrals is already contained in `fe_evaluation.h`. 
+
+[1.x.40] 
+
+
+
+As in  [2.x.99] , we collect the dimension and polynomial degree as constants here at the top of the program for simplicity. As opposed to  [2.x.100] , we choose a really high order method this time with degree 8 where any implementation not using sum factorization would become prohibitively slow compared to the implementation with MatrixFree which provides an efficiency that is essentially the same as at degrees two or three. Furthermore, all classes in this tutorial program are templated, so it would be easy to select the degree at run time from an input file or a command-line argument by adding instantiations of the appropriate degrees in the `main()` function. 
+
+
+
+
+
+
+
+[1.x.41] 
+
+
+
+
+[1.x.42]  [1.x.43] 
+
+
+
+
+In analogy to  [2.x.101] , we define an analytic solution that we try to reproduce with our discretization. Since the aim of this tutorial is to show matrix-free methods, we choose one of the simplest possibilities, namely a cosine function whose derivatives are simple enough for us to compute analytically. Further down, the wave number 2.4 we select here will be matched with the domain extent in  [2.x.102] -direction that is 2.5, such that we obtain a periodic solution at  [2.x.103]  including  [2.x.104]  or three full wave revolutions in the cosine. The first function defines the solution and its gradient for expressing the analytic solution for the Dirichlet and Neumann boundary conditions, respectively. Furthermore, a class representing the negative Laplacian of the solution is used to represent the right hand side (forcing) function that we use to match the given analytic solution in the discretized version (manufactured solution). 
+
+
+
+
+
+
+
+[1.x.44] 
+
+
+
+
+[1.x.45]  [1.x.46] 
+
+
+
+
+The `LaplaceOperator` class is similar to the respective class in  [2.x.105] . A significant difference is that we do not derive the class from  [2.x.106]  because we want to present some additional features of  [2.x.107]  that are not available in the general-purpose class  [2.x.108]  We derive the class from the Subscriptor class to be able to use the operator within the Chebyshev preconditioner because that preconditioner stores the underlying matrix via a SmartPointer.    
+
+
+Given that we implement a complete matrix interface by hand, we need to add an `initialize()` function, an `m()` function, a `vmult()` function, and a `Tvmult()` function that were previously provided by  [2.x.109]  Our LaplaceOperator also contains a member function `get_penalty_factor()` that centralizes the selection of the penalty parameter in the symmetric interior penalty method according to  [2.x.110] . 
+
+
+
+
+
+
+
+[1.x.47] 
+
+
+
+The `%PreconditionBlockJacobi` class defines our custom preconditioner for this problem. As opposed to  [2.x.111]  which was based on the matrix diagonal, we here compute an approximate inversion of the diagonal blocks in the discontinuous Galerkin method by using the so-called fast diagonalization method discussed in the introduction. 
+
+
+
+
+
+
+
+[1.x.48] 
+
+
+
+This free-standing function is used in both the `LaplaceOperator` and `%PreconditionBlockJacobi` classes to adjust the ghost range. This function is necessary because some of the vectors that the `vmult()` functions are supplied with are not initialized properly with  [2.x.112]  that includes the correct layout of ghost entries, but instead comes from the MGTransferMatrixFree class that has no notion on the ghost selection of the matrix-free classes. To avoid index confusion, we must adjust the ghost range before actually doing something with these vectors. Since the vectors are kept around in the multigrid smoother and transfer classes, a vector whose ghost range has once been adjusted will remain in this state throughout the lifetime of the object, so we can use a shortcut at the start of the function to see whether the partitioner object of the distributed vector, which is stored as a shared pointer, is the same as the layout expected by MatrixFree, which is stored in a data structure accessed by  [2.x.113]  where the 0 indicates the DoFHandler number from which this was extracted; we only use a single DoFHandler in MatrixFree, so the only valid number is 0 here. 
+
+
+
+
+
+
+
+[1.x.49] 
+
+
+
+The next five functions to clear and initialize the `LaplaceOperator` class, to return the shared pointer holding the MatrixFree data container, as well as the correct initialization of the vector and operator sizes are the same as in  [2.x.114]  or rather  [2.x.115]  
+
+[1.x.50] 
+
+
+
+This function implements the action of the LaplaceOperator on a vector `src` and stores the result in the vector `dst`. When compared to  [2.x.116] , there are four new features present in this call.    
+
+
+The first new feature is the `adjust_ghost_range_if_necessary` function mentioned above that is needed to fit the vectors to the layout expected by FEEvaluation and FEFaceEvaluation in the cell and face functions.    
+
+
+The second new feature is the fact that we do not implement a `vmult_add()` function as we did in  [2.x.117]  (through the virtual function  [2.x.118]  but directly implement a `vmult()` functionality. Since both cell and face integrals will sum into the destination vector, we must of course zero the vector somewhere. For DG elements, we are given two options &ndash; one is to use  [2.x.119]  instead of  [2.x.120]  in the `apply_cell` function below. This works because the loop layout in MatrixFree is such that cell integrals always touch a given vector entry before the face integrals. However, this really only works for fully discontinuous bases where every cell has its own degrees of freedom, without any sharing with neighboring results. An alternative setup, the one chosen here, is to let the  [2.x.121]  take care of zeroing the vector. This can be thought of as simply calling `dst = 0;` somewhere in the code. The implementation is more involved for supported vectors such as  [2.x.122]  because we aim to not zero the whole vector at once. Doing the zero operation on a small enough pieces of a few thousands of vector entries has the advantage that the vector entries that get zeroed remain in caches before they are accessed again in  [2.x.123]  and  [2.x.124]  Since matrix-free operator evaluation is really fast, just zeroing a large vector can amount to up to a 25% of the operator evaluation time, and we obviously want to avoid this cost. This option of zeroing the vector is also available for  [2.x.125]  and for continuous bases, even though it was not used in the  [2.x.126]  or  [2.x.127]  tutorial programs.    
+
+
+The third new feature is the way we provide the functions to compute on cells, inner faces, and boundary faces: The class MatrixFree has a function called `loop` that takes three function pointers to the three cases, allowing to separate the implementations of different things. As explained in  [2.x.128] , these function pointers can be  [2.x.129]  objects or member functions of a class. In this case, we use pointers to member functions.    
+
+
+The final new feature are the last two arguments of type  [2.x.130]  that can be given to  [2.x.131]  This class passes the type of data access for face integrals to the MPI data exchange routines  [2.x.132]  and  [2.x.133]  of the parallel vectors. The purpose is to not send all degrees of freedom of a neighboring element, but to reduce the amount of data to what is really needed for the computations at hand. The data exchange is a real bottleneck in particular for high-degree DG methods, therefore a more restrictive way of exchange is often beneficial. The enum field  [2.x.134]  can take the value `none`, which means that no face integrals at all are done, which would be analogous to  [2.x.135]  the value `values` meaning that only shape function values (but no derivatives) are used on faces, and the value `gradients` when also first derivatives on faces are accessed besides the values. A value `unspecified` means that all degrees of freedom will be exchanged for the faces that are located at the processor boundaries and designated to be worked on at the local processor.    
+
+
+To see how the data can be reduced, think of the case of the nodal element FE_DGQ with node points on the element surface, where only  [2.x.136]  degrees of freedom contribute to the values on a face for polynomial degree  [2.x.137]  in  [2.x.138]  space dimensions, out of the  [2.x.139]  degrees of freedom of a cell. A similar reduction is also possible for the interior penalty method that evaluates values and first derivatives on the faces. When using a Hermite-like basis in 1D, only up to two basis functions contribute to the value and derivative. The class FE_DGQHermite implements a tensor product of this concept, as discussed in the introduction. Thus, only  [2.x.140]  degrees of freedom must be exchanged for each face, which is a clear win once  [2.x.141]  gets larger than four or five. Note that this reduced exchange of FE_DGQHermite is valid also on meshes with curved boundaries, as the derivatives are taken on the reference element, whereas the geometry only mixes them on the inside. Thus, this is different from the attempt to obtain  [2.x.142]  continuity with continuous Hermite-type shape functions where the non-Cartesian case changes the picture significantly. Obviously, on non-Cartesian meshes the derivatives also include tangential derivatives of shape functions beyond the normal derivative, but those only need the function values on the element surface, too. Should the element not provide any compression, the loop automatically exchanges all entries for the affected cells. 
+
+
+
+
+
+
+
+[1.x.51] 
+
+
+
+Since the Laplacian is symmetric, the `Tvmult()` (needed by the multigrid smoother interfaces) operation is simply forwarded to the `vmult()` case. 
+
+
+
+
+
+
+
+[1.x.52] 
+
+
+
+The cell operation is very similar to  [2.x.143] . We do not use a coefficient here, though. The second difference is that we replaced the two steps of  [2.x.144]  followed by  [2.x.145]  by a single function call  [2.x.146]  which internally calls the sequence of the two individual methods. Likewise,  [2.x.147]  implements the sequence of  [2.x.148]  followed by  [2.x.149]  In this case, these new functions merely save two lines of code. However, we use them for the analogy with FEFaceEvaluation where they are more important as explained below. 
+
+
+
+
+
+
+
+[1.x.53] 
+
+
+
+The face operation implements the terms of the interior penalty method in analogy to  [2.x.150] , as explained in the introduction. We need two evaluator objects for this task, one for handling the solution that comes from the cell on one of the two sides of an interior face, and one for handling the solution from the other side. The evaluators for face integrals are called FEFaceEvaluation and take a boolean argument in the second slot of the constructor to indicate which of the two sides the evaluator should belong two. In FEFaceEvaluation and MatrixFree, we call one of the two sides the `interior` one and the other the `exterior` one. The name `exterior` refers to the fact that the evaluator from both sides will return the same normal vector. For the `interior` side, the normal vector points outwards, whereas it points inwards on the other side, and is opposed to the outer normal vector of that cell. Apart from the new class name, we again get a range of items to work with in analogy to what was discussed in  [2.x.151] , but for the interior faces in this case. Note that the data structure of MatrixFree forms batches of faces that are analogous to the batches of cells for the cell integrals. All faces within a batch involve different cell numbers but have the face number within the reference cell, have the same refinement configuration (no refinement or the same subface), and the same orientation, to keep SIMD operations simple and efficient.    
+
+
+Note that there is no implied meaning in interior versus exterior except the logic decision of the orientation of the normal, which is pretty random internally. One can in no way rely on a certain pattern of assigning interior versus exterior flags, as the decision is made for the sake of access regularity and uniformity in the MatrixFree setup routines. Since most sane DG methods are conservative, i.e., fluxes look the same from both sides of an interface, the mathematics are unaltered if the interior/exterior flags are switched and normal vectors get the opposite sign. 
+
+
+
+
+
+
+
+[1.x.54] 
+
+
+
+On a given batch of faces, we first update the pointers to the current face and then access the vector. As mentioned above, we combine the vector access with the evaluation. In the case of face integrals, the data access into the vector can be reduced for the special case of an FE_DGQHermite basis as explained for the data exchange above: Since only  [2.x.152]  out of the  [2.x.153]  cell degrees of freedom get multiplied by a non-zero value or derivative of a shape function, this structure can be utilized for the evaluation, significantly reducing the data access. The reduction of the data access is not only beneficial because it reduces the data in flight and thus helps caching, but also because the data access to faces is often more irregular than for cell integrals when gathering values from cells that are farther apart in the index list of cells. 
+
+[1.x.55] 
+
+
+
+The next two statements compute the penalty parameter for the interior penalty method. As explained in the introduction, we would like to have a scaling like  [2.x.154]  of the length  [2.x.155]  normal to the face. For a general non-Cartesian mesh, this length must be computed by the product of the inverse Jacobian times the normal vector in real coordinates. From this vector of `dim` components, we must finally pick the component that is oriented normal to the reference cell. In the geometry data stored in MatrixFree, a permutation of the components in the Jacobian is applied such that this latter direction is always the last component `dim-1` (this is beneficial because reference-cell derivative sorting can be made agnostic of the direction of the face). This means that we can simply access the last entry `dim-1` and must not look up the local face number in `data.get_face_info(face).interior_face_no` and `data.get_face_info(face).exterior_face_no`. Finally, we must also take the absolute value of these factors as the normal could point into either positive or negative direction. 
+
+[1.x.56] 
+
+
+
+In the loop over the quadrature points, we eventually compute all contributions to the interior penalty scheme. According to the formulas in the introduction, the value of the test function gets multiplied by the difference of the jump in the solution times the penalty parameter and the average of the normal derivative in real space. Since the two evaluators for interior and exterior sides get different signs due to the jump, we pass the result with a different sign here. The normal derivative of the test function gets multiplied by the negative jump in the solution between the interior and exterior side. This term, coined adjoint consistency term, must also include the factor of  [2.x.156]  in the code in accordance with its relation to the primal consistency term that gets the factor of one half due to the average in the test function slot. 
+
+[1.x.57] 
+
+
+
+Once we are done with the loop over quadrature points, we can do the sum factorization operations for the integration loops on faces and sum the results into the result vector, using the `integrate_scatter` function. The name `scatter` reflects the distribution of the vector data into scattered positions in the vector using the same pattern as in `gather_evaluate`. Like before, the combined integrate + write operation allows us to reduce the data access. 
+
+[1.x.58] 
+
+
+
+The boundary face function follows by and large the interior face function. The only difference is the fact that we do not have a separate FEFaceEvaluation object that provides us with exterior values  [2.x.157] , but we must define them from the boundary conditions and interior values  [2.x.158] . As explained in the introduction, we use  [2.x.159]  and  [2.x.160]  on Dirichlet boundaries and  [2.x.161]  and  [2.x.162]  on Neumann boundaries. Since this operation implements the homogeneous part, i.e., the matrix-vector product, we must neglect the boundary functions  [2.x.163]  and  [2.x.164]  here, and added them to the right hand side in  [2.x.165]  Note that due to extension of the solution  [2.x.166]  to the exterior via  [2.x.167] , we can keep all factors  [2.x.168]  the same as in the inner face function, see also the discussion in  [2.x.169] .    
+
+
+There is one catch at this point: The implementation below uses a boolean variable `is_dirichlet` to switch between the Dirichlet and the Neumann cases. However, we solve a problem where we also want to impose periodic boundary conditions on some boundaries, namely along those in the  [2.x.170]  direction. One might wonder how those conditions should be handled here. The answer is that MatrixFree automatically treats periodic boundaries as what they are technically, namely an inner face where the solution values of two adjacent cells meet and must be treated by proper numerical fluxes. Thus, all the faces on the periodic boundaries will appear in the `apply_face()` function and not in this one. 
+
+
+
+
+
+
+
+[1.x.59] 
+
+
+
+Next we turn to the preconditioner initialization. As explained in the introduction, we want to construct an (approximate) inverse of the cell matrices from a product of 1D mass and Laplace matrices. Our first task is to compute the 1D matrices, which we do by first creating a 1D finite element. Instead of anticipating FE_DGQHermite<1> here, we get the finite element's name from DoFHandler, replace the  [2.x.171]  argument (2 or 3) by 1 to create a 1D name, and construct the 1D element by using FETools. 
+
+
+
+
+
+
+
+[1.x.60] 
+
+
+
+As for computing the 1D matrices on the unit element, we simply write down what a typical assembly procedure over rows and columns of the matrix as well as the quadrature points would do. We select the same Laplace matrices once and for all using the coefficients 0.5 for interior faces (but possibly scaled differently in different directions as a result of the mesh). Thus, we make a slight mistake at the Dirichlet boundary (where the correct factor would be 1 for the derivative terms and 2 for the penalty term, see  [2.x.172] ) or at the Neumann boundary where the factor should be zero. Since we only use this class as a smoother inside a multigrid scheme, this error is not going to have any significant effect and merely affects smoothing quality. 
+
+[1.x.61] 
+
+
+
+The left and right boundary terms assembled by the next two statements appear to have somewhat arbitrary signs, but those are correct as can be verified by looking at  [2.x.173]  and inserting the value -1 and 1 for the normal vector in the 1D case. 
+
+[1.x.62] 
+
+
+
+Next, we go through the cells and pass the scaled matrices to TensorProductMatrixSymmetricSum to actually compute the generalized eigenvalue problem for representing the inverse: Since the matrix approximation is constructed as  [2.x.174]  and the weights are constant for each element, we can apply all weights on the Laplace matrix and simply keep the mass matrices unscaled. In the loop over cells, we want to make use of the geometry compression provided by the MatrixFree class and check if the current geometry is the same as on the last cell batch, in which case there is nothing to do. This compression can be accessed by  [2.x.175]  once `reinit()` has been called.      
+
+
+Once we have accessed the inverse Jacobian through the FEEvaluation access function (we take the one for the zeroth quadrature point as they should be the same on all quadrature points for a Cartesian cell), we check that it is diagonal and then extract the determinant of the original Jacobian, i.e., the inverse of the determinant of the inverse Jacobian, and set the weight as  [2.x.176]  according to the 1D Laplacian times  [2.x.177]  copies of the mass matrix. 
+
+[1.x.63] 
+
+
+
+Once we know the factor by which we should scale the Laplace matrix, we apply this weight to the unscaled DG Laplace matrix and send the array to the class TensorProductMatrixSymmetricSum for computing the generalized eigenvalue problem mentioned in the introduction. 
+
+
+
+
+
+
+
+[1.x.64] 
+
+
+
+The vmult function for the approximate block-Jacobi preconditioner is very simple in the DG context: We simply need to read the values of the current cell batch, apply the inverse for the given entry in the array of tensor product matrix, and write the result back. In this loop, we overwrite the content in `dst` rather than first setting the entries to zero. This is legitimate for a DG method because every cell has independent degrees of freedom. Furthermore, we manually write out the loop over all cell batches, rather than going through  [2.x.178]  We do this because we know that we are not going to need data exchange over the MPI network here as all computations are done on the cells held locally on each processor. 
+
+
+
+
+
+
+
+[1.x.65] 
+
+
+
+The definition of the LaplaceProblem class is very similar to  [2.x.179] . One difference is the fact that we add the element degree as a template argument to the class, which would allow us to more easily include more than one degree in the same program by creating different instances in the `main()` function. The second difference is the selection of the element, FE_DGQHermite, which is specialized for this kind of equations. 
+
+
+
+
+
+
+
+[1.x.66] 
+
+
+
+The setup function differs in two aspects from  [2.x.180] . The first is that we do not need to interpolate any constraints for the discontinuous ansatz space, and simply pass a dummy AffineConstraints object into  [2.x.181]  The second change arises because we need to tell MatrixFree to also initialize the data structures for faces. We do this by setting update flags for the inner and boundary faces, respectively. On the boundary faces, we need both the function values, their gradients, JxW values (for integration), the normal vectors, and quadrature points (for the evaluation of the boundary conditions), whereas we only need shape function values, gradients, JxW values, and normal vectors for interior faces. The face data structures in MatrixFree are always built as soon as one of `mapping_update_flags_inner_faces` or `mapping_update_flags_boundary_faces` are different from the default value `update_default` of UpdateFlags. 
+
+
+
+
+
+
+
+[1.x.67] 
+
+
+
+The computation of the right hand side is a bit more complicated than in  [2.x.182] . The cell term now consists of the negative Laplacian of the analytical solution, `RightHandSide`, for which we need to first split up the Point of VectorizedArray fields, i.e., a batch of points, into a single point by evaluating all lanes in the VectorizedArray separately. Remember that the number of lanes depends on the hardware; it could be 1 for systems that do not offer vectorization (or where deal.II does not have intrinsics), but it could also be 8 or 16 on AVX-512 of recent Intel architectures. 
+
+[1.x.68] 
+
+
+
+Secondly, we also need to apply the Dirichlet and Neumann boundary conditions. This function is the missing part of to the function  [2.x.183]  function once the exterior solution values  [2.x.184]  and  [2.x.185]  on Dirichlet boundaries and  [2.x.186]  and  [2.x.187]  on Neumann boundaries are inserted and expanded in terms of the boundary functions  [2.x.188]  and  [2.x.189] . One thing to remember is that we move the boundary conditions to the right hand side, so the sign is the opposite from what we imposed on the solution part.      
+
+
+We could have issued both the cell and the boundary part through a  [2.x.190]  part, but we choose to manually write the full loop over all faces to learn how the index layout of face indices is set up in MatrixFree: Both the inner faces and the boundary faces share the index range, and all batches of inner faces have lower numbers than the batches of boundary cells. A single index for both variants allows us to easily use the same data structure FEFaceEvaluation for both cases that attaches to the same data field, just at different positions. The number of inner face batches (where a batch is due to the combination of several faces into one for vectorization) is given by  [2.x.191]  whereas the number of boundary face batches is given by  [2.x.192]  
+
+[1.x.69] 
+
+
+
+The MatrixFree class lets us query the boundary_id of the current face batch. Remember that MatrixFree sets up the batches for vectorization such that all faces within a batch have the same properties, which includes their `boundary_id`. Thus, we can query that id here for the current face index `face` and either impose the Dirichlet case (where we add something to the function value) or the Neumann case (where we add something to the normal derivative). 
+
+[1.x.70] 
+
+
+
+Since we have manually run the loop over cells rather than using  [2.x.193]  we must not forget to perform the data exchange with MPI - or actually, we would not need that for DG elements here because each cell carries its own degrees of freedom and cell and boundary integrals only evaluate quantities on the locally owned cells. The coupling to neighboring subdomain only comes in by the inner face integrals, which we have not done here. That said, it does not hurt to call this function here, so we do it as a reminder of what happens inside  [2.x.194]  
+
+[1.x.71] 
+
+
+
+The `solve()` function is copied almost verbatim from  [2.x.195] . We set up the same multigrid ingredients, namely the level transfer, a smoother, and a coarse grid solver. The only difference is the fact that we do not use the diagonal of the Laplacian for the preconditioner of the Chebyshev iteration used for smoothing, but instead our newly resolved class `%PreconditionBlockJacobi`. The mechanisms are the same, though. 
+
+[1.x.72] 
+
+
+
+Since we have solved a problem with analytic solution, we want to verify the correctness of our implementation by computing the L2 error of the numerical result against the analytic solution. 
+
+
+
+
+
+
+
+[1.x.73] 
+
+
+
+The `run()` function sets up the initial grid and then runs the multigrid program in the usual way. As a domain, we choose a rectangle with periodic boundary conditions in the  [2.x.196] -direction, a Dirichlet condition on the front face in  [2.x.197]  direction (i.e., the face with index number 2, with boundary id equal to 0), and Neumann conditions on the back face as well as the two faces in  [2.x.198]  direction for the 3D case (with boundary id equal to 1). The extent of the domain is a bit different in the  [2.x.199]  direction (where we want to achieve a periodic solution given the definition of `Solution`) as compared to the  [2.x.200]  and  [2.x.201]  directions. 
+
+
+
+
+
+
+
+[1.x.74] 
+
+
+
+There is nothing unexpected in the `main()` function. We call `MPI_Init()` through the `MPI_InitFinalize` class, pass on the two parameters on the dimension and the degree set at the top of the file, and run the Laplace problem. 
+
+
+
+
+
+
+
+[1.x.75] 
+
+[1.x.76][1.x.77] 
+
+
+[1.x.78][1.x.79] 
+
+
+Like in  [2.x.202] , we evaluate the multigrid solver in terms of run time.  In two space dimensions with elements of degree 8, a possible output could look as follows: 
+
+[1.x.80] 
+
+
+
+Like in  [2.x.203] , the number of CG iterations remains constant with increasing problem size. The iteration counts are a bit higher, which is because we use a lower degree of the Chebyshev polynomial (2 vs 5 in  [2.x.204] ) and because the interior penalty discretization has a somewhat larger spread in eigenvalues. Nonetheless, 13 iterations to reduce the residual by 12 orders of magnitude, or almost a factor of 9 per iteration, indicates an overall very efficient method. In particular, we can solve a system with 21 million degrees of freedom in 5 seconds when using 12 cores, which is a very good efficiency. Of course, in 2D we are well inside the regime of roundoff for a polynomial degree of 8 &ndash; as a matter of fact, around 83k DoFs or 0.025s would have been enough to fully converge this (simple) analytic solution here. 
+
+Not much changes if we run the program in three spatial dimensions, except for the fact that we now use do something more useful with the higher polynomial degree and increasing mesh sizes, as the roundoff errors are only obtained at the finest mesh. Still, it is remarkable that we can solve a 3D Laplace problem with a wave of three periods to roundoff accuracy on a twelve-core machine pretty easily - using about 3.5 GB of memory in total for the second to largest case with 24m DoFs, taking not more than eight seconds. The largest case uses 30GB of memory with 191m DoFs. 
+
+[1.x.81] 
+
+
+
+[1.x.82][1.x.83] 
+
+
+In the introduction and in-code comments, it was mentioned several times that high orders are treated very efficiently with the FEEvaluation and FEFaceEvaluation evaluators. Now, we want to substantiate these claims by looking at the throughput of the 3D multigrid solver for various polynomial degrees. We collect the times as follows: We first run a solver at problem size close to ten million, indicated in the first four table rows, and record the timings. Then, we normalize the throughput by recording the number of million degrees of freedom solved per second (MDoFs/s) to be able to compare the efficiency of the different degrees, which is computed by dividing the number of degrees of freedom by the solver time. 
+
+ [2.x.205]  
+
+We clearly see how the efficiency per DoF initially improves until it reaches a maximum for the polynomial degree  [2.x.206] . This effect is surprising, not only because higher polynomial degrees often yield a vastly better solution, but especially also when having matrix-based schemes in mind where the denser coupling at higher degree leads to a monotonously decreasing throughput (and a drastic one in 3D, with  [2.x.207]  being more than ten times slower than  [2.x.208] !). For higher degrees, the throughput decreases a bit, which is both due to an increase in the number of iterations (going from 12 at  [2.x.209]  to 19 at  [2.x.210] ) and due to the  [2.x.211]  complexity of operator evaluation. Nonetheless, efficiency as the time to solution would be still better for higher polynomial degrees because they have better convergence rates (at least for problems as simple as this one): For  [2.x.212] , we reach roundoff accuracy already with 1 million DoFs (solver time less than a second), whereas for  [2.x.213]  we need 24 million DoFs and 8 seconds. For  [2.x.214] , the error is around  [2.x.215]  with 57m DoFs and thus still far away from roundoff, despite taking 16 seconds. 
+
+Note that the above numbers are a bit pessimistic because they include the time it takes the Chebyshev smoother to compute an eigenvalue estimate, which is around 10 percent of the solver time. If the system is solved several times (as e.g. common in fluid dynamics), this eigenvalue cost is only paid once and faster times become available. 
+
+[1.x.84][1.x.85] 
+
+
+Finally, we take a look at some of the special ingredients presented in this tutorial program, namely the FE_DGQHermite basis in particular and the specification of  [2.x.216]  In the following table, the third row shows the optimized solver above, the fourth row shows the timings with only the  [2.x.217]  set to `unspecified` rather than the optimal `gradients`, and the last one with replacing FE_DGQHermite by the basic FE_DGQ elements where both the MPI exchange are more expensive and the operations done by  [2.x.218]  and  [2.x.219]  
+
+ [2.x.220]  
+
+The data in the table shows that not using  [2.x.221]  increases costs by around 10% for higher polynomial degrees. For lower degrees, the difference is obviously less pronounced because the volume-to-surface ratio is more beneficial and less data needs to be exchanged. The difference is larger when looking at the matrix-vector product only, rather than the full multigrid solver shown here, with around 20% worse timings just because of the MPI communication. 
+
+For  [2.x.222]  and  [2.x.223] , the Hermite-like basis functions do obviously not really pay off (indeed, for  [2.x.224]  the polynomials are exactly the same as for FE_DGQ) and the results are similar as with the FE_DGQ basis. However, for degrees starting at three, we see an increasing advantage for FE_DGQHermite, showing the effectiveness of these basis functions. 
+
+[1.x.86][1.x.87] 
+
+
+As mentioned in the introduction, the fast diagonalization method is tied to a Cartesian mesh with constant coefficients. If we wanted to solve variable-coefficient problems, we would need to invest a bit more time in the design of the smoother parameters by selecting proper generalizations (e.g., approximating the inverse on the nearest box-shaped element). 
+
+Another way of extending the program would be to include support for adaptive meshes, for which interface operations at edges of different refinement level become necessary, as discussed in  [2.x.225] . [1.x.88] [1.x.89]  [2.x.226]  
+
+ [2.x.227] 

@@ -1,0 +1,696 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] . 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5][1.x.6][1.x.7][1.x.8][1.x.9][1.x.10][1.x.11][1.x.12][1.x.13][1.x.14][1.x.15][1.x.16][1.x.17][1.x.18][1.x.19][1.x.20][1.x.21][1.x.22][1.x.23][1.x.24][1.x.25][1.x.26][1.x.27][1.x.28][1.x.29][1.x.30][1.x.31][1.x.32][1.x.33][1.x.34][1.x.35][1.x.36][1.x.37][1.x.38][1.x.39][1.x.40][1.x.41][1.x.42][1.x.43] 
+
+ [2.x.3]  
+
+[1.x.44] 
+
+
+[1.x.45][1.x.46] [1.x.47] 
+
+
+The simulation of multiphase flow in porous media is a ubiquitous problem, and we have previously addressed it already in some form in  [2.x.4]  and  [2.x.5] . However, as was easy to see there, it faces two major difficulties: numerical accuracy and efficiency. The first is easy to see in the stationary solver  [2.x.6] : using lowest order Raviart-Thomas elements can not be expected to yield highly accurate solutions. We need more accurate methods. The second reason is apparent from the time dependent  [2.x.7] : that program is excruciatingly slow, and there is no hope to get highly accurate solutions in 3d within reasonable time frames. 
+
+In this program, in order to overcome these two problems, there are five areas which we are trying to improve for a high performance simulator: 
+
+ [2.x.8]   [2.x.9]  Higher order spatial discretizations  [2.x.10]  Adaptive mesh refinement  [2.x.11]  Adaptive time stepping  [2.x.12]  Operator splitting  [2.x.13]  Efficient solver and preconditioning  [2.x.14]  
+
+Much inspiration for this program comes from  [2.x.15]  but several of the techniques discussed here are original. 
+
+
+[1.x.48][1.x.49] 
+
+
+We consider the flow of a two-phase immiscible, incompressible fluid. Capillary and gravity effects are neglected, and viscous effects are assumed dominant. The governing equations for such a flow that are identical to those used in  [2.x.16]  and are 
+
+[1.x.50] 
+
+where  [2.x.17]  is the saturation (volume fraction between zero and one) of the second (wetting) phase,  [2.x.18]  is the pressure,  [2.x.19]  is the permeability tensor,  [2.x.20]  is the total mobility,  [2.x.21]  is the porosity,  [2.x.22]  is the fractional flow of the wetting phase,  [2.x.23]  is the source term and  [2.x.24]  is the total velocity. The total mobility, fractional flow of the wetting phase and total velocity are respectively given by 
+
+[1.x.51] 
+
+where subscripts  [2.x.25]  represent the wetting and non-wetting phases, respectively. 
+
+For convenience, the porosity  [2.x.26]  in the saturation equation, which can be considered a scaling factor for the time variable, is set to one. Following a commonly used prescription for the dependence of the relative permeabilities  [2.x.27]  and  [2.x.28]  on saturation, we use 
+
+[1.x.52] 
+
+
+
+The porous media equations above are augmented by initial conditions for the saturation and boundary conditions for the pressure. Since saturation and the gradient of the pressure uniquely determine the velocity, no boundary conditions are necessary for the velocity. Since the flow equations do not contain time derivatives, initial conditions for the velocity and pressure variables are not required. The flow field separates the boundary into inflow or outflow parts. Specifically, [1.x.53] and we arrive at a complete model by also imposing boundary values for the saturation variable on the inflow boundary  [2.x.29] . 
+
+
+[1.x.54][1.x.55] 
+
+
+As seen in  [2.x.30] , solving the flow equations for velocity and pressure are the parts of the program that take far longer than the (explicit) updating step for the saturation variable once we know the flow variables. On the other hand,  the pressure and velocity depend only weakly on saturation, so one may think about only solving for pressure and velocity every few time steps while updating the saturation in every step. If we can find a criterion for when the flow variables need to be updated, we call this splitting an "adaptive operator splitting" scheme. 
+
+Here, we use the following a posteriori criterion to decide when to re-compute pressure and velocity variables (detailed derivations and descriptions can be found in [Chueh, Djilali and Bangerth 2011]): 
+
+[1.x.56] 
+
+where superscripts in parentheses denote the number of the saturation time step at which any quantity is defined and  [2.x.31]  represents the last step where we actually computed the pressure and velocity. If  [2.x.32]  exceeds a certain threshold we re-compute the flow variables; otherwise, we skip this computation in time step  [2.x.33]  and only move the saturation variable one time step forward. 
+
+In short, the algorithm allows us to perform a number of saturation time steps of length  [2.x.34]  until the criterion above tells us to re-compute velocity and pressure variables, leading to a macro time step of length [1.x.57] We choose the length of (micro) steps subject to the Courant-Friedrichs-Lewy (CFL) restriction according to the criterion [1.x.58] which we have confirmed to be stable for the choice of finite element and time stepping scheme for the saturation equation discussed below ( [2.x.35]  denotes the diameter of cell  [2.x.36] ). The result is a scheme where neither micro nor macro time steps are of uniform length, and both are chosen adaptively. 
+
+[1.x.59][1.x.60] 
+
+Using this time discretization, we obtain the following set of equations for each time step from the IMPES approach (see  [2.x.37] ): 
+
+[1.x.61] 
+
+
+
+
+Using the fact that  [2.x.38] , the time discrete saturation equation becomes 
+
+[1.x.62] 
+
+
+
+[1.x.63][1.x.64] 
+
+
+By multiplying the equations defining the total velocity  [2.x.39]  and the equation that expresses its divergence in terms of source terms, with test functions  [2.x.40]  and  [2.x.41]  respectively and then integrating terms by parts as necessary, the weak form of the problem reads: Find  [2.x.42]  so that for all test functions  [2.x.43]  there holds [1.x.65] 
+
+Here,  [2.x.44]  represents the unit outward normal vector to  [2.x.45]  and the pressure  [2.x.46]  can be prescribed weakly on the open part of the boundary  [2.x.47]  whereas on those parts where a velocity is prescribed (for example impermeable boundaries with  [2.x.48]  the term disappears altogether because  [2.x.49] . 
+
+We use continuous finite elements to discretize the velocity and pressure equations. Specifically, we use mixed finite elements to ensure high order approximation for both vector (e.g. a fluid velocity) and scalar variables (e.g. pressure) simultaneously. For saddle point problems, it is well established that the so-called Babuska-Brezzi or Ladyzhenskaya-Babuska-Brezzi (LBB) conditions [Brezzi 1991, Chen 2005] need to be satisfied to ensure stability of the pressure-velocity system. These stability conditions are satisfied in the present work by using elements for velocity that are one order higher than for the pressure, i.e.  [2.x.50]  and  [2.x.51] , where  [2.x.52] ,  [2.x.53]  is the space dimension, and  [2.x.54]  denotes the space of tensor product Lagrange polynomials of degree  [2.x.55]  in each variable. 
+
+[1.x.66][1.x.67] 
+
+The chosen  [2.x.56]  elements for the saturation equation do not lead to a stable discretization without upwinding or other kinds of stabilization, and spurious oscillations will appear in the numerical solution. Adding an artificial diffusion term is one approach to eliminating these oscillations [Chen 2005]. On the other hand, adding too much diffusion smears sharp fronts in the solution and suffers from grid-orientation difficulties [Chen 2005]. To avoid these effects, we use the artificial diffusion term proposed by [Guermond and Pasquetti 2008] and validated in [Chueh, Djilali, Bangerth 2011] and [Kronbichler, Heister and Bangerth, 2011], as well as in  [2.x.57] . 
+
+This method modifies the (discrete) weak form of the saturation equation to read 
+
+[1.x.68] 
+
+where  [2.x.58]  is the artificial diffusion parameter and  [2.x.59]  is an appropriately chosen numerical flux on the boundary of the domain (we choose the obvious full upwind flux for this). 
+
+Following [Guermond and Pasquetti 2008] (and as detailed in [Chueh, Djilali and Bangerth 2011]), we use the parameter as a piecewise constant function set on each cell  [2.x.60]  with the diameter  [2.x.61]  as [1.x.69] where  [2.x.62]  is a stabilization exponent and  [2.x.63]  is a dimensionless user-defined stabilization constant. Following [Guermond and Pasquetti 2008] as well as the implementation in  [2.x.64] , the velocity and saturation global normalization constant,  [2.x.65] , and the residual  [2.x.66]  are respectively given by [1.x.70] and [1.x.71] where  [2.x.67]  is a second dimensionless user-defined constant,  [2.x.68]  is the diameter of the domain and  [2.x.69]  is the range of the present saturation values in the entire computational domain  [2.x.70] . 
+
+This stabilization scheme has a number of advantages over simpler schemes such as finite volume (or discontinuous Galerkin) methods or streamline upwind Petrov Galerkin (SUPG) discretizations. In particular, the artificial diffusion term acts primarily in the vicinity of discontinuities since the residual is small in areas where the saturation is smooth. It therefore provides for a higher degree of accuracy. On the other hand, it is nonlinear since  [2.x.71]  depends on the saturation  [2.x.72] . We avoid this difficulty by treating all nonlinear terms explicitly, which leads to the following fully discrete problem at time step  [2.x.73] : 
+
+[1.x.72] 
+
+where  [2.x.74]  is the velocity linearly extrapolated from  [2.x.75]  and  [2.x.76]  to the current time  [2.x.77]  if  [2.x.78]  while  [2.x.79]  is  [2.x.80]  if  [2.x.81] . Consequently, the equation is linear in  [2.x.82]  and all that is required is to solve with a mass matrix on the saturation space. 
+
+Since the Dirichlet boundary conditions for saturation are only imposed on the inflow boundaries, the third term on the left hand side of the equation above needs to be split further into two parts: 
+
+[1.x.73] 
+
+where  [2.x.83]  and  [2.x.84]  represent inflow and outflow boundaries, respectively. We choose values using an upwind formulation, i.e.  [2.x.85]  and  [2.x.86]  correspond to the values taken from the present cell, while the values of  [2.x.87]  and  [2.x.88]  are those taken from the neighboring boundary  [2.x.89] . 
+
+
+[1.x.74][1.x.75] 
+
+
+Choosing meshes adaptively to resolve sharp saturation fronts is an essential ingredient to achieve efficiency in our algorithm. Here, we use the same shock-type refinement approach used in [Chueh, Djilali and Bangerth 2011] to select those cells that should be refined or coarsened. The refinement indicator for each cell  [2.x.90]  of the triangulation is computed by [1.x.76] where  [2.x.91]  is the gradient of the discrete saturation variable evaluated at the center  [2.x.92]  of cell  [2.x.93] . This approach is analogous to ones frequently used in compressible flow problems, where density gradients are used to indicate refinement. That said, as we will discuss at the end of the [1.x.77], this turns out to not be a very useful criterion since it leads to refinement basically everywhere. We only show it here for illustrative purposes. 
+
+
+[1.x.78][1.x.79] 
+
+
+Following the discretization of the governing equations discussed above, we obtain a linear system of equations in time step  [2.x.94]  of the following form: [1.x.80] where the individual matrices and vectors are defined as follows using shape functions  [2.x.95]  for velocity, and  [2.x.96]  for both pressure and saturation: 
+
+[1.x.81] 
+
+and  [2.x.97]  as given in the definition of the stabilized transport equation. 
+
+The linear system above is of block triangular form if we consider the top left  [2.x.98]  panel of matrices as one block. We can therefore first solve for the velocity and pressure (unless we decide to use  [2.x.99]  in place of the velocity) followed by a solve for the saturation variable. The first of these steps requires us to solve [1.x.82] We apply the Generalized Minimal Residual (GMRES) method [Saad and Schultz 1986] to this linear system. The ideal preconditioner for the velocity-pressure system is 
+
+[1.x.83] 
+
+where  [2.x.100]  is the Schur complement [Zhang 2005] of the system. This preconditioner is optimal since 
+
+[1.x.84] 
+
+for which it can be shown that GMRES converges in two iterations. 
+
+However, we cannot of course expect to use exact inverses of the velocity mass matrix and the Schur complement. We therefore follow the approach by [Silvester and Wathen 1994] originally proposed for the Stokes system. Adapting it to the current set of equations yield the preconditioner 
+
+[1.x.85] 
+
+where a tilde indicates an approximation of the exact inverse matrix. In particular, since  [2.x.101]  is a sparse symmetric and positive definite matrix, we choose for  [2.x.102]  a single application of a sparse incomplete Cholesky decomposition of this matrix [Golub and Van Loan 1996]. We note that the Schur complement that corresponds to the porous media flow operator in non-mixed form,  [2.x.103]  and  [2.x.104]  should be a good approximation of the actual Schur complement matrix  [2.x.105] . Since both of these matrices are again symmetric and positive definite, we use an incomplete Cholesky decomposition of  [2.x.106]  for  [2.x.107] . It is important to note that  [2.x.108]  needs to be built with Dirichlet boundary conditions to ensure its invertibility. 
+
+Once the velocity  [2.x.109]   is available, we can assemble  [2.x.110]  and  [2.x.111]  and solve for the saturations using 
+
+[1.x.86] 
+
+where the mass matrix  [2.x.112]  is solved by the conjugate gradient method, using an incomplete Cholesky decomposition as preconditioner once more. 
+
+[1.x.87][1.x.88] 
+
+
+
+
+ [2.x.113]  The implementation discussed here uses and extends parts of the  [2.x.114] ,  [2.x.115]  and  [2.x.116]  tutorial programs of this library. In particular, if you want to understand how it works, please consult  [2.x.117]  for a discussion of the mathematical problem, and  [2.x.118]  from which most of the implementation is derived. We will not discuss aspects of the implementation that have already been discussed in  [2.x.119] . 
+
+We show numerical results for some two-phase flow equations augmented by appropriate initial and boundary conditions in conjunction with two different choices of the permeability model. In the problems considered, there is no internal source term ( [2.x.120] ). As mentioned above, quantitative numerical results are presented in [Chueh, Djilali and Bangerth 2011]. 
+
+For simplicity, we choose  [2.x.121] , though all methods (as well as our implementation) should work equally well on general unstructured meshes. 
+
+Initial conditions are only required for the saturation variable, and we choose  [2.x.122] , i.e. the porous medium is initially filled by a mixture of the non-wetting (80%) and wetting (20%) phases. This differs from the initial condition in  [2.x.123]  where we had taken  [2.x.124] , but for complicated mathematical reasons that are mentioned there in a longish remark, the current method using an entropy-based artificial diffusion term does not converge to the viscosity solution with this initial condition without additional modifications to the method. We therefore choose this modified version for the current program. 
+
+Furthermore, we prescribe a linear pressure on the boundaries: [1.x.89] Pressure and saturation uniquely determine a velocity, and the velocity determines whether a boundary segment is an inflow or outflow boundary. On the inflow part of the boundary,  [2.x.125] , we impose 
+
+[1.x.90] 
+
+In other words, the domain is flooded by the wetting phase from the left. No boundary conditions for the saturation are required for the outflow parts of the boundary. 
+
+All the numerical and physical parameters used for the 2D/3D cases are listed in the following table: 
+
+ [2.x.126]  
+
+
+[1.x.91][1.x.92] 
+
+
+
+
+ [2.x.127]   [2.x.128]  CC Chueh, N Djilali and W Bangerth.  [2.x.129]  An h-adaptive operator splitting method for two-phase flow in 3D   heterogeneous porous media.  [2.x.130]  SIAM Journal on Scientific Computing, vol. 35 (2013), pp. B149-B175 
+
+ [2.x.131]  M. Kronbichler, T. Heister, and W. Bangerth  [2.x.132]  High Accuracy Mantle Convection Simulation through Modern Numerical Methods.  [2.x.133]  Geophysics Journal International, vol. 191 (2012), pp. 12-29 
+
+ [2.x.134]  F Brezzi and M Fortin.  [2.x.135]  [1.x.93].  [2.x.136]  Springer-Verlag, 1991. 
+
+ [2.x.137]  Z Chen.  [2.x.138]  [1.x.94].  [2.x.139]  Springer, 2005. 
+
+ [2.x.140]  JL Guermond and R Pasquetti.  [2.x.141]  Entropy-based nonlinear viscosity for Fourier approximations of   conservation laws.  [2.x.142]  [1.x.95], 346(13-14):801-806, 2008. 
+
+ [2.x.143]  CC Chueh, M Secanell, W Bangerth, and N Djilali.  [2.x.144]  Multi-level adaptive simulation of transient two-phase flow in   heterogeneous porous media.  [2.x.145]  [1.x.96], 39:1585-1596, 2010. 
+
+ [2.x.146]  Y Saad and MH Schultz.  [2.x.147]  Gmres: A generalized minimal residual algorithm for solving   nonsymmetric linear systems.  [2.x.148]  [1.x.97],   7(3):856-869, 1986. 
+
+ [2.x.149]  F Zhang.  [2.x.150]  [1.x.98].  [2.x.151]  Springer, 2005. 
+
+ [2.x.152]  D Silvester and A Wathen.  [2.x.153]  Fast iterative solution of stabilised Stokes systems part ii: Using   general block preconditioners.  [2.x.154]  [1.x.99], 31(5):1352-1367, 1994. 
+
+ [2.x.155]  GH Golub and CF van Loan.  [2.x.156]  [1.x.100].  [2.x.157]  3rd Edition, Johns Hopkins, 1996. 
+
+ [2.x.158]  SE Buckley and MC Leverett.  [2.x.159]  Mechanism of fluid displacements in sands.  [2.x.160]  [1.x.101], 146:107-116, 1942. 
+
+ [2.x.161]  [1.x.102] [1.x.103] 
+
+
+[1.x.104]  [1.x.105] 
+
+
+
+
+The first step, as always, is to include the functionality of a number of deal.II and C++ header files. 
+
+
+
+
+The list includes some header files that provide vector, matrix, and preconditioner classes that implement interfaces to the respective Trilinos classes; some more information on these may be found in  [2.x.162] . 
+
+[1.x.106] 
+
+
+
+At the end of this top-matter, we open a namespace for the current project into which all the following material will go, and then import all deal.II names into this namespace: 
+
+[1.x.107] 
+
+
+
+
+[1.x.108]  [1.x.109] 
+
+
+
+
+The following part is taken directly from  [2.x.163]  so there is no need to repeat the descriptions found there. 
+
+[1.x.110] 
+
+
+
+
+[1.x.111]  [1.x.112] 
+
+
+
+
+In this tutorial, we still use the two permeability models previously used in  [2.x.164]  so we again refrain from commenting in detail about them. 
+
+[1.x.113] 
+
+
+
+
+[1.x.114]  [1.x.115] 
+
+
+
+
+The implementations of all the physical quantities such as total mobility  [2.x.165]  and fractional flow of water  [2.x.166]  are taken from  [2.x.167]  so again we don't have do any comment about them. Compared to  [2.x.168]  we have added checks that the saturation passed to these functions is in fact within the physically valid range. Furthermore, given that the wetting phase moves at speed  [2.x.169]  it is clear that  [2.x.170]  must be greater or equal to zero, so we assert that as well to make sure that our calculations to get at the formula for the derivative made sense. 
+
+[1.x.116] 
+
+
+
+
+[1.x.117]  [1.x.118] 
+
+
+
+
+In this first part we define a number of classes that we need in the construction of linear solvers and preconditioners. This part is essentially the same as that used in  [2.x.171] . The only difference is that the original variable name stokes_matrix is replaced by another name darcy_matrix to match our problem. 
+
+[1.x.119] 
+
+
+
+
+[1.x.120]  [1.x.121] 
+
+
+
+
+The definition of the class that defines the top-level logic of solving the time-dependent advection-dominated two-phase flow problem (or Buckley-Leverett problem [Buckley 1942]) is mainly based on tutorial programs  [2.x.172]  and  [2.x.173] , and in particular on  [2.x.174]  where we have used basically the same general structure as done here. As in  [2.x.175] , the key routines to look for in the implementation below are the  [2.x.176]  functions.    
+
+
+The main difference to  [2.x.177]  is that, since adaptive operator splitting is considered, we need a couple more member variables to hold the last two computed Darcy (velocity/pressure) solutions in addition to the current one (which is either computed directly, or extrapolated from the previous two), and we need to remember the last two times we computed the Darcy solution. We also need a helper function that figures out whether we do indeed need to recompute the Darcy solution.    
+
+
+Unlike  [2.x.178] , this step uses one more AffineConstraints object called darcy_preconditioner_constraints. This constraint object is used only for assembling the matrix for the Darcy preconditioner and includes hanging node constraints as well as Dirichlet boundary value constraints for the pressure variable. We need this because we are building a Laplace matrix for the pressure as an approximation of the Schur complement) which is only positive definite if boundary conditions are applied.    
+
+
+The collection of member functions and variables thus declared in this class is then rather similar to those in  [2.x.179] : 
+
+[1.x.122] 
+
+
+
+We follow with a number of helper functions that are used in a variety of places throughout the program: 
+
+[1.x.123] 
+
+
+
+This all is followed by the member variables, most of which are similar to the ones in  [2.x.180] , with the exception of the ones that pertain to the macro time stepping for the velocity/pressure system: 
+
+[1.x.124] 
+
+
+
+At the very end we declare a variable that denotes the material model. Compared to  [2.x.181] , we do this here as a member variable since we will want to use it in a variety of places and so having a central place where such a variable is declared will make it simpler to replace one class by another (e.g. replace  [2.x.182]  by  [2.x.183]  
+
+[1.x.125] 
+
+
+
+
+[1.x.126]  [1.x.127] 
+
+
+
+
+The constructor of this class is an extension of the constructors in  [2.x.184]  and  [2.x.185] . We need to add the various variables that concern the saturation. As discussed in the introduction, we are going to use  [2.x.186]  (Taylor-Hood) elements again for the Darcy system, an element combination that fulfills the Ladyzhenskaya-Babuska-Brezzi (LBB) conditions [Brezzi and Fortin 1991, Chen 2005], and  [2.x.187]  elements for the saturation. However, by using variables that store the polynomial degree of the Darcy and temperature finite elements, it is easy to consistently modify the degree of the elements as well as all quadrature formulas used on them downstream. Moreover, we initialize the time stepping variables related to operator splitting as well as the option for matrix assembly and preconditioning: 
+
+[1.x.128] 
+
+
+
+
+[1.x.129]  [1.x.130] 
+
+
+
+
+This is the function that sets up the DoFHandler objects we have here (one for the Darcy part and one for the saturation part) as well as set to the right sizes the various objects required for the linear algebra in this program. Its basic operations are similar to what  [2.x.188]  did.    
+
+
+The body of the function first enumerates all degrees of freedom for the Darcy and saturation systems. For the Darcy part, degrees of freedom are then sorted to ensure that velocities precede pressure DoFs so that we can partition the Darcy matrix into a  [2.x.189]  matrix.    
+
+
+Then, we need to incorporate hanging node constraints and Dirichlet boundary value constraints into darcy_preconditioner_constraints.  The boundary condition constraints are only set on the pressure component since the Schur complement preconditioner that corresponds to the porous media flow operator in non-mixed form,  [2.x.190] , acts only on the pressure variable. Therefore, we use a component_mask that filters out the velocity component, so that the condensation is performed on pressure degrees of freedom only.    
+
+
+After having done so, we count the number of degrees of freedom in the various blocks. This information is then used to create the sparsity pattern for the Darcy and saturation system matrices as well as the preconditioner matrix from which we build the Darcy preconditioner. As in  [2.x.191] , we choose to create the pattern using the blocked version of DynamicSparsityPattern. So, for this, we follow the same way as  [2.x.192]  did and we don't have to repeat descriptions again for the rest of the member function. 
+
+[1.x.131] 
+
+
+
+
+[1.x.132]  [1.x.133] 
+
+
+
+
+The next few functions are devoted to setting up the various system and preconditioner matrices and right hand sides that we have to deal with in this program. 
+
+
+
+
+
+[1.x.134]  [1.x.135] 
+
+
+
+
+This function assembles the matrix we use for preconditioning the Darcy system. What we need are a vector mass matrix weighted by  [2.x.193]  on the velocity components and a mass matrix weighted by  [2.x.194]  on the pressure component. We start by generating a quadrature object of appropriate order, the FEValues object that can give values and gradients at the quadrature points (together with quadrature weights). Next we create data structures for the cell matrix and the relation between local and global DoFs. The vectors phi_u and grad_phi_p are going to hold the values of the basis functions in order to faster build up the local matrices, as was already done in  [2.x.195] . Before we start the loop over all active cells, we have to specify which components are pressure and which are velocity.    
+
+
+The creation of the local matrix is rather simple. There are only a term weighted by  [2.x.196]  (on the velocity) and a Laplace matrix weighted by  [2.x.197]  to be generated, so the creation of the local matrix is done in essentially two lines. Since the material model functions at the top of this file only provide the inverses of the permeability and mobility, we have to compute  [2.x.198]  and  [2.x.199]  by hand from the given values, once per quadrature point.    
+
+
+Once the local matrix is ready (loop over rows and columns in the local matrix on each quadrature point), we get the local DoF indices and write the local information into the global matrix. We do this by directly applying the constraints (i.e. darcy_preconditioner_constraints) that takes care of hanging node and zero Dirichlet boundary condition constraints. By doing so, we don't have to do that afterwards, and we later don't have to use  [2.x.200]  and  [2.x.201]  both functions that would need to modify matrix and vector entries and so are difficult to write for the Trilinos classes where we don't immediately have access to individual memory locations. 
+
+[1.x.136] 
+
+
+
+
+[1.x.137]  [1.x.138] 
+
+
+
+
+After calling the above functions to assemble the preconditioner matrix, this function generates the inner preconditioners that are going to be used for the Schur complement block preconditioner. The preconditioners need to be regenerated at every saturation time step since they depend on the saturation  [2.x.202]  that varies with time.    
+
+
+In here, we set up the preconditioner for the velocity-velocity matrix  [2.x.203]  and the Schur complement  [2.x.204] . As explained in the introduction, we are going to use an IC preconditioner based on the vector matrix  [2.x.205]  and another based on the scalar Laplace matrix  [2.x.206]  (which is spectrally close to the Schur complement of the Darcy matrix). Usually, the  [2.x.207]  class can be seen as a good black-box preconditioner which does not need any special knowledge of the matrix structure and/or the operator that's behind it. 
+
+[1.x.139] 
+
+
+
+
+[1.x.140]  [1.x.141] 
+
+
+
+
+This is the function that assembles the linear system for the Darcy system.    
+
+
+Regarding the technical details of implementation, the procedures are similar to those in  [2.x.208]  and  [2.x.209] . We reset matrix and vector, create a quadrature formula on the cells, and then create the respective FEValues object.    
+
+
+There is one thing that needs to be commented: since we have a separate finite element and DoFHandler for the saturation, we need to generate a second FEValues object for the proper evaluation of the saturation solution. This isn't too complicated to realize here: just use the saturation structures and set an update flag for the basis function values which we need for evaluation of the saturation solution. The only important part to remember here is that the same quadrature formula is used for both FEValues objects to ensure that we get matching information when we loop over the quadrature points of the two objects.    
+
+
+The declarations proceed with some shortcuts for array sizes, the creation of the local matrix, right hand side as well as the vector for the indices of the local dofs compared to the global system. 
+
+[1.x.142] 
+
+
+
+Next we need a vector that will contain the values of the saturation solution at the previous time level at the quadrature points to assemble the saturation dependent coefficients in the Darcy equations.      
+
+
+The set of vectors we create next hold the evaluations of the basis functions as well as their gradients that will be used for creating the matrices. Putting these into their own arrays rather than asking the FEValues object for this information each time it is needed is an optimization to accelerate the assembly process, see  [2.x.210]  for details.      
+
+
+The last two declarations are used to extract the individual blocks (velocity, pressure, saturation) from the total FE system. 
+
+[1.x.143] 
+
+
+
+Now start the loop over all cells in the problem. We are working on two different DoFHandlers for this assembly routine, so we must have two different cell iterators for the two objects in use. This might seem a bit peculiar, but since both the Darcy system and the saturation system use the same grid we can assume that the two iterators run in sync over the cells of the two DoFHandler objects.      
+
+
+The first statements within the loop are again all very familiar, doing the update of the finite element data as specified by the update flags, zeroing out the local arrays and getting the values of the old solution at the quadrature points.  At this point we also have to get the values of the saturation function of the previous time step at the quadrature points. To this end, we can use the  [2.x.211]  (previously already used in  [2.x.212] ,  [2.x.213]  and  [2.x.214] ), a function that takes a solution vector and returns a list of function values at the quadrature points of the present cell. In fact, it returns the complete vector-valued solution at each quadrature point, i.e. not only the saturation but also the velocities and pressure.      
+
+
+Then we are ready to loop over the quadrature points on the cell to do the integration. The formula for this follows in a straightforward way from what has been discussed in the introduction.      
+
+
+Once this is done, we start the loop over the rows and columns of the local matrix and feed the matrix with the relevant products.      
+
+
+The last step in the loop over all cells is to enter the local contributions into the global matrix and vector structures to the positions specified in local_dof_indices. Again, we let the AffineConstraints class do the insertion of the cell matrix elements to the global matrix, which already condenses the hanging node constraints. 
+
+[1.x.144] 
+
+
+
+
+[1.x.145]  [1.x.146] 
+
+
+
+
+This function is to assemble the linear system for the saturation transport equation. It calls, if necessary, two other member functions: assemble_saturation_matrix() and assemble_saturation_rhs(). The former function then assembles the saturation matrix that only needs to be changed occasionally. On the other hand, the latter function that assembles the right hand side must be called at every saturation time step. 
+
+[1.x.147] 
+
+
+
+
+[1.x.148]  [1.x.149] 
+
+
+
+
+This function is easily understood since it only forms a simple mass matrix for the left hand side of the saturation linear system by basis functions phi_i_s and phi_j_s only. Finally, as usual, we enter the local contribution into the global matrix by specifying the position in local_dof_indices. This is done by letting the AffineConstraints class do the insertion of the cell matrix elements to the global matrix, which already condenses the hanging node constraints. 
+
+[1.x.150] 
+
+
+
+
+[1.x.151]  [1.x.152] 
+
+
+
+
+This function is to assemble the right hand side of the saturation transport equation. Before going about it, we have to create two FEValues objects for the Darcy and saturation systems respectively and, in addition, two FEFaceValues objects for the two systems because we have a boundary integral term in the weak form of saturation equation. For the FEFaceValues object of the saturation system, we also require normal vectors, which we request using the update_normal_vectors flag.    
+
+
+Next, before looping over all the cells, we have to compute some parameters (e.g. global_u_infty, global_S_variation, and global_Omega_diameter) that the artificial viscosity  [2.x.215]  needs. This is largely the same as was done in  [2.x.216] , so you may see there for more information.    
+
+
+The real works starts with the loop over all the saturation and Darcy cells to put the local contributions into the global vector. In this loop, in order to simplify the implementation, we split some of the work into two helper functions: assemble_saturation_rhs_cell_term and assemble_saturation_rhs_boundary_term.  We note that we insert cell or boundary contributions into the global vector in the two functions rather than in this present function. 
+
+[1.x.153] 
+
+
+
+
+[1.x.154]  [1.x.155] 
+
+
+
+
+This function takes care of integrating the cell terms of the right hand side of the saturation equation, and then assembling it into the global right hand side vector. Given the discussion in the introduction, the form of these contributions is clear. The only tricky part is getting the artificial viscosity and all that is necessary to compute it. The first half of the function is devoted to this task.    
+
+
+The last part of the function is copying the local contributions into the global vector with position specified in local_dof_indices. 
+
+[1.x.156] 
+
+
+
+
+[1.x.157]  [1.x.158] 
+
+
+
+
+The next function is responsible for the boundary integral terms in the right hand side form of the saturation equation.  For these, we have to compute the upwinding flux on the global boundary faces, i.e. we impose Dirichlet boundary conditions weakly only on inflow parts of the global boundary. As before, this has been described in  [2.x.217]  so we refrain from giving more descriptions about that. 
+
+[1.x.159] 
+
+
+
+
+[1.x.160]  [1.x.161] 
+
+
+
+
+This function implements the operator splitting algorithm, i.e. in each time step it either re-computes the solution of the Darcy system or extrapolates velocity/pressure from previous time steps, then determines the size of the time step, and then updates the saturation variable. The implementation largely follows similar code in  [2.x.218] . It is, next to the run() function, the central one in this program.    
+
+
+At the beginning of the function, we ask whether to solve the pressure-velocity part by evaluating the a posteriori criterion (see the following function). If necessary, we will solve the pressure-velocity part using the GMRES solver with the Schur complement block preconditioner as is described in the introduction. 
+
+[1.x.162] 
+
+
+
+On the other hand, if we have decided that we don't want to compute the solution of the Darcy system for the current time step, then we need to simply extrapolate the previous two Darcy solutions to the same time as we would have computed the velocity/pressure at. We do a simple linear extrapolation, i.e. given the current length  [2.x.219]  of the macro time step from the time when we last computed the Darcy solution to now (given by  [2.x.220] ), and  [2.x.221]  the length of the last macro time step (given by  [2.x.222] ), then we get  [2.x.223] , where  [2.x.224]  and  [2.x.225]  are the last two computed Darcy solutions. We can implement this formula using just two lines of code.      
+
+
+Note that the algorithm here only works if we have at least two previously computed Darcy solutions from which we can extrapolate to the current time, and this is ensured by requiring re-computation of the Darcy solution for the first 2 time steps. 
+
+[1.x.163] 
+
+
+
+With the so computed velocity vector, compute the optimal time step based on the CFL criterion discussed in the introduction... 
+
+[1.x.164] 
+
+
+
+...and then also update the length of the macro time steps we use while we're dealing with time step sizes. In particular, this involves: (i) If we have just recomputed the Darcy solution, then the length of the previous macro time step is now fixed and the length of the current macro time step is, up to now, simply the length of the current (micro) time step. (ii) If we have not recomputed the Darcy solution, then the length of the current macro time step has just grown by  [2.x.226] . 
+
+[1.x.165] 
+
+
+
+The last step in this function is to recompute the saturation solution based on the velocity field we've just obtained. This naturally happens in every time step, and we don't skip any of these computations. At the end of computing the saturation, we project back into the allowed interval  [2.x.227]  to make sure our solution remains physical. 
+
+[1.x.166] 
+
+
+
+
+[1.x.167]  [1.x.168] 
+
+
+
+
+The next function does the refinement and coarsening of the mesh. It does its work in three blocks: (i) Compute refinement indicators by looking at the gradient of a solution vector extrapolated linearly from the previous two using the respective sizes of the time step (or taking the only solution we have if this is the first time step). (ii) Flagging those cells for refinement and coarsening where the gradient is larger or smaller than a certain threshold, preserving minimal and maximal levels of mesh refinement. (iii) Transferring the solution from the old to the new mesh. None of this is particularly difficult. 
+
+[1.x.169] 
+
+
+
+
+[1.x.170]  [1.x.171] 
+
+
+
+
+This function generates graphical output. It is in essence a copy of the implementation in  [2.x.228] . 
+
+[1.x.172] 
+
+
+
+
+[1.x.173]  [1.x.174] 
+
+
+
+
+
+[1.x.175]  [1.x.176] 
+
+
+
+
+This function implements the a posteriori criterion for adaptive operator splitting. The function is relatively straightforward given the way we have implemented other functions above and given the formula for the criterion derived in the paper.    
+
+
+If one decides that one wants the original IMPES method in which the Darcy equation is solved in every time step, then this can be achieved by setting the threshold value  [2.x.229]  (with a default of  [2.x.230] ) to zero, thereby forcing the function to always return true.    
+
+
+Finally, note that the function returns true unconditionally for the first two time steps to ensure that we have always solved the Darcy system at least twice when skipping its solution, thereby allowing us to extrapolate the velocity from the last two solutions in  [2.x.231] . 
+
+[1.x.177] 
+
+
+
+
+[1.x.178]  [1.x.179] 
+
+
+
+
+The next function simply makes sure that the saturation values always remain within the physically reasonable range of  [2.x.232] . While the continuous equations guarantee that this is so, the discrete equations don't. However, if we allow the discrete solution to escape this range we get into trouble because terms like  [2.x.233]  and  [2.x.234]  will produce unreasonable results (e.g.  [2.x.235]  for  [2.x.236] , which would imply that the wetting fluid phase flows [1.x.180] the direction of the bulk fluid velocity)). Consequently, at the end of each time step, we simply project the saturation field back into the physically reasonable region. 
+
+[1.x.181] 
+
+
+
+
+[1.x.182]  [1.x.183]    
+
+
+Another simpler helper function: Compute the maximum of the total velocity times the derivative of the fraction flow function, i.e., compute  [2.x.237] . This term is used in both the computation of the time step as well as in normalizing the entropy-residual term in the artificial viscosity. 
+
+[1.x.184] 
+
+
+
+
+[1.x.185]  [1.x.186]    
+
+
+For computing the stabilization term, we need to know the range of the saturation variable. Unlike in  [2.x.238] , this range is trivially bounded by the interval  [2.x.239]  but we can do a bit better by looping over a collection of quadrature points and seeing what the values are there. If we can, i.e., if there are at least two timesteps around, we can even take the values extrapolated to the next time step.    
+
+
+As before, the function is taken with minimal modifications from  [2.x.240] . 
+
+[1.x.187] 
+
+
+
+
+[1.x.188]  [1.x.189]    
+
+
+The final tool function is used to compute the artificial viscosity on a given cell. This isn't particularly complicated if you have the formula for it in front of you, and looking at the implementation in  [2.x.241] . The major difference to that tutorial program is that the velocity here is not simply  [2.x.242]  but  [2.x.243]  and some of the formulas need to be adjusted accordingly. 
+
+[1.x.190] 
+
+
+
+
+[1.x.191]  [1.x.192] 
+
+
+
+
+This function is, besides  [2.x.244] , the primary function of this program as it controls the time iteration as well as when the solution is written into output files and when to do mesh refinement.    
+
+
+With the exception of the startup code that loops back to the beginning of the function through the  [2.x.245]  label, everything should be relatively straightforward. In any case, it mimics the corresponding function in  [2.x.246] . 
+
+[1.x.193] 
+
+
+
+
+[1.x.194]  [1.x.195] 
+
+
+
+
+The main function looks almost the same as in all other programs. The need to initialize the MPI subsystem for a program that uses Trilinos -- even for programs that do not actually run in parallel -- is explained in  [2.x.247] . 
+
+[1.x.196] 
+
+
+
+This program can only be run in serial. Otherwise, throw an exception. 
+
+[1.x.197] 
+
+[1.x.198][1.x.199] 
+
+
+
+
+The output of this program is not really much different from that of  [2.x.248] : it solves the same problem, after all. Of more importance are quantitative metrics such as the accuracy of the solution as well as the time needed to compute it. These are documented in detail in the two publications listed at the top of this page and we won't repeat them here. 
+
+That said, no tutorial program is complete without a couple of good pictures, so here is some output of a run in 3d: 
+
+ [2.x.249]  
+
+
+[1.x.200] [1.x.201][1.x.202] 
+
+
+The primary objection one may have to this program is that it is still too slow: 3d computations on reasonably fine meshes are simply too expensive to be done routinely and with reasonably quick turn-around. This is similar to the situation we were in when we wrote  [2.x.250] , from which this program has taken much inspiration. The solution is similar as it was there as well: We need to parallelize the program in a way similar to how we derived  [2.x.251]  out of  [2.x.252] . In fact, all of the techniques used in  [2.x.253]  would be transferable to this program as well, making the program run on dozens or hundreds of processors immediately. 
+
+A different direction is to make the program more relevant to many other porous media applications. Specifically, one avenue is to go to the primary user of porous media flow simulators, namely the oil industry. There, applications in this area are dominated by multiphase flow (i.e., more than the two phases we have here), and the reactions they may have with each other (or any other way phases may exchange mass, such as through dissolution in and bubbling out of gas from the oil phase). Furthermore, the presence of gas often leads to compressibility effects of the fluid. Jointly, these effects are typically formulated in the widely-used "black oil model". True reactions between multiple phases also play a role in oil reservoir modeling when considering controlled burns of oil in the reservoir to raise pressure and temperature. These are much more complex problems, though, and left for future projects. 
+
+Finally, from a mathematical perspective, we have derived the criterion for re-computing the velocity/pressure solution at a given time step under the assumption that we want to compare the solution we would get at the current time step with that computed the last time we actually solved this system. However, in the program, whenever we did not re-compute the solution, we didn't just use the previously computed solution but instead extrapolated from the previous two times we solved the system. Consequently, the criterion was pessimistically stated: what we should really compare is the solution we would get at the current time step with the extrapolated one. Re-stating the theorem in this regard is left as an exercise. 
+
+There are also other ways to extend the mathematical foundation of this program; for example, one may say that it isn't the velocity we care about, but in fact the saturation. Thus, one may ask whether the criterion we use here to decide whether  [2.x.254]  needs to be recomputed is appropriate; one may, for example, suggest that it is also important to decide whether (and by how much) a wrong velocity field in fact affects the solution of the saturation equation. This would then naturally lead to a sensitivity analysis. 
+
+From an algorithmic viewpoint, we have here used a criterion for refinement that is often used in engineering, namely by looking at the gradient of the solution. However, if you inspect the solution, you will find that it quickly leads to refinement almost everywhere, even in regions where it is clearly not necessary: frequently used therefore does not need to imply that it is a useful criterion to begin with. On the other hand, replacing this criterion by a different and better one should not be very difficult. For example, the KellyErrorEstimator class used in many other programs should certainly be applicable to the current problem as well. [1.x.203] [1.x.204]  [2.x.255]  
+
+ [2.x.256] 

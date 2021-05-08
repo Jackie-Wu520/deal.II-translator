@@ -1,0 +1,634 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] . 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5][1.x.6][1.x.7][1.x.8][1.x.9][1.x.10][1.x.11][1.x.12][1.x.13][1.x.14][1.x.15][1.x.16][1.x.17][1.x.18][1.x.19][1.x.20][1.x.21][1.x.22][1.x.23][1.x.24][1.x.25][1.x.26][1.x.27][1.x.28][1.x.29][1.x.30][1.x.31][1.x.32][1.x.33][1.x.34][1.x.35][1.x.36][1.x.37][1.x.38] 
+
+[1.x.39][1.x.40] [1.x.41] 
+
+
+This program grew out of a student project by Yan Li at Texas A&amp;M University. Most of the work for this program is by her. 
+
+In this project, we propose a numerical simulation for two phase flow problems in porous media. This problem includes one elliptic equation and one nonlinear, time dependent transport equation. This is therefore also the first time-dependent tutorial program (besides the somewhat strange time-dependence of  [2.x.3]  " [2.x.4] "). 
+
+The equations covered here are an extension of the material already covered in  [2.x.5] . In particular, they fall into the class of vector-valued problems. A toplevel overview of this topic can be found in the  [2.x.6]  module. 
+
+
+[1.x.42][1.x.43] 
+
+
+Modeling of two phase flow in porous media is important for both environmental remediation and the management of petroleum and groundwater reservoirs. Practical situations involving two phase flow include the dispersal of a nonaqueous phase liquid in an aquifer, or the joint movement of a mixture of fluids such as oil and water in a reservoir. Simulation models, if they are to provide realistic predictions, must accurately account for these effects. 
+
+To derive the governing equations, consider two phase flow in a reservoir  [2.x.7]  under the assumption that the movement of fluids is dominated by viscous effects; i.e. we neglect the effects of gravity, compressibility, and capillary pressure. Porosity will be considered to be constant. We will denote variables referring to either of the two phases using subscripts  [2.x.8]  and  [2.x.9] , short for water and oil. The derivation of the equations holds for other pairs of fluids as well, however. 
+
+The velocity with which molecules of each of the two phases move is determined by Darcy's law that states that the velocity is proportional to the pressure gradient: [1.x.44] 
+
+where  [2.x.10]  is the velocity of phase  [2.x.11] ,  [2.x.12]  is the permeability tensor,  [2.x.13]  is the relative permeability of phase  [2.x.14] ,  [2.x.15]  is the pressure and  [2.x.16]  is the viscosity of phase  [2.x.17] . Finally,  [2.x.18]  is the saturation (volume fraction), i.e. a function with values between 0 and 1 indicating the composition of the mixture of fluids. In general, the coefficients  [2.x.19]  may be spatially dependent variables, and we will always treat them as non-constant functions in the following. 
+
+We combine Darcy's law with the statement of conservation of mass for each phase, [1.x.45] with a source term for each phase. By summing over the two phases, we can express the governing equations in terms of the so-called pressure equation: [1.x.46] 
+
+Here,  [2.x.20]  is the sum source term, and [1.x.47] is the total mobility. 
+
+So far, this looks like an ordinary stationary, Poisson-like equation that we can solve right away with the techniques of the first few tutorial programs (take a look at  [2.x.21] , for example, for something very similar). However, we have not said anything yet about the saturation, which of course is going to change as the fluids move around. 
+
+The second part of the equations is the description of the dynamics of the saturation, i.e., how the relative concentration of the two fluids changes with time. The saturation equation for the displacing fluid (water) is given by the following conservation law: [1.x.48] 
+
+which can be rewritten by using the product rule of the divergence operator in the previous equation: [1.x.49] 
+
+Here,  [2.x.22]  is the total influx introduced above, and  [2.x.23]  is the flow rate of the displacing fluid (water). These two are related to the fractional flow  [2.x.24]  in the following way: [1.x.50] where the fractional flow is often parameterized via the (heuristic) expression [1.x.51] Putting it all together yields the saturation equation in the following, advected form: [1.x.52] 
+
+where  [2.x.25]  is the total velocity [1.x.53] Note that the advection equation contains the term  [2.x.26]  rather than  [2.x.27]  to indicate that the saturation is not simply transported along; rather, since the two phases move with different velocities, the saturation can actually change even in the advected coordinate system. To see this, rewrite  [2.x.28]  to observe that the [1.x.54] velocity with which the phase with saturation  [2.x.29]  is transported is  [2.x.30]  whereas the other phase is transported at velocity  [2.x.31] .  [2.x.32]  is consequently often referred to as the [1.x.55]. 
+
+In summary, what we get are the following two equations: [1.x.56] 
+
+Here,  [2.x.33]  are now time dependent functions: while at every time instant the flow field is in equilibrium with the pressure (i.e. we neglect dynamic accelerations), the saturation is transported along with the flow and therefore changes over time, in turn affected the flow field again through the dependence of the first equation on  [2.x.34] . 
+
+This set of equations has a peculiar character: one of the two equations has a time derivative, the other one doesn't. This corresponds to the character that the pressure and velocities are coupled through an instantaneous constraint, whereas the saturation evolves over finite time scales. 
+
+Such systems of equations are called Differential Algebraic Equations (DAEs), since one of the equations is a differential equation, the other is not (at least not with respect to the time variable) and is therefore an "algebraic" equation. (The notation comes from the field of ordinary differential equations, where everything that does not have derivatives with respect to the time variable is necessarily an algebraic equation.) This class of equations contains pretty well-known cases: for example, the time dependent Stokes and Navier-Stokes equations (where the algebraic constraint is that the divergence of the flow field,  [2.x.35] , must be zero) as well as the time dependent Maxwell equations (here, the algebraic constraint is that the divergence of the electric displacement field equals the charge density,  [2.x.36]  and that the divergence of the magnetic flux density is zero:  [2.x.37] ); even the quasistatic model of  [2.x.38]  falls into this category. We will see that the different character of the two equations will inform our discretization strategy for the two equations. 
+
+
+[1.x.57][1.x.58] 
+
+
+In the reservoir simulation community, it is common to solve the equations derived above by going back to the first order, mixed formulation. To this end, we re-introduce the total velocity  [2.x.39]  and write the equations in the following form: [1.x.59] 
+
+This formulation has the additional benefit that we do not have to express the total velocity  [2.x.40]  appearing in the transport equation as a function of the pressure, but can rather take the primary variable for it. Given the saddle point structure of the first two equations and their similarity to the mixed Laplace formulation we have introduced in  [2.x.41] , it will come as no surprise that we will use a mixed discretization again. 
+
+But let's postpone this for a moment. The first business we have with these equations is to think about the time discretization. In reservoir simulation, there is a rather standard algorithm that we will use here. It first solves the pressure using an implicit equation, then the saturation using an explicit time stepping scheme. The algorithm is called IMPES for IMplicit Pressure Explicit Saturation and was first proposed a long time ago: by Sheldon et al. in 1959 and Stone and Gardner in 1961 (J. W. Sheldon, B. Zondek and W. T. Cardwell: [1.x.60], Trans. SPE AIME, 216 (1959), pp. 290-296; H. L. Stone and A. O. Gardner Jr: [1.x.61], Trans. SPE AIME, 222 (1961), pp. 92-104). In a slightly modified form, this algorithm can be written as follows: for each time step, solve [1.x.62] 
+
+where  [2.x.42]  is the length of a time step. Note how we solve the implicit pressure-velocity system that only depends on the previously computed saturation  [2.x.43] , and then do an explicit time step for  [2.x.44]  that only depends on the previously known  [2.x.45]  and the just computed  [2.x.46] . This way, we never have to iterate for the nonlinearities of the system as we would have if we used a fully implicit method. (In a more modern perspective, this should be seen as an "operator splitting" method.  [2.x.47]  has a long description of the idea behind this.) 
+
+We can then state the problem in weak form as follows, by multiplying each equation with test functions  [2.x.48] ,  [2.x.49] , and  [2.x.50]  and integrating terms by parts: [1.x.63] 
+
+Note that in the first term, we have to prescribe the pressure  [2.x.51]  on the boundary  [2.x.52]  as boundary values for our problem.  [2.x.53]  denotes the unit outward normal vector to  [2.x.54] , as usual. 
+
+For the saturation equation, we obtain after integrating by parts [1.x.64] 
+
+Using the fact that  [2.x.55] , we can rewrite the cell term to get an equation as follows: [1.x.65] 
+
+We introduce an object of type DiscreteTime in order to keep track of the current value of time and time step in the code. This class encapsulates many complexities regarding adjusting time step size and stopping at a specified final time. 
+
+
+
+
+[1.x.66][1.x.67] 
+
+
+In each time step, we then apply the mixed finite method of  [2.x.56]  " [2.x.57] " to the velocity and pressure. To be well-posed, we choose Raviart-Thomas spaces  [2.x.58]  for  [2.x.59]  and discontinuous elements of class  [2.x.60]  for  [2.x.61] . For the saturation, we will also choose  [2.x.62]  spaces. 
+
+Since we have discontinuous spaces, we have to think about how to evaluate terms on the interfaces between cells, since discontinuous functions are not really defined there. In particular, we have to give a meaning to the last term on the left hand side of the saturation equation. To this end, let us define that we want to evaluate it in the following sense: [1.x.68] 
+
+where  [2.x.63]  denotes the inflow boundary and  [2.x.64]  is the outflow part of the boundary. The quantities  [2.x.65]  then correspond to the values of these variables on the present cell, whereas  [2.x.66]  (needed on the inflow part of the boundary of  [2.x.67] ) are quantities taken from the neighboring cell. Some more context on discontinuous element techniques and evaluation of fluxes can also be found in  [2.x.68]  and  [2.x.69] b. 
+
+
+[1.x.69][1.x.70] 
+
+
+The linear solvers used in this program are a straightforward extension of the ones used in  [2.x.70]  (but without LinearOperator). Essentially, we simply have to extend everything from two to three solution components. If we use the discrete spaces mentioned above and put shape functions into the bilinear forms, we arrive at the following linear system to be solved for time step  [2.x.71] : [1.x.71] where the individual matrices and vectors are defined as follows using shape functions  [2.x.72]  (of type Raviart Thomas  [2.x.73] ) for velocities and  [2.x.74]  (of type  [2.x.75] ) for both pressures and saturations: [1.x.72] 
+
+
+
+ [2.x.76]  Due to historical accidents, the role of matrices  [2.x.77]  and  [2.x.78]  has been reverted in this program compared to  [2.x.79] . In other words, here  [2.x.80]  refers to the divergence and  [2.x.81]  to the gradient operators when it was the other way around in  [2.x.82] . 
+
+The system above presents a complication: Since the matrix  [2.x.83]  depends on  [2.x.84]  implicitly (the velocities are needed to determine which parts of the boundaries  [2.x.85]  of cells are influx or outflux parts), we can only assemble this matrix after we have solved for the velocities. 
+
+The solution scheme then involves the following steps:  [2.x.86]     [2.x.87] Solve for the pressure  [2.x.88]  using the Schur complement   technique introduced in  [2.x.89] . 
+
+   [2.x.90] Solve for the velocity  [2.x.91]  as also discussed in    [2.x.92] . 
+
+   [2.x.93] Compute the term  [2.x.94] , using   the just computed velocities. 
+
+   [2.x.95] Solve for the saturation  [2.x.96] .  [2.x.97]  
+
+In this scheme, we never actually build the matrix  [2.x.98] , but rather generate the right hand side of the third equation once we are ready to do so. 
+
+In the program, we use a variable  [2.x.99]  to store the solution of the present time step. At the end of each step, we copy its content, i.e. all three of its block components, into the variable  [2.x.100]  for use in the next time step. 
+
+
+[1.x.73][1.x.74] 
+
+
+A general rule of thumb in hyperbolic transport equations like the equation we have to solve for the saturation equation is that if we use an explicit time stepping scheme, then we should use a time step such that the distance that a particle can travel within one time step is no larger than the diameter of a single cell. In other words, here, we should choose [1.x.75] Fortunately, we are in a position where we can do that: we only need the time step when we want to assemble the right hand side of the saturation equation, which is after we have already solved for  [2.x.101] . All we therefore have to do after solving for the velocity is to loop over all quadrature points in the domain and determine the maximal magnitude of the velocity. We can then set the time step for the saturation equation to [1.x.76] 
+
+Why is it important to do this? If we don't, then we will end up with lots of places where our saturation is larger than one or less than zero, as can easily be verified. (Remember that the saturation corresponds to something like the water fraction in the fluid mixture, and therefore must physically be between 0 and 1.) On the other hand, if we choose our time step according to the criterion listed above, this only happens very very infrequently &mdash; in fact only once for the entire run of the program. However, to be on the safe side, however, we run a function  [2.x.102]  at the end of each time step, that simply projects the saturation back onto the interval  [2.x.103] , should it have gotten out of the physical range. This is useful since the functions  [2.x.104]  and  [2.x.105]  do not represent anything physical outside this range, and we should not expect the program to do anything useful once we have negative saturations or ones larger than one. 
+
+Note that we will have similar restrictions on the time step also in  [2.x.106]  and  [2.x.107]  where we solve the time dependent wave equation, another hyperbolic problem. We will also come back to the issue of time step choice below in the section on [1.x.77]. 
+
+
+[1.x.78][1.x.79] 
+
+
+For simplicity, this program assumes that there is no source,  [2.x.108] , and that the heterogeneous porous medium is isotropic  [2.x.109] . The first one of these is a realistic assumption in oil reservoirs: apart from injection and production wells, there are usually no mechanisms for fluids to appear or disappear out of the blue. The second one is harder to justify: on a microscopic level, most rocks are isotropic, because they consist of a network of interconnected pores. However, this microscopic scale is out of the range of today's computer simulations, and we have to be content with simulating things on the scale of meters. On that scale, however, fluid transport typically happens through a network of cracks in the rock, rather than through pores. However, cracks often result from external stress fields in the rock layer (for example from tectonic faulting) and the cracks are therefore roughly aligned. This leads to a situation where the permeability is often orders of magnitude larger in the direction parallel to the cracks than perpendicular to the cracks. A problem typically faces in reservoir simulation, however, is that the modeler doesn't know the direction of cracks because oil reservoirs are not accessible to easy inspection. The only solution in that case is to assume an effective, isotropic permeability. 
+
+Whatever the matter, both of these restrictions, no sources and isotropy, would be easy to lift with a few lines of code in the program. 
+
+Next, for simplicity, our numerical simulation will be done on the unit cell  [2.x.110]  for  [2.x.111] . Our initial conditions are  [2.x.112] ; in the oil reservoir picture, where  [2.x.113]  would indicate the water saturation, this means that the reservoir contains pure oil at the beginning. Note that we do not need any initial conditions for pressure or velocity, since the equations do not contain time derivatives of these variables. Finally, we impose the following pressure boundary conditions: [1.x.80] Since the pressure and velocity solve a mixed form Poisson equation, the imposed pressure leads to a resulting flow field for the velocity. On the other hand, this flow field determines whether a piece of the boundary is of inflow or outflow type, which is of relevance because we have to impose boundary conditions for the saturation on the inflow part of the boundary, [1.x.81] On this inflow boundary, we impose the following saturation values: [1.x.82] 
+
+In other words, we have pure water entering the reservoir at the left, whereas the other parts of the boundary are in contact with undisturbed parts of the reservoir and whenever influx occurs on these boundaries, pure oil will enter. 
+
+In our simulations, we choose the total mobility as [1.x.83] where we use  [2.x.114]  for the viscosity. In addition, the fractional flow of water is given by [1.x.84] 
+
+ [2.x.115]  Coming back to this testcase in  [2.x.116]  several years later revealed an oddity in the setup of this testcase. To this end, consider that we can rewrite the advection equation for the saturation as  [2.x.117] . Now, at the initial time, we have  [2.x.118] , and with the given choice of function  [2.x.119] , we happen to have  [2.x.120] . In other words, at  [2.x.121] , the equation reduces to  [2.x.122]  for all  [2.x.123] , so the saturation is zero everywhere and it is going to stay zero everywhere! This is despite the fact that  [2.x.124]  is not necessarily zero: the combined fluid is moving, but we've chosen our partial flux  [2.x.125]  in such a way that infinitesimal amounts of wetting fluid also only move at infinitesimal speeds (i.e., they stick to the medium more than the non-wetting phase in which they are embedded). That said, how can we square this with the knowledge that wetting fluid is invading from the left, leading to the flow patterns seen in the [1.x.85]? That's where we get into mathematics: Equations like the transport equation we are considering here have infinitely many solutions, but only one of them is physical: the one that results from the so-called viscosity limit, called the [1.x.86]. The thing is that with discontinuous elements we arrive at this viscosity limit because using a numerical flux introduces a finite amount of artificial viscosity into the numerical scheme. On the other hand, in  [2.x.126] , we use an artificial viscosity that is proportional to  [2.x.127]  on every cell, which at the initial time is zero. Thus, the saturation there is zero and remains zero; the solution we then get is [1.x.87] solution of the advection equation, but the method does not converge to the viscosity solution without further changes. We will therefore use a different initial condition in that program. 
+
+
+Finally, to come back to the description of the testcase, we will show results for computations with the two permeability functions introduced at the end of the results section of  [2.x.128]  " [2.x.129] ":  [2.x.130]     [2.x.131] A function that models a single, winding crack that snakes through the   domain. In analogy to  [2.x.132] , but taking care of the slightly   different geometry we have here, we describe this by the following function:   [1.x.88]   Taking the maximum is necessary to ensure that the ratio between maximal and   minimal permeability remains bounded. If we don't do that, permeabilities   will span many orders of magnitude. On the other hand, the ratio between   maximal and minimal permeability is a factor in the condition number of the   Schur complement matrix, and if too large leads to problems for which our   linear solvers will no longer converge properly. 
+
+   [2.x.133] A function that models a somewhat random medium. Here, we choose   [1.x.89] 
+
+  where the centers  [2.x.134]  are  [2.x.135]  randomly chosen locations inside   the domain. This function models a domain in which there are  [2.x.136]  centers of   higher permeability (for example where rock has cracked) embedded in a   matrix of more pristine, unperturbed background rock. Note that here we have   cut off the permeability function both above and below to ensure a bounded   condition number.  [2.x.137]  [1.x.90] [1.x.91] 
+
+This program is an adaptation of  [2.x.138]  and includes some technique of DG methods from  [2.x.139] . A good part of the program is therefore very similar to  [2.x.140]  and we will not comment again on these parts. Only the new stuff will be discussed in more detail. 
+
+
+
+
+
+[1.x.92]  [1.x.93] 
+
+
+
+
+All of these include files have been used before: 
+
+[1.x.94] 
+
+
+
+In this program, we use a tensor-valued coefficient. Since it may have a spatial dependence, we consider it a tensor-valued function. The following include file provides the  [2.x.141]  class that offers such functionality: 
+
+[1.x.95] 
+
+
+
+Additionally, we use the class  [2.x.142]  to perform operations related to time incrementation. 
+
+[1.x.96] 
+
+
+
+The last step is as in all previous programs: 
+
+[1.x.97] 
+
+
+
+
+[1.x.98]  [1.x.99] 
+
+
+
+
+This is the main class of the program. It is close to the one of  [2.x.143] , but with a few additional functions:    
+
+
+ [2.x.144]   [2.x.145]  [2.x.146]  assembles the right hand side of the saturation equation. As explained in the introduction, this can't be integrated into  [2.x.147]  since it depends on the velocity that is computed in the first part of the time step.    
+
+
+ [2.x.148]  [2.x.149]  does as its name suggests. This function is used in the computation of the time step size.    
+
+
+ [2.x.150]  [2.x.151]  resets all saturation degrees of freedom with values less than zero to zero, and all those with saturations greater than one to one.   [2.x.152]     
+
+
+The rest of the class should be pretty much obvious. The  [2.x.153]  variable stores the viscosity  [2.x.154]  that enters several of the formulas in the nonlinear equations. The variable  [2.x.155]  keeps track of the time information within the simulation. 
+
+[1.x.100] 
+
+
+
+
+[1.x.101]  [1.x.102] 
+
+
+
+
+
+[1.x.103]  [1.x.104] 
+
+
+
+
+At present, the right hand side of the pressure equation is simply the zero function. However, the rest of the program is fully equipped to deal with anything else, if this is desired: 
+
+[1.x.105] 
+
+
+
+
+[1.x.106]  [1.x.107] 
+
+
+
+
+The next are pressure boundary values. As mentioned in the introduction, we choose a linear pressure field: 
+
+[1.x.108] 
+
+
+
+
+[1.x.109]  [1.x.110] 
+
+
+
+
+Then we also need boundary values on the inflow portions of the boundary. The question whether something is an inflow part is decided when assembling the right hand side, we only have to provide a functional description of the boundary values. This is as explained in the introduction: 
+
+[1.x.111] 
+
+
+
+
+[1.x.112]  [1.x.113] 
+
+
+
+
+Finally, we need initial data. In reality, we only need initial data for the saturation, but we are lazy, so we will later, before the first time step, simply interpolate the entire solution for the previous time step from a function that contains all vector components.    
+
+
+We therefore simply create a function that returns zero in all components. We do that by simply forward every function to the  [2.x.156]  class. Why not use that right away in the places of this program where we presently use the  [2.x.157]  class? Because this way it is simpler to later go back and choose a different function for initial values. 
+
+[1.x.114] 
+
+
+
+
+[1.x.115]  [1.x.116] 
+
+
+
+
+As announced in the introduction, we implement two different permeability tensor fields. Each of them we put into a namespace of its own, so that it will be easy later to replace use of one by the other in the code. 
+
+
+
+
+
+[1.x.117]  [1.x.118] 
+
+
+
+
+The first function for the permeability was the one that models a single curving crack. It was already used at the end of  [2.x.158] , and its functional form is given in the introduction of the present tutorial program. As in some previous programs, we have to declare a (seemingly unnecessary) default constructor of the KInverse class to avoid warnings from some compilers: 
+
+[1.x.119] 
+
+
+
+
+[1.x.120]  [1.x.121] 
+
+
+
+
+This function does as announced in the introduction, i.e. it creates an overlay of exponentials at random places. There is one thing worth considering for this class. The issue centers around the problem that the class creates the centers of the exponentials using a random function. If we therefore created the centers each time we create an object of the present type, we would get a different list of centers each time. That's not what we expect from classes of this type: they should reliably represent the same function.    
+
+
+The solution to this problem is to make the list of centers a static member variable of this class, i.e. there exists exactly one such variable for the entire program, rather than for each object of this type. That's exactly what we are going to do.    
+
+
+The next problem, however, is that we need a way to initialize this variable. Since this variable is initialized at the beginning of the program, we can't use a regular member function for that since there may not be an object of this type around at the time. The C++ standard therefore says that only non-member and static member functions can be used to initialize a static variable. We use the latter possibility by defining a function  [2.x.159]  that computes the list of center points when called.    
+
+
+Note that this class works just fine in both 2d and 3d, with the only difference being that we use more points in 3d: by experimenting we find that we need more exponentials in 3d than in 2d (we have more ground to cover, after all, if we want to keep the distance between centers roughly equal), so we choose 40 in 2d and 100 in 3d. For any other dimension, the function does presently not know what to do so simply throws an exception indicating exactly this. 
+
+[1.x.122] 
+
+
+
+
+[1.x.123]  [1.x.124] 
+
+
+
+
+There are two more pieces of data that we need to describe, namely the inverse mobility function and the saturation curve. Their form is also given in the introduction: 
+
+[1.x.125] 
+
+
+
+
+[1.x.126]  [1.x.127] 
+
+
+
+
+The linear solvers we use are also completely analogous to the ones used in  [2.x.160] . The following classes are therefore copied verbatim from there. Note that the classes here are not only copied from  [2.x.161] , but also duplicate classes in deal.II. In a future version of this example, they should be replaced by an efficient method, though. There is a single change: if the size of a linear system is small, i.e. when the mesh is very coarse, then it is sometimes not sufficient to set a maximum of  [2.x.162]  CG iterations before the solver in the  [2.x.163]  function converges. (This is, of course, a result of numerical round-off, since we know that on paper, the CG method converges in at most  [2.x.164]  steps.) As a consequence, we set the maximum number of iterations equal to the maximum of the size of the linear system and 200. 
+
+[1.x.128] 
+
+
+
+
+[1.x.129]  [1.x.130] 
+
+
+
+
+Here now the implementation of the main class. Much of it is actually copied from  [2.x.165] , so we won't comment on it in much detail. You should try to get familiar with that program first, then most of what is happening here should be mostly clear. 
+
+
+
+
+
+[1.x.131]  [1.x.132] 
+
+
+
+
+First for the constructor. We use  [2.x.166]  spaces. For initializing the DiscreteTime object, we don't set the time step size in the constructor because we don't have its value yet. The time step size is initially set to zero, but it will be computed before it is needed to increment time, as described in a subsection of the introduction. The time object internally prevents itself from being incremented when  [2.x.167] , forcing us to set a non-zero desired size for  [2.x.168]  before advancing time. 
+
+[1.x.133] 
+
+
+
+
+[1.x.134]  [1.x.135] 
+
+
+
+
+This next function starts out with well-known functions calls that create and refine a mesh, and then associate degrees of freedom with it. It does all the same things as in  [2.x.169] , just now for three components instead of two. 
+
+[1.x.136] 
+
+
+
+
+[1.x.137]  [1.x.138] 
+
+
+
+
+This is the function that assembles the linear system, or at least everything except the (1,3) block that depends on the still-unknown velocity computed during this time step (we deal with this in  [2.x.170] ). Much of it is again as in  [2.x.171] , but we have to deal with some nonlinearity this time.  However, the top of the function is pretty much as usual (note that we set matrix and right hand side to zero at the beginning &mdash; something we didn't have to do for stationary problems since there we use each matrix object only once and it is empty at the beginning anyway).    
+
+
+Note that in its present form, the function uses the permeability implemented in the  [2.x.172]  class. Switching to the single curved crack permeability function is as simple as just changing the namespace name. 
+
+[1.x.139] 
+
+
+
+Here's the first significant difference: We have to get the values of the saturation function of the previous time step at the quadrature points. To this end, we can use the  [2.x.173]  (previously already used in  [2.x.174] ,  [2.x.175]  and  [2.x.176] ), a function that takes a solution vector and returns a list of function values at the quadrature points of the present cell. In fact, it returns the complete vector-valued solution at each quadrature point, i.e. not only the saturation but also the velocities and pressure: 
+
+[1.x.140] 
+
+
+
+Then we also have to get the values of the pressure right hand side and of the inverse permeability tensor at the quadrature points: 
+
+[1.x.141] 
+
+
+
+With all this, we can now loop over all the quadrature points and shape functions on this cell and assemble those parts of the matrix and right hand side that we deal with in this function. The individual terms in the contributions should be self-explanatory given the explicit form of the bilinear form stated in the introduction: 
+
+[1.x.142] 
+
+
+
+Next, we also have to deal with the pressure boundary values. This, again is as in  [2.x.177] : 
+
+[1.x.143] 
+
+
+
+The final step in the loop over all cells is to transfer local contributions into the global matrix and right hand side vector: 
+
+[1.x.144] 
+
+
+
+So much for assembly of matrix and right hand side. Note that we do not have to interpolate and apply boundary values since they have all been taken care of in the weak form already. 
+
+
+
+
+
+
+
+
+
+
+[1.x.145]  [1.x.146] 
+
+
+
+
+As explained in the introduction, we can only evaluate the right hand side of the saturation equation once the velocity has been computed. We therefore have this separate function to this end. 
+
+[1.x.147] 
+
+
+
+First for the cell terms. These are, following the formulas in the introduction,  [2.x.178] , where  [2.x.179]  is the saturation component of the test function: 
+
+[1.x.148] 
+
+
+
+Secondly, we have to deal with the flux parts on the face boundaries. This was a bit more involved because we first have to determine which are the influx and outflux parts of the cell boundary. If we have an influx boundary, we need to evaluate the saturation on the other side of the face (or the boundary values, if we are at the boundary of the domain).          
+
+
+All this is a bit tricky, but has been explained in some detail already in  [2.x.180] . Take a look there how this is supposed to work! 
+
+[1.x.149] 
+
+
+
+
+[1.x.150]  [1.x.151] 
+
+
+
+
+After all these preparations, we finally solve the linear system for velocity and pressure in the same way as in  [2.x.181] . After that, we have to deal with the saturation equation (see below): 
+
+[1.x.152] 
+
+
+
+First the pressure, using the pressure Schur complement of the first two equations: 
+
+[1.x.153] 
+
+
+
+Now the velocity: 
+
+[1.x.154] 
+
+
+
+Finally, we have to take care of the saturation equation. The first business we have here is to determine the time step using the formula in the introduction. Knowing the shape of our domain and that we created the mesh by regular subdivision of cells, we can compute the diameter of each of our cells quite easily (in fact we use the linear extensions in coordinate directions of the cells, not the diameter). Note that we will learn a more general way to do this in  [2.x.182] , where we use the  [2.x.183]  function.      
+
+
+The maximal velocity we compute using a helper function to compute the maximal velocity defined below, and with all this we can evaluate our new time step length. We use the method  [2.x.184]  to suggest the new calculated value of the time step to the DiscreteTime object. In most cases, the time object uses the exact provided value to increment time. It some case, the step size may be modified further by the time object. For example, if the calculated time increment overshoots the end time, it is truncated accordingly. 
+
+[1.x.155] 
+
+
+
+The next step is to assemble the right hand side, and then to pass everything on for solution. At the end, we project back saturations onto the physically reasonable range: 
+
+[1.x.156] 
+
+
+
+
+[1.x.157]  [1.x.158] 
+
+
+
+
+There is nothing surprising here. Since the program will do a lot of time steps, we create an output file only every fifth time step and skip all other time steps at the top of the file already.    
+
+
+When creating file names for output close to the bottom of the function, we convert the number of the time step to a string representation that is padded by leading zeros to four digits. We do this because this way all output file names have the same length, and consequently sort well when creating a directory listing. 
+
+[1.x.159] 
+
+
+
+
+[1.x.160]  [1.x.161] 
+
+
+
+
+In this function, we simply run over all saturation degrees of freedom and make sure that if they should have left the physically reasonable range, that they be reset to the interval  [2.x.185] . To do this, we only have to loop over all saturation components of the solution vector; these are stored in the block 2 (block 0 are the velocities, block 1 are the pressures).    
+
+
+It may be instructive to note that this function almost never triggers when the time step is chosen as mentioned in the introduction. However, if we choose the timestep only slightly larger, we get plenty of values outside the proper range. Strictly speaking, the function is therefore unnecessary if we choose the time step small enough. In a sense, the function is therefore only a safety device to avoid situations where our entire solution becomes unphysical because individual degrees of freedom have become unphysical a few time steps earlier. 
+
+[1.x.162] 
+
+
+
+
+[1.x.163]  [1.x.164] 
+
+
+
+
+The following function is used in determining the maximal allowable time step. What it does is to loop over all quadrature points in the domain and find what the maximal magnitude of the velocity is. 
+
+[1.x.165] 
+
+
+
+
+[1.x.166]  [1.x.167] 
+
+
+
+
+This is the final function of our main class. Its brevity speaks for itself. There are only two points worth noting: First, the function projects the initial values onto the finite element space at the beginning; the  [2.x.186]  function doing this requires an argument indicating the hanging node constraints. We have none in this program (we compute on a uniformly refined mesh), but the function requires the argument anyway, of course. So we have to create a constraint object. In its original state, constraint objects are unsorted, and have to be sorted (using the  [2.x.187]  function) before they can be used. This is what we do here, and which is why we can't simply call the  [2.x.188]  function with an anonymous temporary object  [2.x.189]  as the second argument.    
+
+
+The second point worth mentioning is that we only compute the length of the present time step in the middle of solving the linear system corresponding to each time step. We can therefore output the present time of a time step only at the end of the time step. We increment time by calling the method  [2.x.190]  inside the loop. Since we are reporting the time and dt after we increment it, we have to call the method  [2.x.191]  instead of  [2.x.192]  After many steps, when the simulation reaches the end time, the last dt is chosen by the DiscreteTime class in such a way that the last step finishes exactly at the end time. 
+
+[1.x.168] 
+
+
+
+
+[1.x.169]  [1.x.170] 
+
+
+
+
+That's it. In the main function, we pass the degree of the finite element space to the constructor of the TwoPhaseFlowProblem object.  Here, we use zero-th degree elements, i.e.  [2.x.193] . The rest is as in all the other programs. 
+
+[1.x.171] 
+
+[1.x.172][1.x.173] 
+
+
+The code as presented here does not actually compute the results found on the web page. The reason is, that even on a decent computer it runs more than a day. If you want to reproduce these results, modify the end time of the DiscreteTime object to `250` within the constructor of TwoPhaseFlowProblem. 
+
+If we run the program, we get the following kind of output: 
+
+[1.x.174] 
+
+As we can see, the time step is pretty much constant right from the start, which indicates that the velocities in the domain are not strongly dependent on changes in saturation, although they certainly are through the factor  [2.x.194]  in the pressure equation. 
+
+Our second observation is that the number of CG iterations needed to solve the pressure Schur complement equation drops from 22 to 17 between the first and the second time step (in fact, it remains around 17 for the rest of the computations). The reason is actually simple: Before we solve for the pressure during a time step, we don't reset the  [2.x.195]  variable to zero. The pressure (and the other variables) therefore have the previous time step's values at the time we get into the CG solver. Since the velocities and pressures don't change very much as computations progress, the previous time step's pressure is actually a good initial guess for this time step's pressure. Consequently, the number of iterations we need once we have computed the pressure once is significantly reduced. 
+
+The final observation concerns the number of iterations needed to solve for the saturation, i.e. one. This shouldn't surprise us too much: the matrix we have to solve with is the mass matrix. However, this is the mass matrix for the  [2.x.196]  element of piecewise constants where no element couples with the degrees of freedom on neighboring cells. The matrix is therefore a diagonal one, and it is clear that we should be able to invert this matrix in a single CG iteration. 
+
+
+With all this, here are a few movies that show how the saturation progresses over time. First, this is for the single crack model, as implemented in the  [2.x.197]  class: 
+
+ [2.x.198]  
+
+As can be seen, the water rich fluid snakes its way mostly along the high-permeability zone in the middle of the domain, whereas the rest of the domain is mostly impermeable. This and the next movie are generated using  [2.x.199] , leading to a  [2.x.200]  mesh with some 16,000 cells and about 66,000 unknowns in total. 
+
+
+The second movie shows the saturation for the random medium model of class  [2.x.201] , where we have randomly distributed centers of high permeability and fluid hops from one of these zones to the next: 
+
+ [2.x.202]  
+
+
+Finally, here is the same situation in three space dimensions, on a mesh with  [2.x.203] , which produces a mesh of some 32,000 cells and 167,000 degrees of freedom: 
+
+ [2.x.204]  
+
+To repeat these computations, all you have to do is to change the line 
+
+[1.x.175] 
+
+in the main function to 
+
+[1.x.176] 
+
+The visualization uses a cloud technique, where the saturation is indicated by colored but transparent clouds for each cell. This way, one can also see somewhat what happens deep inside the domain. A different way of visualizing would have been to show isosurfaces of the saturation evolving over time. There are techniques to plot isosurfaces transparently, so that one can see several of them at the same time like the layers of an onion. 
+
+So why don't we show such isosurfaces? The problem lies in the way isosurfaces are computed: they require that the field to be visualized is continuous, so that the isosurfaces can be generated by following contours at least across a single cell. However, our saturation field is piecewise constant and discontinuous. If we wanted to plot an isosurface for a saturation  [2.x.205] , chances would be that there is no single point in the domain where that saturation is actually attained. If we had to define isosurfaces in that context at all, we would have to take the interfaces between cells, where one of the two adjacent cells has a saturation greater than and the other cell a saturation less than 0.5. However, it appears that most visualization programs are not equipped to do this kind of transformation. 
+
+
+[1.x.177] [1.x.178][1.x.179] 
+
+
+There are a number of areas where this program can be improved. Three of them are listed below. All of them are, in fact, addressed in a tutorial program that forms the continuation of the current one:  [2.x.206] . 
+
+
+[1.x.180][1.x.181] 
+
+
+At present, the program is not particularly fast: the 2d random medium computation took about a day for the 1,000 or so time steps. The corresponding 3d computation took almost two days for 800 time steps. The reason why it isn't faster than this is twofold. First, we rebuild the entire matrix in every time step, although some parts such as the  [2.x.207] ,  [2.x.208] , and  [2.x.209]  blocks never change. 
+
+Second, we could do a lot better with the solver and preconditioners. Presently, we solve the Schur complement  [2.x.210]  with a CG method, using  [2.x.211]  as a preconditioner. Applying this preconditioner is expensive, since it involves solving a linear system each time. This may have been appropriate for  [2.x.212]  " [2.x.213] ", where we have to solve the entire problem only once. However, here we have to solve it hundreds of times, and in such cases it is worth considering a preconditioner that is more expensive to set up the first time, but cheaper to apply later on. 
+
+One possibility would be to realize that the matrix we use as preconditioner,  [2.x.214]  is still sparse, and symmetric on top of that. If one looks at the flow field evolve over time, we also see that while  [2.x.215]  changes significantly over time, the pressure hardly does and consequently  [2.x.216] . In other words, the matrix for the first time step should be a good preconditioner also for all later time steps.  With a bit of back-and-forthing, it isn't hard to actually get a representation of it as a SparseMatrix object. We could then hand it off to the SparseMIC class to form a sparse incomplete Cholesky decomposition. To form this decomposition is expensive, but we have to do it only once in the first time step, and can then use it as a cheap preconditioner in the future. We could do better even by using the SparseDirectUMFPACK class that produces not only an incomplete, but a complete decomposition of the matrix, which should yield an even better preconditioner. 
+
+Finally, why use the approximation  [2.x.217]  to precondition  [2.x.218] ? The latter matrix, after all, is the mixed form of the Laplace operator on the pressure space, for which we use linear elements. We could therefore build a separate matrix  [2.x.219]  on the side that directly corresponds to the non-mixed formulation of the Laplacian, for example using the bilinear form  [2.x.220] . We could then form an incomplete or complete decomposition of this non-mixed matrix and use it as a preconditioner of the mixed form. 
+
+Using such techniques, it can reasonably be expected that the solution process will be faster by at least an order of magnitude. 
+
+
+[1.x.182][1.x.183] 
+
+
+In the introduction we have identified the time step restriction [1.x.184] that has to hold globally, i.e. for all  [2.x.221] . After discretization, we satisfy it by choosing [1.x.185] 
+
+This restriction on the time step is somewhat annoying: the finer we make the mesh the smaller the time step; in other words, we get punished twice: each time step is more expensive to solve and we have to do more time steps. 
+
+This is particularly annoying since the majority of the additional work is spent solving the implicit part of the equations, i.e. the pressure-velocity system, whereas it is the hyperbolic transport equation for the saturation that imposes the time step restriction. 
+
+To avoid this bottleneck, people have invented a number of approaches. For example, they may only re-compute the pressure-velocity field every few time steps (or, if you want, use different time step sizes for the pressure/velocity and saturation equations). This keeps the time step restriction on the cheap explicit part while it makes the solution of the implicit part less frequent. Experiments in this direction are certainly worthwhile; one starting point for such an approach is the paper by Zhangxin Chen, Guanren Huan and Baoyan Li: [1.x.186], Transport in Porous Media, 54 (2004), pp. 361&mdash;376. There are certainly many other papers on this topic as well, but this one happened to land on our desk a while back. 
+
+
+
+
+[1.x.187][1.x.188] 
+
+
+Adaptivity would also clearly help. Looking at the movies, one clearly sees that most of the action is confined to a relatively small part of the domain (this particularly obvious for the saturation, but also holds for the velocities and pressures). Adaptivity can therefore be expected to keep the necessary number of degrees of freedom low, or alternatively increase the accuracy. 
+
+On the other hand, adaptivity for time dependent problems is not a trivial thing: we would have to change the mesh every few time steps, and we would have to transport our present solution to the next mesh every time we change it (something that the SolutionTransfer class can help with). These are not insurmountable obstacles, but they do require some additional coding and more than we felt comfortable was worth packing into this tutorial program. [1.x.189] [1.x.190]  [2.x.222]  
+
+ [2.x.223] 

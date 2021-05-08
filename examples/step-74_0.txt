@@ -1,0 +1,309 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] . 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5][1.x.6][1.x.7][1.x.8][1.x.9][1.x.10][1.x.11][1.x.12][1.x.13][1.x.14][1.x.15][1.x.16][1.x.17][1.x.18][1.x.19][1.x.20][1.x.21][1.x.22] 
+
+ [2.x.3]  
+
+[1.x.23] 
+
+
+[1.x.24] [1.x.25][1.x.26] 
+
+
+[1.x.27][1.x.28] 
+
+In this tutorial, we display the usage of the FEInterfaceValues class, which is designed for assembling face terms arising from discontinuous Galerkin (DG) methods. The FEInterfaceValues class provides an easy way to obtain the jump and the average of shape functions and of the solution across cell faces. This tutorial includes the following topics.  [2.x.4]     [2.x.5]  The SIPG method for Poisson's equation, which has already been used in  [2.x.6]  and  [2.x.7] .    [2.x.8]  Assembling of face terms using FEInterfaceValues and the system matrix using  [2.x.9]  which is similar to  [2.x.10] .    [2.x.11]  Adaptive mesh refinement using an error estimator.    [2.x.12]  Two test cases: convergence test for a smooth function and adaptive mesh refinement test for a singular solution.  [2.x.13]  
+
+[1.x.29][1.x.30] 
+
+In this example, we consider Poisson's equation [1.x.31] subject to the boundary condition [1.x.32] For simplicity, we assume that the diffusion coefficient  [2.x.14]  is constant here. Note that if  [2.x.15]  is discontinuous, we need to take this into account when computing jump terms on cell faces. 
+
+We denote the mesh by  [2.x.16] , and  [2.x.17]  is a mesh cell. The sets of interior and boundary faces are denoted by  [2.x.18]  and  [2.x.19]  respectively. Let  [2.x.20]  and  [2.x.21]  be the two cells sharing a face  [2.x.22] , and  [2.x.23]  be the outer normal vector of  [2.x.24] . Then the jump operator is given by the "here minus there" formula, [1.x.33] and the averaging operator as [1.x.34] respectively. Note that when  [2.x.25] , we define  [2.x.26]  and  [2.x.27] . The discretization using the SIPG is given by the following weak formula (more details can be found in  [2.x.28]  and the references therein) 
+
+[1.x.35] 
+
+
+
+
+[1.x.36][1.x.37] 
+
+The penalty parameter is defined as  [2.x.29] , where  [2.x.30]  a local length scale associated with the cell face; here we choose an approximation of the length of the cell in the direction normal to the face:  [2.x.31] , where  [2.x.32]  are the two cells adjacent to the face  [2.x.33]  and we we compute  [2.x.34] . 
+
+In the formula above,  [2.x.35]  is the penalization constant. To ensure the discrete coercivity, the penalization constant has to be large enough  [2.x.36] . People do not really have consensus on which of the formulas proposed in the literature should be used. (This is similar to the situation discussed in the "Results" section of  [2.x.37] .) One can just pick a large constant, while other options could be the multiples of  [2.x.38]  or  [2.x.39] . In this code, we follow  [2.x.40]  and use  [2.x.41] . 
+
+
+[1.x.38][1.x.39] 
+
+In this example, with a slight modification, we use the error estimator by Karakashian and Pascal  [2.x.42]  [1.x.40] where 
+
+[1.x.41] 
+
+Here we use  [2.x.43]  instead of  [2.x.44]  for the jump terms of  [2.x.45]  (the first term in  [2.x.46]  and  [2.x.47] ). 
+
+In order to compute this estimator, in each cell  [2.x.48]  we compute 
+
+[1.x.42] 
+
+Then the square of the error estimate per cell is [1.x.43] The factor of  [2.x.49]  results from the fact that the overall error estimator includes each interior face only once, and so the estimators per cell count it with a factor of one half for each of the two adjacent cells. Note that we compute  [2.x.50]  instead of  [2.x.51]  to simplify the implementation. The error estimate square per cell is then stored in a global vector, whose  [2.x.52]  norm is equal to  [2.x.53] . 
+
+[1.x.44][1.x.45] 
+
+In the first test problem, we run a convergence test using a smooth manufactured solution with  [2.x.54]  in 2D 
+
+[1.x.46] 
+
+and  [2.x.55] . We compute errors against the manufactured solution and evaluate the convergence rate. 
+
+In the second test, we choose  [2.x.56]  on a L-shaped domain  [2.x.57]  in 2D. The solution is given in the polar coordinates by  [2.x.58] , which has a singularity at the origin. An error estimator is constructed to detect the region with large errors, according to which the mesh is refined adaptively. [1.x.47] [1.x.48] 
+
+The first few files have already been covered in previous examples and will thus not be further commented on: 
+
+[1.x.49] 
+
+
+
+Here the discontinuous finite elements and FEInterfaceValues are defined. 
+
+[1.x.50] 
+
+
+
+
+[1.x.51]  [1.x.52] Here we define two test cases: convergence_rate for a smooth function and l_singularity for the  [2.x.59]  
+
+[1.x.53] 
+
+
+
+A smooth solution for the convergence test: 
+
+[1.x.54] 
+
+
+
+The corresponding right-hand side of the smooth function: 
+
+[1.x.55] 
+
+
+
+The right-hand side that corresponds to the function  [2.x.60]  where we assume that the diffusion coefficient  [2.x.61] : 
+
+[1.x.56] 
+
+
+
+
+[1.x.57]  [1.x.58] The following two auxiliary functions are used to compute jump terms for  [2.x.62]  and  [2.x.63]  on a face, respectively. 
+
+[1.x.59] 
+
+
+
+This function computes the penalty  [2.x.64] . 
+
+[1.x.60] 
+
+
+
+
+[1.x.61]  [1.x.62] In the following, we define "Copy" objects for the  [2.x.65]  which is essentially the same as  [2.x.66] . Note that the "Scratch" object is not defined here because we use  [2.x.67]  instead. (The use of "Copy" and "Scratch" objects is extensively explained in the WorkStream namespace documentation. 
+
+[1.x.63] 
+
+
+
+
+[1.x.64]  [1.x.65] After these preparations, we proceed with the main class of this program, called `SIPGLaplace`. The overall structure of the class is as in many of the other tutorial programs. Major differences will only come up in the implementation of the assemble functions, since we use FEInterfaceValues to assemble face terms. 
+
+[1.x.66] 
+
+
+
+The remainder of the class's members are used for the following: 
+
+- Vectors to store error estimator square and energy norm square per cell. 
+
+- Print convergence rate and errors on the screen. 
+
+- The fiffusion coefficient  [2.x.68]  is set to 1. 
+
+- Members that store information about the test case to be computed. 
+
+[1.x.67] 
+
+
+
+The constructor here takes the test case as input and then determines the correct solution and right-hand side classes. The remaining member variables are initialized in the obvious way. 
+
+[1.x.68] 
+
+
+
+
+[1.x.69]  [1.x.70] The assemble function here is similar to that in  [2.x.69]  and  [2.x.70] . Different from assembling by hand, we just need to focus on assembling on each cell, each boundary face, and each interior face. The loops over cells and faces are handled automatically by  [2.x.71]     
+
+
+The function starts by defining a local (lambda) function that is used to integrate the cell terms: 
+
+[1.x.71] 
+
+
+
+Next, we need a function that assembles face integrals on the boundary: 
+
+[1.x.72] 
+
+
+
+Finally, a function that assembles face integrals on interior faces. To reinitialize FEInterfaceValues, we need to pass cells, face and subface indices (for adaptive refinement) to the reinit() function of FEInterfaceValues: 
+
+[1.x.73] 
+
+
+
+The following lambda function will then copy data into the global matrix and right-hand side.  Though there are no hanging node constraints in DG discretization, we define an empty AffineConstraints oject that allows us to use the  [2.x.72]  functionality. 
+
+[1.x.74] 
+
+
+
+Copy data from interior face assembly to the global matrix. 
+
+[1.x.75] 
+
+
+
+With the assembly functions defined, we can now create ScratchData and CopyData objects, and pass them together with the lambda functions above to  [2.x.73]  In addition, we need to specify that we want to assemble on interior faces exactly once. 
+
+[1.x.76] 
+
+
+
+
+[1.x.77]  [1.x.78] The following two functions are entirely standard and without difficulty. 
+
+[1.x.79] 
+
+
+
+
+[1.x.80]  [1.x.81] The assembly of the error estimator here is quite similar to that of the global matrix and right-had side and can be handled by the  [2.x.74]  framework. To understand what each of the local (lambda) functions is doing, recall first that the local cell residual is defined as  [2.x.75] : 
+
+[1.x.82] 
+
+
+
+Next compute boundary terms  [2.x.76] : 
+
+[1.x.83] 
+
+
+
+And finally interior face terms  [2.x.77] : 
+
+[1.x.84] 
+
+
+
+Having computed local contributions for each cell, we still need a way to copy these into the global vector that will hold the error estimators for all cells: 
+
+[1.x.85] 
+
+
+
+After all of this set-up, let's do the actual work: We resize the vector into which the results will be written, and then drive the whole process using the  [2.x.78]  function. 
+
+[1.x.86] 
+
+
+
+
+[1.x.87]  [1.x.88] Next, we evaluate the accuracy in terms of the energy norm. This function is similar to the assembling of the error estimator above. Here we compute the square of the energy norm defined by [1.x.89] Therefore the corresponding error is [1.x.90] 
+
+[1.x.91] 
+
+
+
+Assemble  [2.x.79] . 
+
+[1.x.92] 
+
+
+
+Assemble  [2.x.80] . 
+
+[1.x.93] 
+
+
+
+Assemble  [2.x.81] . 
+
+[1.x.94] 
+
+
+
+
+[1.x.95]  [1.x.96] 
+
+[1.x.97] 
+
+
+
+
+[1.x.98]  [1.x.99] We compute three errors in the  [2.x.82]  norm,  [2.x.83]  seminorm, and the energy norm, respectively. These are then printed to screen, but also stored in a table that records how these errors decay with mesh refinement and which can be output in one step at the end of the program. 
+
+[1.x.100] 
+
+
+
+
+[1.x.101]  [1.x.102] 
+
+[1.x.103] 
+
+
+
+Having run all of our computations, let us tell the convergence table how to format its data and output it to screen: 
+
+[1.x.104] 
+
+
+
+
+[1.x.105]  [1.x.106] The following  [2.x.84]  function is similar to previous examples as well, and need not be commented on. 
+
+[1.x.107] 
+
+[1.x.108][1.x.109] 
+
+
+The output of this program consist of the console output and solutions in vtu format. 
+
+In the first test case, when you run the program, the screen output should look like the following: 
+
+[1.x.110] 
+
+
+
+When using the smooth case with polynomial degree 3, the convergence table will look like this:  [2.x.85]  
+
+Theoretically, for polynomial degree  [2.x.86] , the order of convergence in  [2.x.87]  norm and  [2.x.88]  seminorm should be  [2.x.89]  and  [2.x.90] , respectively. Our numerical results are in good agreement with theory. 
+
+In the second test case, when you run the program, the screen output should look like the following: 
+
+[1.x.111] 
+
+
+
+The following figure provides a log-log plot of the errors versus the number of degrees of freedom for this test case on the L-shaped domain. In order to interpret it, let  [2.x.91]  be the number of degrees of freedom, then on uniformly refined meshes,  [2.x.92]  is of order  [2.x.93]  in 2D. Combining the theoretical results in the previous case, we see that if the solution is sufficiently smooth, we can expect the error in the  [2.x.94]  norm to be of order  [2.x.95]  and in  [2.x.96]  seminorm to be  [2.x.97] . It is not a priori clear that one would get the same kind of behavior as a function of  [2.x.98]  on adaptively refined meshes like the ones we use for this second test case, but one can certainly hope. Indeed, from the figure, we see that the SIPG with adaptive mesh refinement produces asymptotically the kinds of hoped-for results: 
+
+ [2.x.99]  
+
+In addition, we observe that the error estimator decreases at almost the same rate as the errors in the energy norm and  [2.x.100]  seminorm, and one order lower than the  [2.x.101]  error. This suggests its ability to predict regions with large errors. 
+
+While this tutorial is focused on the implementation, the  [2.x.102]  tutorial program achieves an efficient large-scale solver in terms of computing time with matrix-free solution techniques. Note that the  [2.x.103]  tutorial does not work with meshes containing hanging nodes at this moment, because the multigrid interface matrices are not as easily determined, but that is merely the lack of some interfaces in deal.II, nothing fundamental. [1.x.112] [1.x.113]  [2.x.104]  
+
+ [2.x.105] 

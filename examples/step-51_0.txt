@@ -1,0 +1,604 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] ,  [2.x.3] ,  [2.x.4] . 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5][1.x.6][1.x.7][1.x.8][1.x.9][1.x.10][1.x.11][1.x.12][1.x.13][1.x.14][1.x.15][1.x.16][1.x.17][1.x.18][1.x.19][1.x.20][1.x.21][1.x.22][1.x.23][1.x.24][1.x.25][1.x.26][1.x.27][1.x.28][1.x.29][1.x.30][1.x.31][1.x.32][1.x.33][1.x.34][1.x.35][1.x.36][1.x.37][1.x.38] 
+
+ [2.x.5]  
+
+[1.x.39] 
+
+[1.x.40] [1.x.41][1.x.42] 
+
+
+This tutorial program presents the implementation of a hybridizable discontinuous Galkerin method for the convection-diffusion equation. 
+
+[1.x.43][1.x.44] 
+
+
+One common argument against the use of discontinuous Galerkin elements is the large number of globally coupled degrees of freedom that one must solve in an implicit system.  This is because, unlike continuous finite elements, in typical discontinuous elements there is one degree of freedom at each vertex [1.x.45], rather than just one, and similarly for edges and faces.  As an example of how fast the number of unknowns grows, consider the FE_DGPMonomial basis: each scalar solution component is represented by polynomials of degree  [2.x.6]  with  [2.x.7]  degrees of freedom per element. Typically, all degrees of freedom in an element are coupled to all of the degrees of freedom in the adjacent elements.  The resulting discrete equations yield very large linear systems very quickly, especially for systems of equations in 2 or 3 dimensions. 
+
+[1.x.46][1.x.47] 
+
+To alleviate the computational cost of solving such large linear systems, the hybridizable discontinuous Galerkin (HDG) methodology was introduced by Cockburn and co-workers (see the references in the recent HDG overview article by Nguyen and Peraire  [2.x.8] ). 
+
+The HDG method achieves this goal by formulating the mathematical problem using Dirichlet-to-Neumann mappings.  The partial differential equations are first written as a first order system, and each field is then discretized via a DG method.  At this point, the single-valued "trace" values on the skeleton of the mesh, i.e., element faces, are taken to be independent unknown quantities. This yields unknowns in the discrete formulation that fall into two categories: 
+
+- Face unknowns that only couple with the cell unknowns from both sides of the face; 
+
+- Cell unknowns that only couple with the cell and face unknowns   defined within the same cell. Crucially, no cell interior degree of freedom   on one cell ever couples to any interior cell degree of freedom of a   different cell. 
+
+The Dirichlet-to-Neumann map concept then permits the following solution procedure:  [2.x.9]     [2.x.10]   Use local element interior data to enforce a Neumann condition on the skeleton of the triangulation.  The global problem is then to solve for the trace values, which are the only globally coupled unknowns.    [2.x.11]   Use the known skeleton values as Dirichlet data for solving local element-level solutions.  This is known as the 'local solver', and is an [1.x.48] element-by-element solution process.  [2.x.12]  
+
+[1.x.49][1.x.50] 
+
+The above procedure also has a linear algebra interpretation---referred to as [1.x.51]---that was exploited to reduce the size of the global linear system by Guyan in the context of continuous Finite Elements  [2.x.13] , and by Fraeijs de Veubeke for mixed methods  [2.x.14] . In the latter case (mixed formulation), the system reduction was achieved through the use of discontinuous fluxes combined with the introduction of an additional auxiliary [1.x.52] variable that approximates the trace of the unknown at the boundary of every element. This procedure became known as hybridization and---by analogy---is the reason why the local discontinuous Galerkin method introduced by Cockburn, Gopalakrishnan, and Lazarov in 2009  [2.x.15] , and subsequently developed by their collaborators, eventually came to be known as the [1.x.53] (HDG) method. 
+
+Let us write the complete linear system associated to the HDG problem as a block system with the discrete DG (cell interior) variables  [2.x.16]  as first block and the skeleton (face) variables  [2.x.17]  as the second block: [1.x.54] 
+
+Our aim is now to eliminate the  [2.x.18]  block with a Schur complement approach similar to  [2.x.19] , which results in the following two steps: [1.x.55] 
+
+The point is that the presence of  [2.x.20]  is not a problem because  [2.x.21]  is a block diagonal matrix where each block corresponds to one cell and is therefore easy enough to invert. The coupling to other cells is introduced by the matrices  [2.x.22]  and  [2.x.23]  over the skeleton variable. The block-diagonality of  [2.x.24]  and the structure in  [2.x.25]  and  [2.x.26]  allow us to invert the matrix  [2.x.27]  element by element (the local solution of the Dirichlet problem) and subtract  [2.x.28]  from  [2.x.29] . The steps in the Dirichlet-to-Neumann map concept hence correspond to  [2.x.30]     [2.x.31]  constructing the Schur complement matrix  [2.x.32]  and right hand     side  [2.x.33]   [1.x.56]     and inserting the contribution into the global trace matrix in the usual way,    [2.x.34]  solving the Schur complement system for  [2.x.35] , and    [2.x.36]  solving for  [2.x.37]  using the second equation, given  [2.x.38] .  [2.x.39]  
+
+
+[1.x.57][1.x.58] 
+
+Another criticism of traditional DG methods is that the approximate fluxes converge suboptimally.  The local HDG solutions can be shown to converge as  [2.x.40] , i.e., at optimal order.  Additionally, a super-convergence property can be used to post-process a new approximate solution that converges at the rate  [2.x.41] . 
+
+
+[1.x.59][1.x.60] 
+
+
+The hybridizable discontinuous Galerkin method is only one way in which the problems of the discontinuous Galerkin method can be addressed. Another idea is what is called the "weak Galerkin" method. It is explored in  [2.x.42] . 
+
+
+[1.x.61][1.x.62] 
+
+
+The HDG formulation used for this example is taken from  [2.x.43]  [1.x.63][1.x.64][1.x.65] 
+
+We consider the convection-diffusion equation over the domain  [2.x.44]  with Dirichlet boundary  [2.x.45]  and Neumann boundary  [2.x.46] : [1.x.66] 
+
+
+
+Introduce the auxiliary variable  [2.x.47]  and rewrite the above equation as the first order system: [1.x.67] 
+
+
+
+We multiply these equations by the weight functions  [2.x.48]  and integrate by parts over every element  [2.x.49]  to obtain: [1.x.68] 
+
+
+
+The terms decorated with a hat denote the numerical traces (also commonly referred to as numerical fluxes).  They are approximations to the interior values on the boundary of the element.  To ensure conservation, these terms must be single-valued on any given element edge  [2.x.50]  even though, with discontinuous shape functions, there may of course be multiple values coming from the cells adjacent to an interface. We eliminate the numerical trace  [2.x.51]  by using traces of the form: [1.x.69] 
+
+
+
+The variable  [2.x.52]  is introduced as an additional independent variable and is the one for which we finally set up a globally coupled linear system. As mentioned above, it is defined on the element faces and discontinuous from one face to another wherever faces meet (at vertices in 2d, and at edges and vertices in 3d). Values for  [2.x.53]  and  [2.x.54]  appearing in the numerical trace function are taken to be the cell's interior solution restricted to the boundary  [2.x.55] . 
+
+The local stabilization parameter  [2.x.56]  has effects on stability and accuracy of HDG solutions; see the literature for a further discussion. A stabilization parameter of unity is reported to be the choice which gives best results. A stabilization parameter  [2.x.57]  that tends to infinity prohibits jumps in the solution over the element boundaries, making the HDG solution approach the approximation with continuous finite elements. In the program below, we choose the stabilization parameter as [1.x.70] 
+
+where we set the diffusion  [2.x.58]  and the diffusion length scale to  [2.x.59] . 
+
+The trace/skeleton variables in HDG methods are single-valued on element faces.  As such, they must strongly represent the Dirichlet data on  [2.x.60] .  This means that [1.x.71] 
+
+where the equal sign actually means an  [2.x.61]  projection of the boundary function  [2.x.62]  onto the space of the face variables (e.g. linear functions on the faces). This constraint is then applied to the skeleton variable  [2.x.63]  using inhomogeneous constraints by the method  [2.x.64]  
+
+Summing the elemental contributions across all elements in the triangulation, enforcing the normal component of the numerical flux, and integrating by parts on the equation weighted by  [2.x.65] , we arrive at the final form of the problem: Find  [2.x.66]  such that 
+
+[1.x.72] 
+
+
+
+The unknowns  [2.x.67]  are referred to as local variables; they are represented as standard DG variables.  The unknown  [2.x.68]  is the skeleton variable which has support on the codimension-1 surfaces (faces) of the mesh. 
+
+We use the notation  [2.x.69]  to denote the sum of integrals over all cells and  [2.x.70]  to denote integration over all faces of all cells, i.e., interior faces are visited twice, once from each side and with the corresponding normal vectors. When combining the contribution from both elements sharing a face, the above equation yields terms familiar from the DG method, with jumps of the solution over the cell boundaries. 
+
+In the equation above, the space  [2.x.71]  for the scalar variable  [2.x.72]  is defined as the space of functions that are tensor product polynomials of degree  [2.x.73]  on each cell and discontinuous over the element boundaries  [2.x.74] , i.e., the space described by  [2.x.75] . The space for the gradient or flux variable  [2.x.76]  is a vector element space where each component is a locally polynomial and discontinuous  [2.x.77] . In the code below, we collect these two local parts together in one FESystem where the first @p dim components denote the gradient part and the last scalar component corresponds to the scalar variable. For the skeleton component  [2.x.78] , we define a space that consists of discontinuous tensor product polynomials that live on the element faces, which in deal.II is implemented by the class FE_FaceQ. This space is otherwise similar to FE_DGQ, i.e., the solution function is not continuous between two neighboring faces, see also the results section below for an illustration. 
+
+In the weak form given above, we can note the following coupling patterns:  [2.x.79]     [2.x.80]  The matrix  [2.x.81]  consists of local-local coupling terms.  These arise when the   local weighting functions  [2.x.82]  multiply the local solution terms    [2.x.83] . Because the elements are discontinuous,  [2.x.84]    is block diagonal.    [2.x.85]  The matrix  [2.x.86]  represents the local-face coupling.  These are the terms   with weighting functions  [2.x.87]  multiplying the skeleton variable    [2.x.88] .    [2.x.89]  The matrix  [2.x.90]  represents the face-local coupling, which involves the   weighting function  [2.x.91]  multiplying the local solutions  [2.x.92] .    [2.x.93]   The matrix  [2.x.94]  is the face-face coupling;   terms involve both  [2.x.95]  and  [2.x.96] .  [2.x.97]  
+
+[1.x.73][1.x.74] 
+
+
+One special feature of the HDG methods is that they typically allow for constructing an enriched solution that gains accuracy. This post-processing takes the HDG solution in an element-by-element fashion and combines it such that one can get  [2.x.98]  order of accuracy when using polynomials of degree  [2.x.99] . For this to happen, there are two necessary ingredients:  [2.x.100]     [2.x.101]  The computed solution gradient  [2.x.102]  converges at optimal rate,    i.e.,  [2.x.103] .    [2.x.104]  The cell-wise average of the scalar part of the solution,     [2.x.105] , super-converges at rate     [2.x.106] .  [2.x.107]  
+
+We now introduce a new variable  [2.x.108] , which we find by minimizing the expression  [2.x.109]  over the cell  [2.x.110]  under the constraint  [2.x.111] . The constraint is necessary because the minimization functional does not determine the constant part of  [2.x.112] . This translates to the following system of equations: [1.x.75] 
+
+
+
+Since we test by the whole set of basis functions in the space of tensor product polynomials of degree  [2.x.113]  in the second set of equations, this is an overdetermined system with one more equation than unknowns. We fix this in the code below by omitting one of these equations (since the rows in the Laplacian are linearly dependent when representing a constant function). As we will see below, this form of the post-processing gives the desired super-convergence result with rate  [2.x.114] .  It should be noted that there is some freedom in constructing  [2.x.115]  and this minimization approach to extract the information from the gradient is not the only one. In particular, the post-processed solution defined here does not satisfy the convection-diffusion equation in any sense. As an alternative, the paper by Nguyen, Peraire and Cockburn cited above suggests another somewhat more involved formula for convection-diffusion that can also post-process the flux variable into an  [2.x.116] -conforming variant and better represents the local convection-diffusion operator when the diffusion is small. We leave the implementation of a more sophisticated post-processing as a possible extension to the interested reader. 
+
+Note that for vector-valued problems, the post-processing works similarly. One simply sets the constraint for the mean value of each vector component separately and uses the gradient as the main source of information. 
+
+[1.x.76][1.x.77] 
+
+
+For this tutorial program, we consider almost the same test case as in  [2.x.117] . The computational domain is  [2.x.118]  and the exact solution corresponds to the one in  [2.x.119] , except for a scaling. We use the following source centers  [2.x.120]  for the exponentials  [2.x.121]     [2.x.122]  1D:   [2.x.123] ,    [2.x.124]  2D:  [2.x.125] ,    [2.x.126]  3D:  [2.x.127] .  [2.x.128]  
+
+With the exact solution given, we then choose the forcing on the right hand side and the Neumann boundary condition such that we obtain this solution (manufactured solution technique). In this example, we choose the diffusion equal to one and the convection as [1.x.78] Note that the convection is divergence-free,  [2.x.129] . 
+
+[1.x.79][1.x.80] 
+
+
+Besides implementing the above equations, the implementation below provides the following features:  [2.x.130]     [2.x.131]  WorkStream to parallelize local solvers. Workstream has been presented   in detail in  [2.x.132] .    [2.x.133]  Reconstruct the local DG solution from the trace.    [2.x.134]  Post-processing the solution for superconvergence.    [2.x.135]  DataOutFaces for direct output of the global skeleton solution.  [2.x.136]  [1.x.81] [1.x.82] 
+
+
+[1.x.83]  [1.x.84] 
+
+
+
+
+Most of the deal.II include files have already been covered in previous examples and are not commented on. 
+
+[1.x.85] 
+
+
+
+However, we do have a few new includes for the example. The first one defines finite element spaces on the faces of the triangulation, which we refer to as the 'skeleton'. These finite elements do not have any support on the element interior, and they represent polynomials that have a single value on each codimension-1 surface, but admit discontinuities on codimension-2 surfaces. 
+
+[1.x.86] 
+
+
+
+The second new file we include defines a new type of sparse matrix.  The regular  [2.x.137]  type stores indices to all non-zero entries.  The  [2.x.138]  takes advantage of the coupled nature of DG solutions.  It stores an index to a matrix sub-block of a specified size.  In the HDG context, this sub-block-size is actually the number of degrees of freedom per face defined by the skeleton solution field. This reduces the memory consumption of the matrix by up to one third and results in similar speedups when using the matrix in solvers. 
+
+[1.x.87] 
+
+
+
+The final new include for this example deals with data output.  Since we have a finite element field defined on the skeleton of the mesh, we would like to visualize what that solution actually is. DataOutFaces does exactly this; the interface is the almost the same as the familiar DataOut, but the output only has codimension-1 data for the simulation. 
+
+[1.x.88] 
+
+
+
+We start by putting all of our classes into their own namespace. 
+
+[1.x.89] 
+
+
+
+
+[1.x.90]  [1.x.91]    
+
+
+The structure of the analytic solution is the same as in  [2.x.139] . There are two exceptions. Firstly, we also create a solution for the 3d case, and secondly, we scale the solution so its norm is of order unity for all values of the solution width. 
+
+[1.x.92] 
+
+
+
+This class implements a function where the scalar solution and its negative gradient are collected together. This function is used when computing the error of the HDG approximation and its implementation is to simply call value and gradient function of the Solution class. 
+
+[1.x.93] 
+
+
+
+Next comes the implementation of the convection velocity. As described in the introduction, we choose a velocity field that is  [2.x.140]  in 2D and  [2.x.141]  in 3D. This gives a divergence-free velocity field. 
+
+[1.x.94] 
+
+
+
+The last function we implement is the right hand side for the manufactured solution. It is very similar to  [2.x.142] , with the exception that we now have a convection term instead of the reaction term. Since the velocity field is incompressible, i.e.,  [2.x.143] , the advection term simply reads  [2.x.144] . 
+
+[1.x.95] 
+
+
+
+
+[1.x.96]  [1.x.97] 
+
+
+
+
+The HDG solution procedure follows closely that of  [2.x.145] . The major difference is the use of three different sets of DoFHandler and FE objects, along with the ChunkSparseMatrix and the corresponding solutions vectors. We also use WorkStream to enable a multithreaded local solution process which exploits the embarrassingly parallel nature of the local solver. For WorkStream, we define the local operations on a cell and a copy function into the global matrix and vector. We do this both for the assembly (which is run twice, once when we generate the system matrix and once when we compute the element-interior solutions from the skeleton values) and for the postprocessing where we extract a solution that converges at higher order. 
+
+[1.x.98] 
+
+
+
+Data for the assembly and solution of the primal variables. 
+
+[1.x.99] 
+
+
+
+Post-processing the solution to obtain  [2.x.146]  is an element-by-element procedure; as such, we do not need to assemble any global data and do not declare any 'task data' for WorkStream to use. 
+
+[1.x.100] 
+
+
+
+The following three functions are used by WorkStream to do the actual work of the program. 
+
+[1.x.101] 
+
+
+
+The 'local' solutions are interior to each element.  These represent the primal solution field  [2.x.147]  as well as the auxiliary field  [2.x.148] . 
+
+[1.x.102] 
+
+
+
+The new finite element type and corresponding  [2.x.149]  are used for the global skeleton solution that couples the element-level local solutions. 
+
+[1.x.103] 
+
+
+
+As stated in the introduction, HDG solutions can be post-processed to attain superconvergence rates of  [2.x.150] .  The post-processed solution is a discontinuous finite element solution representing the primal variable on the interior of each cell.  We define a FE type of degree  [2.x.151]  to represent this post-processed solution, which we only use for output after constructing it. 
+
+[1.x.104] 
+
+
+
+The degrees of freedom corresponding to the skeleton strongly enforce Dirichlet boundary conditions, just as in a continuous Galerkin finite element method. We can enforce the boundary conditions in an analogous manner via an AffineConstraints object. In addition, hanging nodes are handled in the same way as for continuous finite elements: For the face elements which only define degrees of freedom on the face, this process sets the solution on the refined side to coincide with the representation on the coarse side.      
+
+
+Note that for HDG, the elimination of hanging nodes is not the only possibility &mdash; in terms of the HDG theory, one could also use the unknowns from the refined side and express the local solution on the coarse side through the trace values on the refined side. However, such a setup is not as easily implemented in terms of deal.II loops and not further analyzed. 
+
+[1.x.105] 
+
+
+
+The usage of the ChunkSparseMatrix class is similar to the usual sparse matrices: You need a sparsity pattern of type ChunkSparsityPattern and the actual matrix object. When creating the sparsity pattern, we just have to additionally pass the size of local blocks. 
+
+[1.x.106] 
+
+
+
+Same as  [2.x.152] : 
+
+[1.x.107] 
+
+
+
+
+[1.x.108]  [1.x.109] 
+
+
+
+
+
+[1.x.110]  [1.x.111] The constructor is similar to those in other examples, with the exception of handling multiple DoFHandler and FiniteElement objects. Note that we create a system of finite elements for the local DG part, including the gradient/flux part and the scalar part. 
+
+[1.x.112] 
+
+
+
+
+[1.x.113]  [1.x.114] The system for an HDG solution is setup in an analogous manner to most of the other tutorial programs.  We are careful to distribute dofs with all of our DoFHandler objects.  The  [2.x.153]  and  [2.x.154]  objects go with the global skeleton solution. 
+
+[1.x.115] 
+
+
+
+When creating the chunk sparsity pattern, we first create the usual dynamic sparsity pattern and then set the chunk size, which is equal to the number of dofs on a face, when copying this into the final sparsity pattern. 
+
+[1.x.116] 
+
+
+
+
+[1.x.117]  [1.x.118] Next comes the definition of the local data structures for the parallel assembly. The first structure  [2.x.155]  contains the local vector and matrix that are written into the global matrix, whereas the ScratchData contains all data that we need for the local assembly. There is one variable worth noting here, namely the boolean variable @p trace_reconstruct. As mentioned in the introduction, we solve the HDG system in two steps. First, we create a linear system for the skeleton system where we condense the local part into it via the Schur complement  [2.x.156] . Then, we solve for the local part using the skeleton solution. For these two steps, we need the same matrices on the elements twice, which we want to compute by two assembly steps. Since most of the code is similar, we do this with the same function but only switch between the two based on a flag that we set when starting the assembly. Since we need to pass this information on to the local worker routines, we store it once in the task data. 
+
+[1.x.119] 
+
+
+
+
+[1.x.120]  [1.x.121]  [2.x.157]  contains persistent data for each thread within WorkStream.  The FEValues, matrix, and vector objects should be familiar by now.  There are two objects that need to be discussed:  [2.x.158]  int> > fe_local_support_on_face` and  [2.x.159]  int> > fe_support_on_face`.  These are used to indicate whether or not the finite elements chosen have support (non-zero values) on a given face of the reference cell for the local part associated to  [2.x.160]  and the skeleton part  [2.x.161]  We extract this information in the constructor and store it once for all cells that we work on.  Had we not stored this information, we would be forced to assemble a large number of zero terms on each cell, which would significantly slow the program. 
+
+[1.x.122] 
+
+
+
+
+[1.x.123]  [1.x.124]  [2.x.162]  contains the data used by WorkStream when post-processing the local solution  [2.x.163] .  It is similar, but much simpler, than  [2.x.164]  
+
+[1.x.125] 
+
+
+
+
+[1.x.126]  [1.x.127] The  [2.x.165]  function is similar to the one on  [2.x.166] , where the quadrature formula and the update flags are set up, and then  [2.x.167]  is used to do the work in a multi-threaded manner.  The  [2.x.168]  input parameter is used to decide whether we are solving for the global skeleton solution (false) or the local solution (true).    
+
+
+One thing worth noting for the multi-threaded execution of assembly is the fact that the local computations in `assemble_system_one_cell()` call into BLAS and LAPACK functions if those are available in deal.II. Thus, the underlying BLAS/LAPACK library must support calls from multiple threads at the same time. Most implementations do support this, but some libraries need to be built in a specific way to avoid problems. For example, OpenBLAS compiled without multithreading inside the BLAS/LAPACK calls needs to built with a flag called `USE_LOCKING` set to true. 
+
+[1.x.128] 
+
+
+
+
+[1.x.129]  [1.x.130] The real work of the HDG program is done by  [2.x.169]  Assembling the local matrices  [2.x.170]  is done here, along with the local contributions of the global matrix  [2.x.171] . 
+
+[1.x.131] 
+
+
+
+Construct iterator for dof_handler_local for FEValues reinit function. 
+
+[1.x.132] 
+
+
+
+We first compute the cell-interior contribution to  [2.x.172]  matrix (referred to as matrix  [2.x.173]  in the introduction) corresponding to local-local coupling, as well as the local right-hand-side vector.  We store the values at each quadrature point for the basis functions, the right-hand-side value, and the convection velocity, in order to have quick access to these fields. 
+
+[1.x.133] 
+
+
+
+Face terms are assembled on all faces of all elements. This is in contrast to more traditional DG methods, where each face is only visited once in the assembly procedure. 
+
+[1.x.134] 
+
+
+
+The already obtained  [2.x.174]  values are needed when solving for the local variables. 
+
+[1.x.135] 
+
+
+
+Here we compute the stabilization parameter discussed in the introduction: since the diffusion is one and the diffusion length scale is set to 1/5, it simply results in a contribution of 5 for the diffusion part and the magnitude of convection through the element boundary in a centered scheme for the convection part. 
+
+[1.x.136] 
+
+
+
+We store the non-zero flux and scalar values, making use of the support_on_face information we created in  [2.x.175]  
+
+[1.x.137] 
+
+
+
+When  [2.x.176]  we are preparing to assemble the system for the skeleton variable  [2.x.177] . If this is the case, we must assemble all local matrices associated with the problem: local-local, local-face, face-local, and face-face.  The face-face matrix is stored as  [2.x.178]  so that it can be assembled into the global system by @p copy_local_to_global. 
+
+[1.x.138] 
+
+
+
+Note the sign of the face_no-local matrix.  We negate the sign during assembly here so that we can use the  [2.x.179]  with addition when computing the Schur complement. 
+
+[1.x.139] 
+
+
+
+This last term adds the contribution of the term  [2.x.180]  to the local matrix. As opposed to the face matrices above, we need it in both assembly stages. 
+
+[1.x.140] 
+
+
+
+When  [2.x.181]  we are solving for the local solutions on an element by element basis.  The local right-hand-side is calculated by replacing the basis functions @p tr_phi in the  [2.x.182]  computation by the computed values @p trace_values.  Of course, the sign of the matrix is now minus since we have moved everything to the other side of the equation. 
+
+[1.x.141] 
+
+
+
+Once assembly of all of the local contributions is complete, we must either: (1) assemble the global system, or (2) compute the local solution values and save them. In either case, the first step is to invert the local-local matrix. 
+
+[1.x.142] 
+
+
+
+For (1), we compute the Schur complement and add it to the @p cell_matrix, matrix  [2.x.183]  in the introduction. 
+
+[1.x.143] 
+
+
+
+For (2), we are simply solving (ll_matrix).(solution_local) = (l_rhs). Hence, we multiply  [2.x.184]  by our already inverted local-local matrix and store the result using the  [2.x.185]  function. 
+
+[1.x.144] 
+
+
+
+
+[1.x.145]  [1.x.146] If we are in the first step of the solution, i.e.  [2.x.186]  then we assemble the local matrices into the global system. 
+
+[1.x.147] 
+
+
+
+
+[1.x.148]  [1.x.149] The skeleton solution is solved for by using a BiCGStab solver with identity preconditioner. 
+
+[1.x.150] 
+
+
+
+Once we have solved for the skeleton solution, we can solve for the local solutions in an element-by-element fashion.  We do this by re-using the same  [2.x.187]  function but switching  [2.x.188]  to true. 
+
+[1.x.151] 
+
+
+
+
+[1.x.152]  [1.x.153] 
+
+
+
+
+The postprocess method serves two purposes. First, we want to construct a post-processed scalar variables in the element space of degree  [2.x.189]  that we hope will converge at order  [2.x.190] . This is again an element-by-element process and only involves the scalar solution as well as the gradient on the local cell. To do this, we introduce the already defined scratch data together with some update flags and run the work stream to do this in parallel.    
+
+
+Secondly, we want to compute discretization errors just as we did in  [2.x.191] . The overall procedure is similar with calls to  [2.x.192]  The difference is in how we compute the errors for the scalar variable and the gradient variable. In  [2.x.193] , we did this by computing  [2.x.194]  or  [2.x.195]  contributions. Here, we have a DoFHandler with these two contributions computed and sorted by their vector component,  [2.x.196]  for the gradient and  [2.x.197]  for the scalar. To compute their value, we hence use a ComponentSelectFunction with either of them, together with the @p SolutionAndGradient class introduced above that contains the analytic parts of either of them. Eventually, we also compute the L2-error of the post-processed solution and add the results into the convergence table. 
+
+[1.x.154] 
+
+
+
+
+[1.x.155]  [1.x.156]    
+
+
+This is the actual work done for the postprocessing. According to the discussion in the introduction, we need to set up a system that projects the gradient part of the DG solution onto the gradient of the post-processed variable. Moreover, we need to set the average of the new post-processed variable to equal the average of the scalar DG solution on the cell.    
+
+
+More technically speaking, the projection of the gradient is a system that would potentially fills our  [2.x.198]  times  [2.x.199]  matrix but is singular (the sum of all rows would be zero because the constant function has zero gradient). Therefore, we take one row away and use it for imposing the average of the scalar value. We pick the first row for the scalar part, even though we could pick any row for  [2.x.200]  elements. However, had we used FE_DGP elements instead, the first row would correspond to the constant part already and deleting e.g. the last row would give us a singular system. This way, our program can also be used for those elements. 
+
+[1.x.157] 
+
+
+
+Having assembled all terms, we can again go on and solve the linear system. We invert the matrix and then multiply the inverse by the right hand side. An alternative (and more numerically stable) method would have been to only factorize the matrix and apply the factorization. 
+
+[1.x.158] 
+
+
+
+
+[1.x.159]  [1.x.160] We have 3 sets of results that we would like to output:  the local solution, the post-processed local solution, and the skeleton solution. The former 2 both 'live' on element volumes, whereas the latter lives on codimension-1 surfaces of the triangulation.  Our  [2.x.201]  function writes all local solutions to the same vtk file, even though they correspond to different DoFHandler objects.  The graphical output for the skeleton variable is done through use of the DataOutFaces class. 
+
+[1.x.161] 
+
+
+
+We first define the names and types of the local solution, and add the data to  [2.x.202]  
+
+[1.x.162] 
+
+
+
+The second data item we add is the post-processed solution. In this case, it is a single scalar variable belonging to a different DoFHandler. 
+
+[1.x.163] 
+
+
+
+The  [2.x.203]  class works analogously to the  [2.x.204]  that defines the solution on the skeleton of the triangulation.  We treat it as such here, and the code is similar to that above. 
+
+[1.x.164] 
+
+
+
+
+[1.x.165]  [1.x.166] 
+
+
+
+
+We implement two different refinement cases for HDG, just as in  [2.x.205] : adaptive_refinement and global_refinement.  The global_refinement option recreates the entire triangulation every time. This is because we want to use a finer sequence of meshes than what we would get with one refinement step, namely 2, 3, 4, 6, 8, 12, 16, ... elements per direction. 
+
+
+
+
+The adaptive_refinement mode uses the  [2.x.206]  to give a decent indication of the non-regular regions in the scalar local solutions. 
+
+[1.x.167] 
+
+
+
+Just as in  [2.x.207] , we set the boundary indicator of two of the faces to 1 where we want to specify Neumann boundary conditions instead of Dirichlet conditions. Since we re-create the triangulation every time for global refinement, the flags are set in every refinement step, not just at the beginning. 
+
+[1.x.168] 
+
+
+
+
+[1.x.169]  [1.x.170] The functionality here is basically the same as  [2.x.208] . We loop over 10 cycles, refining the grid on each one.  At the end, convergence tables are created. 
+
+[1.x.171] 
+
+
+
+There is one minor change for the convergence table compared to  [2.x.209] : Since we did not refine our mesh by a factor two in each cycle (but rather used the sequence 2, 3, 4, 6, 8, 12, ...), we need to tell the convergence rate evaluation about this. We do this by setting the number of cells as a reference column and additionally specifying the dimension of the problem, which gives the necessary information for the relation between number of cells and mesh size. 
+
+[1.x.172] 
+
+
+
+Now for the three calls to the main class in complete analogy to  [2.x.210] . 
+
+[1.x.173] 
+
+[1.x.174][1.x.175] 
+
+
+[1.x.176][1.x.177] 
+
+
+We first have a look at the output generated by the program when run in 2D. In the four images below, we show the solution for polynomial degree  [2.x.211]  and cycles 2, 3, 4, and 8 of the program. In the plots, we overlay the data generated from the internal data (DG part) with the skeleton part ( [2.x.212] ) into the same plot. We had to generate two different data sets because cells and faces represent different geometric entities, the combination of which (in the same file) is not supported in the VTK output of deal.II. 
+
+The images show the distinctive features of HDG: The cell solution (colored surfaces) is discontinuous between the cells. The solution on the skeleton variable sits on the faces and ties together the local parts. The skeleton solution is not continuous on the vertices where the faces meet, even though its values are quite close along lines in the same coordinate direction. The skeleton solution can be interpreted as a rubber spring between the two sides that balances the jumps in the solution (or rather, the flux  [2.x.213] ). From the picture at the top left, it is clear that the bulk solution frequently over- and undershoots and that the skeleton variable in indeed a better approximation to the exact solution; this explains why we can get a better solution using a postprocessing step. 
+
+As the mesh is refined, the jumps between the cells get small (we represent a smooth solution), and the skeleton solution approaches the interior parts. For cycle 8, there is no visible difference in the two variables. We also see how boundary conditions are implemented weakly and that the interior variables do not exactly satisfy boundary conditions. On the lower and left boundaries, we set Neumann boundary conditions, whereas we set Dirichlet conditions on the right and top boundaries. 
+
+ [2.x.214]  
+
+Next, we have a look at the post-processed solution, again at cycles 2, 3, 4, and 8. This is a discontinuous solution that is locally described by second order polynomials. While the solution does not look very good on the mesh of cycle two, it looks much better for cycles three and four. As shown by the convergence table below, we find that is also converges more quickly to the analytical solution. 
+
+ [2.x.215]  
+
+Finally, we look at the solution for  [2.x.216]  at cycle 2. Despite the coarse mesh with only 64 cells, the post-processed solution is similar in quality to the linear solution (not post-processed) at cycle 8 with 4,096 cells. This clearly shows the superiority of high order methods for smooth solutions. 
+
+ [2.x.217]  
+
+[1.x.178][1.x.179] 
+
+
+When the program is run, it also outputs information about the respective steps and convergence tables with errors in the various components in the end. In 2D, the convergence tables look the following: 
+
+[1.x.180] 
+
+
+
+
+One can see the error reduction upon grid refinement, and for the cases where global refinement was performed, also the convergence rates. The quadratic convergence rates of Q1 elements in the  [2.x.218]  norm for both the scalar variable and the gradient variable is apparent, as is the cubic rate for the postprocessed scalar variable in the  [2.x.219]  norm. Note this distinctive feature of an HDG solution. In typical continuous finite elements, the gradient of the solution of order  [2.x.220]  converges at rate  [2.x.221]  only, as opposed to  [2.x.222]  for the actual solution. Even though superconvergence results for finite elements are also available (e.g. superconvergent patch recovery first introduced by Zienkiewicz and Zhu), these are typically limited to structured meshes and other special cases. For Q3 HDG variables, the scalar variable and gradient converge at fourth order and the postprocessed scalar variable at fifth order. 
+
+The same convergence rates are observed in 3d. 
+
+[1.x.181] 
+
+
+
+[1.x.182][1.x.183] 
+
+
+[1.x.184][1.x.185] 
+
+
+The convergence tables verify the expected convergence rates stated in the introduction. Now, we want to show a quick comparison of the computational efficiency of the HDG method compared to a usual finite element (continuous Galkerin) method on the problem of this tutorial. Of course, stability aspects of the HDG method compared to continuous finite elements for transport-dominated problems are also important in practice, which is an aspect not seen on a problem with smooth analytic solution. In the picture below, we compare the  [2.x.223]  error as a function of the number of degrees of freedom (left) and of the computing time spent in the linear solver (right) for two space dimensions of continuous finite elements (CG) and the hybridized discontinuous Galerkin method presented in this tutorial. As opposed to the tutorial where we only use unpreconditioned BiCGStab, the times shown in the figures below use the Trilinos algebraic multigrid preconditioner in  [2.x.224]  For the HDG part, a wrapper around ChunkSparseMatrix for the trace variable has been used in order to utilize the block structure in the matrix on the finest level. 
+
+ [2.x.225]  
+
+The results in the graphs show that the HDG method is slower than continuous finite elements at  [2.x.226] , about equally fast for cubic elements and faster for sixth order elements. However, we have seen above that the HDG method actually produces solutions which are more accurate than what is represented in the original variables. Therefore, in the next two plots below we instead display the error of the post-processed solution for HDG (denoted by  [2.x.227]  for example). We now see a clear advantage of HDG for the same amount of work for both  [2.x.228]  and  [2.x.229] , and about the same quality for  [2.x.230] . 
+
+ [2.x.231]  
+
+Since the HDG method actually produces results converging as  [2.x.232] , we should compare it to a continuous Galerkin solution with the same asymptotic convergence behavior, i.e., FE_Q with degree  [2.x.233] . If we do this, we get the convergence curves below. We see that CG with second order polynomials is again clearly better than HDG with linears. However, the advantage of HDG for higher orders remains. 
+
+ [2.x.234]  
+
+The results are in line with properties of DG methods in general: Best performance is typically not achieved for linear elements, but rather at somewhat higher order, usually around  [2.x.235] . This is because of a volume-to-surface effect for discontinuous solutions with too much of the solution living on the surfaces and hence duplicating work when the elements are linear. Put in other words, DG methods are often most efficient when used at relatively high order, despite their focus on a discontinuous (and hence, seemingly low accurate) representation of solutions. 
+
+[1.x.186][1.x.187] 
+
+
+We now show the same figures in 3D: The first row shows the number of degrees of freedom and computing time versus the  [2.x.236]  error in the scalar variable  [2.x.237]  for CG and HDG at order  [2.x.238] , the second row shows the post-processed HDG solution instead of the original one, and the third row compares the post-processed HDG solution with CG at order  [2.x.239] . In 3D, the volume-to-surface effect makes the cost of HDG somewhat higher and the CG solution is clearly better than HDG for linears by any metric. For cubics, HDG and CG are of similar quality, whereas HDG is again more efficient for sixth order polynomials. One can alternatively also use the combination of FE_DGP and FE_FaceP instead of (FE_DGQ, FE_FaceQ), which do not use tensor product polynomials of degree  [2.x.240]  but Legendre polynomials of [1.x.188] degree  [2.x.241] . There are fewer degrees of freedom on the skeleton variable for FE_FaceP for a given mesh size, but the solution quality (error vs. number of DoFs) is very similar to the results for FE_FaceQ. 
+
+ [2.x.242]  
+
+One final note on the efficiency comparison: We tried to use general-purpose sparse matrix structures and similar solvers (optimal AMG preconditioners for both without particular tuning of the AMG parameters on any of them) to give a fair picture of the cost versus accuracy of two methods, on a toy example. It should be noted however that geometric multigrid (GMG) for continuous finite elements is about a factor four to five faster for  [2.x.243]  and  [2.x.244] . As of 2019, optimal-complexity iterative solvers for HDG are still under development in the research community. Also, there are other implementation aspects for CG available such as fast matrix-free approaches as shown in  [2.x.245]  that make higher order continuous elements more competitive. Again, it is not clear to the authors of the tutorial whether similar improvements could be made for HDG. We refer to [1.x.189] for a recent efficiency evaluation. 
+
+
+[1.x.190][1.x.191] 
+
+
+As already mentioned in the introduction, one possibility is to implement another post-processing technique as discussed in the literature. 
+
+A second item that is not done optimally relates to the performance of this program, which is of course an issue in practical applications (weighing in also the better solution quality of (H)DG methods for transport-dominated problems). Let us look at the computing time of the tutorial program and the share of the individual components: 
+
+ [2.x.246]  
+
+As can be seen from the table, the solver and assembly calls dominate the runtime of the program. This also gives a clear indication of where improvements would make the most sense: 
+
+ [2.x.247]     [2.x.248]  Better linear solvers: We use a BiCGStab iterative solver without   preconditioner, where the number of iteration increases with increasing   problem size (the number of iterations for Q1 elements and global   refinements starts at 35 for the small sizes but increase up to 701 for the   largest size). To do better, one could for example use an algebraic   multigrid preconditioner from Trilinos, or some more advanced variants as   the one discussed in [1.x.192]. For diffusion-dominated problems such as the problem at hand   with finer meshes, such a solver can be designed that uses the matrix-vector   products from the more efficient ChunkSparseMatrix on the finest level, as   long as we are not working in parallel with MPI. For MPI-parallelized   computations, a standard  [2.x.249]  can be used. 
+
+   [2.x.250]  Speed up assembly by pre-assembling parts that do not change from one   cell to another (those that do neither contain variable coefficients nor   mapping-dependent terms).  [2.x.251]  [1.x.193] [1.x.194]  [2.x.252]  
+
+ [2.x.253] 

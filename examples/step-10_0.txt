@@ -1,0 +1,332 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] . 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5] 
+
+[1.x.6] [1.x.7][1.x.8] 
+
+
+
+
+This is a rather short example which only shows some aspects of using higher order mappings. By  [2.x.3] mapping [2.x.4]  we mean the transformation between the unit cell (i.e. the unit line, square, or cube) to the cells in real space. In all the previous examples, we have implicitly used linear or d-linear mappings; you will not have noticed this at all, since this is what happens if you do not do anything special. However, if your domain has curved boundaries, there are cases where the piecewise linear approximation of the boundary (i.e. by straight line segments) is not sufficient, and you want that your computational domain is an approximation to the real domain using curved boundaries as well. If the boundary approximation uses piecewise quadratic parabolas to approximate the true boundary, then we say that this is a quadratic or  [2.x.5]  approximation. If we use piecewise graphs of cubic polynomials, then this is a  [2.x.6]  approximation, and so on. 
+
+
+
+
+For some differential equations, it is known that piecewise linear approximations of the boundary, i.e.  [2.x.7]  mappings, are not sufficient if the boundary of the exact domain is curved. Examples are the biharmonic equation using  [2.x.8]  elements, or the Euler equations of gas dynamics on domains with curved reflective boundaries. In these cases, it is necessary to compute the integrals using a higher order mapping. If we do not use such a higher order mapping, the order of approximation of the boundary dominates the order of convergence of the entire numerical scheme, irrespective of the order of convergence of the discretization in the interior of the domain. 
+
+
+
+
+Rather than demonstrating the use of higher order mappings with one of these more complicated examples, we do only a brief computation: calculating the value of  [2.x.9]  by two different methods. 
+
+
+
+
+The first method uses a triangulated approximation of the circle with unit radius and integrates a unit magnitude constant function ( [2.x.10] ) over it. Of course, if the domain were the exact unit circle, then the area would be  [2.x.11] , but since we only use an approximation by piecewise polynomial segments, the value of the area we integrate over is not exactly  [2.x.12] . However, it is known that as we refine the triangulation, a  [2.x.13]  mapping approximates the boundary with an order  [2.x.14] , where  [2.x.15]  is the mesh size. We will check the values of the computed area of the circle and their convergence towards  [2.x.16]  under mesh refinement for different mappings. We will also find a convergence behavior that is surprising at first, but has a good explanation. 
+
+
+
+
+The second method works similarly, but this time does not use the area of the triangulated unit circle, but rather its perimeter.  [2.x.17]  is then approximated by half of the perimeter, as we choose the radius equal to one. 
+
+
+
+
+ [2.x.18]  This tutorial shows in essence how to choose a particular mapping for integrals, by attaching a particular geometry to the triangulation (as had already been done in  [2.x.19] , for example) and then passing a mapping argument to the FEValues class that is used for all integrals in deal.II. The geometry we choose is a circle, for which deal.II already has a class (SphericalManifold) that can be used. If you want to define your own geometry, for example because it is complicated and cannot be described by the classes already available in deal.II, you will want to read through  [2.x.20] . [1.x.9] [1.x.10] 
+
+The first of the following include files are probably well-known by now and need no further explanation. 
+
+[1.x.11] 
+
+
+
+This include file is new. Even if we are not solving a PDE in this tutorial, we want to use a dummy finite element with zero degrees of freedoms provided by the FE_Nothing class. 
+
+[1.x.12] 
+
+
+
+The following header file is also new: in it, we declare the MappingQ class which we will use for polynomial mappings of arbitrary order: 
+
+[1.x.13] 
+
+
+
+And this again is C++: 
+
+[1.x.14] 
+
+
+
+The last step is as in previous programs: 
+
+[1.x.15] 
+
+
+
+Now, as we want to compute the value of  [2.x.21] , we have to compare to something. These are the first few digits of  [2.x.22] , which we define beforehand for later use. Since we would like to compute the difference between two numbers which are quite accurate, with the accuracy of the computed approximation to  [2.x.23]  being in the range of the number of digits which a double variable can hold, we rather declare the reference value as a  [2.x.24]  and give it a number of extra digits: 
+
+[1.x.16] 
+
+
+
+Then, the first task will be to generate some output. Since this program is so small, we do not employ object oriented techniques in it and do not declare classes (although, of course, we use the object oriented features of the library). Rather, we just pack the functionality into separate functions. We make these functions templates on the number of space dimensions to conform to usual practice when using deal.II, although we will only use them for two space dimensions and throw an exception when attempted to use for any other spatial dimension.    
+
+
+The first of these functions just generates a triangulation of a circle (hyperball) and outputs the  [2.x.25]  mapping of its cells for different values of  [2.x.26] . Then, we refine the grid once and do so again. 
+
+[1.x.17] 
+
+
+
+So first generate a coarse triangulation of the circle and associate a suitable boundary description to it. By default,  [2.x.27]  attaches a SphericalManifold to the boundary (and uses FlatManifold for the interior) so we simply call that function and move on: 
+
+[1.x.18] 
+
+
+
+Then alternate between generating output on the current mesh for  [2.x.28] ,  [2.x.29] , and  [2.x.30]  mappings, and (at the end of the loop body) refining the mesh once globally. 
+
+[1.x.19] 
+
+
+
+For this, first set up an object describing the mapping. This is done using the MappingQ class, which takes as argument to the constructor the polynomial degree which it shall use. 
+
+[1.x.20] 
+
+
+
+As a side note, for a piecewise linear mapping, you could give a value of  [2.x.31]  to the constructor of MappingQ, but there is also a class MappingQ1 that achieves the same effect. Historically, it did a lot of things in a simpler way than MappingQ but is today just a wrapper around the latter. It is, however, still the class that is used implicitly in many places of the library if you do not specify another mapping explicitly. 
+
+
+
+
+
+
+
+
+In order to actually write out the present grid with this mapping, we set up an object which we will use for output. We will generate Gnuplot output, which consists of a set of lines describing the mapped triangulation. By default, only one line is drawn for each face of the triangulation, but since we want to explicitly see the effect of the mapping, we want to have the faces in more detail. This can be done by passing the output object a structure which contains some flags. In the present case, since Gnuplot can only draw straight lines, we output a number of additional points on the faces so that each face is drawn by 30 small lines instead of only one. This is sufficient to give us the impression of seeing a curved line, rather than a set of straight lines. 
+
+[1.x.21] 
+
+
+
+Finally, generate a filename and a file for output: 
+
+[1.x.22] 
+
+
+
+Then write out the triangulation to this file. The last argument of the function is a pointer to a mapping object. This argument has a default value, and if no value is given a simple MappingQ1 object is taken, which we briefly described above. This would then result in a piecewise linear approximation of the true boundary in the output. 
+
+[1.x.23] 
+
+
+
+At the end of the loop, refine the mesh globally. 
+
+[1.x.24] 
+
+
+
+Now we proceed with the main part of the code, the approximation of  [2.x.32] . The area of a circle is of course given by  [2.x.33] , so having a circle of radius 1, the area represents just the number that is searched for. The numerical computation of the area is performed by integrating the constant function of value 1 over the whole computational domain, i.e. by computing the areas  [2.x.34] , where the sum extends over all quadrature points on all active cells in the triangulation, with  [2.x.35]  being the weight of quadrature point  [2.x.36] . The integrals on each cell are approximated by numerical quadrature, hence the only additional ingredient we need is to set up a FEValues object that provides the corresponding `JxW` values of each cell. (Note that `JxW` is meant to abbreviate [1.x.25]; since in numerical quadrature the two factors always occur at the same places, we only offer the combined quantity, rather than two separate ones.) We note that here we won't use the FEValues object in its original purpose, i.e. for the computation of values of basis functions of a specific finite element at certain quadrature points. Rather, we use it only to gain the `JxW` at the quadrature points, irrespective of the (dummy) finite element we will give to the constructor of the FEValues object. The actual finite element given to the FEValues object is not used at all, so we could give any. 
+
+[1.x.26] 
+
+
+
+For the numerical quadrature on all cells we employ a quadrature rule of sufficiently high degree. We choose QGauss that is of order 8 (4 points), to be sure that the errors due to numerical quadrature are of higher order than the order (maximal 6) that will occur due to the order of the approximation of the boundary, i.e. the order of the mappings employed. Note that the integrand, the Jacobian determinant, is not a polynomial function (rather, it is a rational one), so we do not use Gauss quadrature in order to get the exact value of the integral as done often in finite element computations, but could as well have used any quadrature formula of like order instead. 
+
+[1.x.27] 
+
+
+
+Now start by looping over polynomial mapping degrees=1..4: 
+
+[1.x.28] 
+
+
+
+First generate the triangulation, the boundary and the mapping object as already seen. 
+
+[1.x.29] 
+
+
+
+We now create a finite element. Unlike the rest of the example programs, we do not actually need to do any computations with shape functions; we only need the `JxW` values from an FEValues object. Hence we use the special finite element class FE_Nothing which has exactly zero degrees of freedom per cell (as the name implies, the local basis on each cell is the empty set). A more typical usage of FE_Nothing is shown in  [2.x.37] . 
+
+[1.x.30] 
+
+
+
+Likewise, we need to create a DoFHandler object. We do not actually use it, but it will provide us with `active_cell_iterators` that are needed to reinitialize the FEValues object on each cell of the triangulation. 
+
+[1.x.31] 
+
+
+
+Now we set up the FEValues object, giving the Mapping, the dummy finite element and the quadrature object to the constructor, together with the update flags asking for the `JxW` values at the quadrature points only. This tells the FEValues object that it needs not compute other quantities upon calling the  [2.x.38]  function, thus saving computation time.          
+
+
+The most important difference in the construction of the FEValues object compared to previous example programs is that we pass a mapping object as first argument, which is to be used in the computation of the mapping from unit to real cell. In previous examples, this argument was omitted, resulting in the implicit use of an object of type MappingQ1. 
+
+[1.x.32] 
+
+
+
+We employ an object of the ConvergenceTable class to store all important data like the approximated values for  [2.x.39]  and the error with respect to the true value of  [2.x.40] . We will also use functions provided by the ConvergenceTable class to compute convergence rates of the approximations to  [2.x.41] . 
+
+[1.x.33] 
+
+
+
+Now we loop over several refinement steps of the triangulation. 
+
+[1.x.34] 
+
+
+
+In this loop we first add the number of active cells of the current triangulation to the table. This function automatically creates a table column with superscription `cells`, in case this column was not created before. 
+
+[1.x.35] 
+
+
+
+Then we distribute the degrees of freedom for the dummy finite element. Strictly speaking we do not need this function call in our special case but we call it to make the DoFHandler happy -- otherwise it would throw an assertion in the  [2.x.42]  function below. 
+
+[1.x.36] 
+
+
+
+We define the variable area as `long double` like we did for the `pi` variable before. 
+
+[1.x.37] 
+
+
+
+Now we loop over all cells, reinitialize the FEValues object for each cell, and add up all the `JxW` values for this cell to `area`... 
+
+[1.x.38] 
+
+
+
+...and store the resulting area values and the errors in the table. We need a static cast to double as there is no add_value(string, long double) function implemented. Note that this also concerns the second call as the  [2.x.43]  function in the  [2.x.44]  namespace is overloaded on its argument types, so there exists a version taking and returning a  [2.x.45] , in contrast to the global namespace where only one such function is declared (which takes and returns a double). 
+
+[1.x.39] 
+
+
+
+We want to compute the convergence rates of the `error` column. Therefore we need to omit the other columns from the convergence rate evaluation before calling `evaluate_all_convergence_rates` 
+
+[1.x.40] 
+
+
+
+Finally we set the precision and scientific mode for output of some of the quantities... 
+
+[1.x.41] 
+
+
+
+...and write the whole table to  [2.x.46]  
+
+[1.x.42] 
+
+
+
+The following, second function also computes an approximation of  [2.x.47]  but this time via the perimeter  [2.x.48]  of the domain instead of the area. This function is only a variation of the previous function. So we will mainly give documentation for the differences. 
+
+[1.x.43] 
+
+
+
+We take the same order of quadrature but this time a `dim-1` dimensional quadrature as we will integrate over (boundary) lines rather than over cells. 
+
+[1.x.44] 
+
+
+
+We loop over all degrees, create the triangulation, the boundary, the mapping, the dummy finite element and the DoFHandler object as seen before. 
+
+[1.x.45] 
+
+
+
+Then we create a FEFaceValues object instead of a FEValues object as in the previous function. Again, we pass a mapping as first argument. 
+
+[1.x.46] 
+
+
+
+Now we run over all cells and over all faces of each cell. Only the contributions of the `JxW` values on boundary faces are added to the long double variable `perimeter`. 
+
+[1.x.47] 
+
+
+
+We reinit the FEFaceValues object with the cell iterator and the number of the face. 
+
+[1.x.48] 
+
+
+
+Then store the evaluated values in the table... 
+
+[1.x.49] 
+
+
+
+...and end this function as we did in the previous one: 
+
+[1.x.50] 
+
+
+
+The following main function just calls the above functions in the order of their appearance. Apart from this, it looks just like the main functions of previous tutorial programs. 
+
+[1.x.51] 
+
+[1.x.52][1.x.53] 
+
+
+
+
+The program performs two tasks, the first being to generate a visualization of the mapped domain, the second to compute pi by the two methods described. Let us first take a look at the generated graphics. They are generated in Gnuplot format, and can be viewed with the commands 
+
+[1.x.54] 
+
+or using one of the other filenames. The second line makes sure that the aspect ratio of the generated output is actually 1:1, i.e. a circle is drawn as a circle on your screen, rather than as an ellipse. The third line switches off the key in the graphic, as that will only print information (the filename) which is not that important right now. Similarly, the fourth and fifth disable tick marks. The plot is then generated with a specific line width ("lw", here set to 4) and line type ("lt", here chosen by saying that the line should be drawn using the RGB color "black"). 
+
+The following table shows the triangulated computational domain for  [2.x.49] ,  [2.x.50] , and  [2.x.51]  mappings, for the original coarse grid (left), and a once uniformly refined grid (right). 
+
+ [2.x.52]  
+
+These pictures show the obvious advantage of higher order mappings: they approximate the true boundary quite well also on rather coarse meshes. To demonstrate this a little further, here is part of the upper right quarter circle of the coarse meshes with  [2.x.53]  and  [2.x.54]  mappings, where the dashed red line marks the actual circle: 
+
+ [2.x.55]  
+
+Obviously the quadratic mapping approximates the boundary quite well, while for the cubic mapping the difference between approximated domain and true one is hardly visible already for the coarse grid. You can also see that the mapping only changes something at the outer boundaries of the triangulation. In the interior, all lines are still represented by linear functions, resulting in additional computations only on cells at the boundary. Higher order mappings are therefore usually not noticeably slower than lower order ones, because the additional computations are only performed on a small subset of all cells. 
+
+
+
+
+The second purpose of the program was to compute the value of pi to good accuracy. This is the output of this part of the program: 
+
+[1.x.55] 
+
+
+
+
+
+
+One of the immediate observations from the output is that in all cases the values converge quickly to the true value of  [2.x.56] . Note that for the  [2.x.57]  mapping, we are already in the regime of roundoff errors and the convergence rate levels off, which is already quite a lot. However, also note that for the  [2.x.58]  mapping, even on the finest grid the accuracy is significantly worse than on the coarse grid for a  [2.x.59]  mapping! 
+
+
+
+
+The last column of the output shows the convergence order, in powers of the mesh width  [2.x.60] . In the introduction, we had stated that the convergence order for a  [2.x.61]  mapping should be  [2.x.62] . However, in the example shown, the order is rather  [2.x.63] ! This at first surprising fact is explained by the properties of the  [2.x.64]  mapping. At order [1.x.56], it uses support points that are based on the [1.x.57]+1 point Gauss-Lobatto quadrature rule that selects the support points in such a way that the quadrature rule converges at order 2[1.x.58]. Even though these points are here only used for interpolation of a [1.x.59]th order polynomial, we get a superconvergence effect when numerically evaluating the integral, resulting in the observed high order of convergence. (This effect is also discussed in detail in the following publication: A. Bonito, A. Demlow, and J. Owen: "A priori error estimates for finite element approximations to eigenvalues and eigenfunctions of the Laplace-Beltrami operator", submitted, 2018.) [1.x.60] [1.x.61]  [2.x.65]  
+
+ [2.x.66] 

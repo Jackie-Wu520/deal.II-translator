@@ -223,7 +223,7 @@ W &= \sum_\ell W_\ell = 1 + 2 + 3 = 6
 \\
 \mathbb{E} &= \frac{W_{\text{opt}}}{W} = \frac12.
 @f}
-The value MGTools::workload_imbalance()$= 1/\mathbb{E}$ then represents the factor increase
+The value MGTools::workload_imbalance() $= 1/\mathbb{E}$ then represents the factor increase
 in timings we expect for GMG methods (vmults, assembly, etc.) due to the imbalance of the
 mesh partition compared to a perfectly load-balanced workload. We will
 report on these in the results section below for a sequence of meshes,

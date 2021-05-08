@@ -1,0 +1,425 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] . 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5][1.x.6][1.x.7][1.x.8][1.x.9][1.x.10][1.x.11][1.x.12][1.x.13][1.x.14][1.x.15][1.x.16][1.x.17][1.x.18][1.x.19][1.x.20][1.x.21][1.x.22] 
+
+[1.x.23] [1.x.24][1.x.25] 
+
+
+ [2.x.3]  ( [2.x.4]  
+
+
+This program implements the heat equation 
+
+[1.x.26] 
+
+In some sense, this equation is simpler than the ones we have discussed in the preceding programs  [2.x.5] ,  [2.x.6] ,  [2.x.7] , namely the wave equation. This is due to the fact that the heat equation smoothes out the solution over time, and is consequently more forgiving in many regards. For example, when using implicit time stepping methods, we can actually take large time steps, we have less trouble with the small disturbances we introduce through adapting the mesh every few time steps, etc. 
+
+Our goal here will be to solve the equations above using the theta-scheme that discretizes the equation in time using the following approach, where we would like  [2.x.8]  to approximate  [2.x.9]  at some time  [2.x.10] : 
+
+[1.x.27] 
+
+Here,  [2.x.11]  is the time step size. The theta-scheme generalizes the explicit Euler ( [2.x.12] ), implicit Euler ( [2.x.13] ) and Crank-Nicolson ( [2.x.14] ) time discretizations. Since the latter has the highest convergence order, we will choose  [2.x.15]  in the program below, but make it so that playing with this parameter remains simple. (If you are interested in playing with higher order methods, take a look at  [2.x.16] .) 
+
+Given this time discretization, space discretization happens as it always does, by multiplying with test functions, integrating by parts, and then restricting everything to a finite dimensional subspace. This yields the following set of fully discrete equations after multiplying through with  [2.x.17] : 
+
+[1.x.28] 
+
+where  [2.x.18]  is the mass matrix and  [2.x.19]  is the stiffness matrix that results from discretizing the Laplacian. Bringing all known quantities to the right hand side yields the linear system we have to solve in every step: 
+
+[1.x.29] 
+
+The linear system on the left hand side is symmetric and positive definite, so we should have no trouble solving it with the Conjugate Gradient method. 
+
+We can start the iteration above if we have the set of nodal coefficients  [2.x.20]  at the initial time. Here, we take the ones we get by interpolating the initial values  [2.x.21]  onto the mesh used for the first time step. We will also need to choose a time step; we will here just choose it as fixed, but clearly advanced simulators will want to choose it adaptively. We will briefly come back to this in the [1.x.30]. 
+
+
+[1.x.31][1.x.32] 
+
+
+When solving the wave equation and its variants in the previous few programs, we kept the mesh fixed. Just as for stationary equations, one can make a good case that this is not the smartest approach and that significant savings can be had by adapting the mesh. There are, however, significant difficulties compared to the stationary case. Let us go through them in turn: 
+
+ [2.x.22]     [2.x.23] [1.x.33]: For stationary problems, the   general approach is "make the mesh as fine as it is necessary". For problems   with singularities, this often leads to situations where we get many levels   of refinement into corners or along interfaces. The very first tutorial to   use adaptive meshes,  [2.x.24] , is a point in case already. 
+
+  However, for time dependent problems, we typically need to choose the time   step related to the mesh size. For explicit time discretizations, this is   obvious, since we need to respect a CFL condition that ties the time step   size to the smallest mesh size. For implicit time discretizations, no such   hard restriction exists, but in practice we still want to make the time step   smaller if we make the mesh size smaller since we typically have error   estimates of the form  [2.x.25]  where  [2.x.26]  are the   convergence orders of the time and space discretization, respectively. We   can only make the error small if we decrease both terms. Ideally, an   estimate like this would suggest to choose  [2.x.27] . Because, at   least for problems with non-smooth solutions, the error is typically   localized in the cells with the smallest mesh size, we have to indeed choose    [2.x.28] , using the [1.x.34] mesh size. 
+
+  The consequence is that refining the mesh further in one place implies not   only the moderate additional effort of increasing the number of degrees of   freedom slightly, but also the much larger effort of having the solve the   [1.x.35] linear system more often because of the smaller time step. 
+
+  In practice, one typically deals with this by acknowledging that we can not   make the time step arbitrarily small, and consequently can not make the   local mesh size arbitrarily small. Rather, we set a maximal level of   refinement and when we flag cells for refinement, we simply do not refine   those cells whose children would exceed this maximal level of refinement. 
+
+  There is a similar problem in that we will choose a right hand side that   will switch on in different parts of the domain at different times. To avoid   being caught flat footed with too coarse a mesh in areas where we suddenly   need a finer mesh, we will also enforce in our program a [1.x.36] mesh   refinement level. 
+
+   [2.x.29] [1.x.37]: Let us consider again the   semi-discrete equations we have written down above:   [1.x.38] 
+
+  We can here consider  [2.x.30]  as data since it has presumably been computed   before. Now, let us replace   [1.x.39] 
+
+  multiply with test functions  [2.x.31]  and integrate by parts   where necessary. In a process as outlined above, this would yield   [1.x.40] 
+
+  Now imagine that we have changed the mesh between time steps  [2.x.32]  and    [2.x.33] . Then the problem is that the basis functions we use for  [2.x.34]  and    [2.x.35]  are different! This pertains to the terms on the right hand side,   the first of which we could more clearly write as (the second follows the   same pattern)   [1.x.41] 
+
+  If the meshes used in these two time steps are the same, then    [2.x.36]  forms a square mass matrix    [2.x.37] . However, if the meshes are not the same, then in general the matrix   is rectangular. Worse, it is difficult to even compute these integrals   because if we loop over the cells of the mesh at time step  [2.x.38] , then we need   to evaluate  [2.x.39]  at the quadrature points of these cells, but   they do not necessarily correspond to the cells of the mesh at time step    [2.x.40]  and  [2.x.41]  is not defined via these cells; the same of   course applies if we wanted to compute the integrals via integration on the   cells of mesh  [2.x.42] . 
+
+  In any case, what we have to face is a situation where we need to integrate   shape functions defined on two different meshes. This can be done, and is in   fact demonstrated in  [2.x.43] , but the process is at best described by the   word "awkward". 
+
+  In practice, one does not typically want to do this. Rather, we avoid the   whole situation by interpolating the solution from the old to the new mesh   every time we adapt the mesh. In other words, rather than solving the   equations above, we instead solve the problem   [1.x.42] 
+
+  where  [2.x.44]  is the interpolation operator onto the finite element space   used in time step  [2.x.45] . This is not the optimal approach since it introduces   an additional error besides time and space discretization, but it is a   pragmatic one that makes it feasible to do time adapting meshes.  [2.x.46]  
+
+
+
+
+[1.x.43][1.x.44] 
+
+
+There are a number of things one can typically get wrong when implementing a finite element code. In particular, for time dependent problems, the following are common sources of bugs: 
+
+- The time integration, for example by getting the coefficients in front of   the terms involving the current and previous time steps wrong (e.g., mixing   up a factor  [2.x.47]  for  [2.x.48] ). 
+
+- Handling the right hand side, for example forgetting a factor of  [2.x.49]  or    [2.x.50] . 
+
+- Mishandling the boundary values, again for example forgetting a factor of    [2.x.51]  or  [2.x.52] , or forgetting to apply nonzero boundary values not only   to the right hand side but also to the system matrix. 
+
+A less common problem is getting the initial conditions wrong because one can typically see that it is wrong by just outputting the first time step. In any case, in order to verify the correctness of the code, it is helpful to have a testing protocol that allows us to verify each of these components separately. This means: 
+
+- Testing the code with nonzero initial conditions but zero right hand side   and boundary values and verifying that the time evolution is correct. 
+
+- Then testing with zero initial conditions and boundary values but nonzero   right hand side and again ensuring correctness. 
+
+- Finally, testing with zero initial conditions and right hand side but   nonzero boundary values. 
+
+This sounds complicated, but fortunately, for linear partial differential equations without coefficients (or constant coefficients) like the one here, there is a fairly standard protocol that rests on the following observation: if you choose as your domain a square  [2.x.53]  (or, with slight modifications, a rectangle), then the exact solution can be written as 
+
+[1.x.45] 
+
+(with integer constants  [2.x.54] ) if only the initial condition, right hand side and boundary values are all of the form  [2.x.55]  as well. This is due to the fact that the function  [2.x.56]  is an eigenfunction of the Laplace operator and allows us to compute things like the time factor  [2.x.57]  analytically and, consequently, compare with what we get numerically. 
+
+As an example, let us consider the situation where we have  [2.x.58]  and  [2.x.59] . With the claim (ansatz) of the form for  [2.x.60]  above, we get that 
+
+[1.x.46] 
+
+For this to be equal to  [2.x.61] , we need that 
+
+[1.x.47] 
+
+and due to the initial conditions,  [2.x.62] . This differential equation can be integrated to yield 
+
+[1.x.48] 
+
+In other words, if the initial condition is a product of sines, then the solution has exactly the same shape of a product of sines that decays to zero with a known time dependence. This is something that is easy to test if you have a sufficiently fine mesh and sufficiently small time step. 
+
+What is typically going to happen if you get the time integration scheme wrong (e.g., by having the wrong factors of  [2.x.63]  or  [2.x.64]  in front of the various terms) is that you don't get the right temporal behavior of the solution. Double check the various factors until you get the right behavior. You may also want to verify that the temporal decay rate (as determined, for example, by plotting the value of the solution at a fixed point) does not double or halve each time you double or halve the time step or mesh size. You know that it's not the handling of the boundary conditions or right hand side because these were both zero. 
+
+If you have so verified that the time integrator is correct, take the situation where the right hand side is nonzero but the initial conditions are zero:  [2.x.65]  and  [2.x.66] . Again, 
+
+[1.x.49] 
+
+and for this to be equal to  [2.x.67] , we need that 
+
+[1.x.50] 
+
+and due to the initial conditions,  [2.x.68] . Integrating this equation in time yields 
+
+[1.x.51] 
+
+
+
+Again, if you have the wrong factors of  [2.x.69]  or  [2.x.70]  in front of the right hand side terms you will either not get the right temporal behavior of the solution, or it will converge to a maximum value other than  [2.x.71] . 
+
+Once we have verified that the time integration and right hand side handling are correct using this scheme, we can go on to verifying that we have the boundary values correct, using a very similar approach. 
+
+
+
+
+[1.x.52][1.x.53] 
+
+
+Solving the heat equation on a simple domain with a simple right hand side almost always leads to solutions that are exceedingly boring, since they become very smooth very quickly and then do not move very much any more. Rather, we here solve the equation on the L-shaped domain with zero Dirichlet boundary values and zero initial conditions, but as right hand side we choose 
+
+[1.x.54] 
+
+Here, 
+
+[1.x.55] 
+
+In other words, in every period of length  [2.x.72] , the right hand side first flashes on in domain 1, then off completely, then on in domain 2, then off completely again. This pattern is probably best observed via the little animation of the solution shown in the [1.x.56]. 
+
+If you interpret the heat equation as finding the spatially and temporally variable temperature distribution of a conducting solid, then the test case above corresponds to an L-shaped body where we keep the boundary at zero temperature, and heat alternatingly in two parts of the domain. While heating is in effect, the temperature rises in these places, after which it diffuses and diminishes again. The point of these initial conditions is that they provide us with a solution that has singularities both in time (when sources switch on and off) as well as time (at the reentrant corner as well as at the edges and corners of the regions where the source acts). [1.x.57] [1.x.58] 
+
+The program starts with the usual include files, all of which you should have seen before by now: 
+
+[1.x.59] 
+
+
+
+Then the usual placing of all content of this program into a namespace and the importation of the deal.II namespace into the one we will work in: 
+
+[1.x.60] 
+
+
+
+
+[1.x.61]  [1.x.62]    
+
+
+The next piece is the declaration of the main class of this program. It follows the well trodden path of previous examples. If you have looked at  [2.x.73] , for example, the only thing worth noting here is that we need to build two matrices (the mass and Laplace matrix) and keep the current and previous time step's solution. We then also need to store the current time, the size of the time step, and the number of the current time step. The last of the member variables denotes the theta parameter discussed in the introduction that allows us to treat the explicit and implicit Euler methods as well as the Crank-Nicolson method and other generalizations all in one program.    
+
+
+As far as member functions are concerned, the only possible surprise is that the  [2.x.74]  function takes arguments for the minimal and maximal mesh refinement level. The purpose of this is discussed in the introduction. 
+
+[1.x.63] 
+
+
+
+
+[1.x.64]  [1.x.65] 
+
+
+
+
+In the following classes and functions, we implement the various pieces of data that define this problem (right hand side and boundary values) that are used in this program and for which we need function objects. The right hand side is chosen as discussed at the end of the introduction. For boundary values, we choose zero values, but this is easily changed below. 
+
+[1.x.66] 
+
+
+
+
+[1.x.67]  [1.x.68]    
+
+
+It is time now for the implementation of the main class. Let's start with the constructor which selects a linear element, a time step constant at 1/500 (remember that one period of the source on the right hand side was set to 0.2 above, so we resolve each period with 100 time steps) and chooses the Crank Nicolson method by setting  [2.x.75] . 
+
+[1.x.69] 
+
+
+
+
+[1.x.70]  [1.x.71]    
+
+
+The next function is the one that sets up the DoFHandler object, computes the constraints, and sets the linear algebra objects to their correct sizes. We also compute the mass and Laplace matrix here by simply calling two functions in the library.    
+
+
+Note that we do not take the hanging node constraints into account when assembling the matrices (both functions have an AffineConstraints argument that defaults to an empty object). This is because we are going to condense the constraints in run() after combining the matrices for the current time-step. 
+
+[1.x.72] 
+
+
+
+
+[1.x.73]  [1.x.74]    
+
+
+The next function is the one that solves the actual linear system for a single time step. There is nothing surprising here: 
+
+[1.x.75] 
+
+
+
+
+[1.x.76]  [1.x.77]    
+
+
+Neither is there anything new in generating graphical output other than the fact that we tell the DataOut object what the current time and time step number is, so that this can be written into the output file: 
+
+[1.x.78] 
+
+
+
+
+[1.x.79]  [1.x.80]    
+
+
+This function is the interesting part of the program. It takes care of the adaptive mesh refinement. The three tasks this function performs is to first find out which cells to refine/coarsen, then to actually do the refinement and eventually transfer the solution vectors between the two different grids. The first task is simply achieved by using the well-established Kelly error estimator on the solution. The second task is to actually do the remeshing. That involves only basic functions as well, such as the  [2.x.76]  that refines those cells with the largest estimated error that together make up 60 per cent of the error, and coarsens those cells with the smallest error that make up for a combined 40 per cent of the error. Note that for problems such as the current one where the areas where something is going on are shifting around, we want to aggressively coarsen so that we can move cells around to where it is necessary.    
+
+
+As already discussed in the introduction, too small a mesh leads to too small a time step, whereas too large a mesh leads to too little resolution. Consequently, after the first two steps, we have two loops that limit refinement and coarsening to an allowable range of cells: 
+
+[1.x.81] 
+
+
+
+These two loops above are slightly different but this is easily explained. In the first loop, instead of calling  [2.x.77]  we may as well have called  [2.x.78] . The two calls should yield the same iterator since iterators are sorted by level and there should not be any cells on levels higher than on level  [2.x.79] . In fact, this very piece of code makes sure that this is the case. 
+
+
+
+
+As part of mesh refinement we need to transfer the solution vectors from the old mesh to the new one. To this end we use the SolutionTransfer class and we have to prepare the solution vectors that should be transferred to the new grid (we will lose the old grid once we have done the refinement so the transfer has to happen concurrently with refinement). At the point where we call this function, we will have just computed the solution, so we no longer need the old_solution variable (it will be overwritten by the solution just after the mesh may have been refined, i.e., at the end of the time step; see below). In other words, we only need the one solution vector, and we copy it to a temporary object where it is safe from being reset when we further down below call  [2.x.80] .      
+
+
+Consequently, we initialize a SolutionTransfer object by attaching it to the old DoF handler. We then prepare the triangulation and the data vector for refinement (in this order). 
+
+[1.x.82] 
+
+
+
+Now everything is ready, so do the refinement and recreate the DoF structure on the new grid, and finally initialize the matrix structures and the new vectors in the  [2.x.81]  function. Next, we actually perform the interpolation of the solution from old to new grid. The final step is to apply the hanging node constraints to the solution vector, i.e., to make sure that the values of degrees of freedom located on hanging nodes are so that the solution is continuous. This is necessary since SolutionTransfer only operates on cells locally, without regard to the neighborhoof. 
+
+[1.x.83] 
+
+
+
+
+[1.x.84]  [1.x.85]    
+
+
+This is the main driver of the program, where we loop over all time steps. At the top of the function, we set the number of initial global mesh refinements and the number of initial cycles of adaptive mesh refinement by repeating the first time step a few times. Then we create a mesh, initialize the various objects we will work with, set a label for where we should start when re-running the first time step, and interpolate the initial solution onto out mesh (we choose the zero function here, which of course we could do in a simpler way by just setting the solution vector to zero). We also output the initial time step once.    
+
+
+
+
+ [2.x.82]  If you're an experienced programmer, you may be surprised that we use a  [2.x.83]  statement in this piece of code!  [2.x.84]  statements are not particularly well liked any more since Edsgar Dijkstra, one of the greats of computer science, wrote a letter in 1968 called "Go To Statement considered harmful" (see [1.x.86]). The author of this code subscribes to this notion whole-heartedly:  [2.x.85]  is hard to understand. In fact, deal.II contains virtually no occurrences: excluding code that was essentially transcribed from books and not counting duplicated code pieces, there are 3 locations in about 600,000 lines of code at the time this note is written; we also use it in 4 tutorial programs, in exactly the same context as here. Instead of trying to justify the occurrence here, let's first look at the code and we'll come back to the issue at the end of function. 
+
+[1.x.87] 
+
+
+
+Then we start the main loop until the computed time exceeds our end time of 0.5. The first task is to build the right hand side of the linear system we need to solve in each time step. Recall that it contains the term  [2.x.86] . We put these terms into the variable system_rhs, with the help of a temporary vector: 
+
+[1.x.88] 
+
+
+
+The second piece is to compute the contributions of the source terms. This corresponds to the term  [2.x.87] . The following code calls  [2.x.88]  to compute the vectors  [2.x.89] , where we set the time of the right hand side (source) function before we evaluate it. The result of this all ends up in the forcing_terms variable: 
+
+[1.x.89] 
+
+
+
+Next, we add the forcing terms to the ones that come from the time stepping, and also build the matrix  [2.x.90]  that we have to invert in each time step. The final piece of these operations is to eliminate hanging node constrained degrees of freedom from the linear system: 
+
+[1.x.90] 
+
+
+
+There is one more operation we need to do before we can solve it: boundary values. To this end, we create a boundary value object, set the proper time to the one of the current time step, and evaluate it as we have done many times before. The result is used to also set the correct boundary values in the linear system: 
+
+[1.x.91] 
+
+
+
+With this out of the way, all we have to do is solve the system, generate graphical data, and... 
+
+[1.x.92] 
+
+
+
+...take care of mesh refinement. Here, what we want to do is (i) refine the requested number of times at the very beginning of the solution procedure, after which we jump to the top to restart the time iteration, (ii) refine every fifth time step after that.          
+
+
+The time loop and, indeed, the main part of the program ends with starting into the next time step by setting old_solution to the solution we have just computed. 
+
+[1.x.93] 
+
+
+
+Now that you have seen what the function does, let us come back to the issue of the  [2.x.91] . In essence, what the code does is something like this:  [2.x.92]  Here, the condition "happy with the result" is whether we'd like to keep the current mesh or would rather refine the mesh and start over on the new mesh. We could of course replace the use of the  [2.x.93]  by the following:  [2.x.94]  This has the advantage of getting rid of the  [2.x.95]  but the disadvantage of having to duplicate the code that implements the "solve timestep" and "postprocess" operations in two different places. This could be countered by putting these parts of the code (sizable chunks in the actual implementation above) into their own functions, but a  [2.x.96]  loop with a  [2.x.97]  statement is not really all that much easier to read or understand than a  [2.x.98] . 
+
+
+
+
+In the end, one might simply agree that [1.x.96]  [2.x.99]  statements are a bad idea but be pragmatic and state that there may be occasions where they can help avoid code duplication and awkward control flow. This may be one of these places, and it matches the position Steve McConnell takes in his excellent book "Code Complete"  [2.x.100]  about good programming practices (see the mention of this book in the introduction of  [2.x.101] ) that spends a surprising ten pages on the question of  [2.x.102]  in general. 
+
+
+
+
+
+
+
+
+
+
+[1.x.97]  [1.x.98] 
+
+
+
+
+Having made it this far,  there is, again, nothing much to discuss for the main function of this program: it looks like all such functions since  [2.x.103] . 
+
+[1.x.99] 
+
+[1.x.100][1.x.101] 
+
+
+As in many of the tutorials, the actual output of the program matters less than how we arrived there. Nonetheless, here it is: 
+
+[1.x.102] 
+
+
+
+Maybe of more interest is a visualization of the solution and the mesh on which it was computed: 
+
+ [2.x.104]  
+
+The movie shows how the two sources switch on and off and how the mesh reacts to this. It is quite obvious that the mesh as is is probably not the best we could come up with. We'll get back to this in the next section. 
+
+
+[1.x.103] [1.x.104][1.x.105] 
+
+
+There are at least two areas where one can improve this program significantly: adaptive time stepping and a better choice of the mesh. 
+
+[1.x.106][1.x.107] 
+
+
+Having chosen an implicit time stepping scheme, we are not bound by any CFL-like condition on the time step. Furthermore, because the time scales on which change happens on a given cell in the heat equation are not bound to the cells diameter (unlike the case with the wave equation, where we had a fixed speed of information transport that couples the temporal and spatial scales), we can choose the time step as we please. Or, better, choose it as we deem necessary for accuracy. 
+
+Looking at the solution, it is clear that the action does not happen uniformly over time: a lot is changing around the time we switch on a source, things become less dramatic once a source is on for a little while, and we enter a long phase of decline when both sources are off. During these times, we could surely get away with a larger time step than before without sacrificing too much accuracy. 
+
+The literature has many suggestions on how to choose the time step size adaptively. Much can be learned, for example, from the way ODE solvers choose their time steps. One can also be inspired by a posteriori error estimators that can, ideally, be written in a way that the consist of a temporal and a spatial contribution to the overall error. If the temporal one is too large, we should choose a smaller time step. Ideas in this direction can be found, for example, in the PhD thesis of a former principal developer of deal.II, Ralf Hartmann, published by the University of Heidelberg, Germany, in 2002. 
+
+
+[1.x.108][1.x.109] 
+
+
+We here use one of the simpler time stepping methods, namely the second order in time Crank-Nicolson method. However, more accurate methods such as Runge-Kutta methods are available and should be used as they do not represent much additional effort. It is not difficult to implement this for the current program, but a more systematic treatment is also given in  [2.x.105] . 
+
+
+[1.x.110][1.x.111] 
+
+
+If you look at the meshes in the movie above, it is clear that they are not particularly well suited to the task at hand. In fact, they look rather random. 
+
+There are two factors at play. First, there are some islands where cells have been refined but that are surrounded by non-refined cells (and there are probably also a few occasional coarsened islands). These are not terrible, as they most of the time do not affect the approximation quality of the mesh, but they also don't help because so many of their additional degrees of freedom are in fact constrained by hanging node constraints. That said, this is easy to fix: the Triangulation class takes an argument to its constructor indicating a level of "mesh smoothing". Passing one of many possible flags, this instructs the triangulation to refine some additional cells, or not to refine some cells, so that the resulting mesh does not have these artifacts. 
+
+The second problem is more severe: the mesh appears to lag the solution. The underlying reason is that we only adapt the mesh once every fifth time step, and only allow for a single refinement in these cases. Whenever a source switches on, the solution had been very smooth in this area before and the mesh was consequently rather coarse. This implies that the next time step when we refine the mesh, we will get one refinement level more in this area, and five time steps later another level, etc. But this is not enough: first, we should refine immediately when a source switches on (after all, in the current context we at least know what the right hand side is), and we should allow for more than one refinement level. Of course, all of this can be done using deal.II, it just requires a bit of algorithmic thinking in how to make this work! 
+
+
+[1.x.112][1.x.113] 
+
+
+To increase the accuracy and resolution of your simulation in time, one typically decreases the time step size  [2.x.106] . If you start playing around with the time step in this particular example, you will notice that the solution becomes partly negative, if  [2.x.107]  is below a certain threshold. This is not what we would expect to happen (in nature). 
+
+To get an idea of this behavior mathematically, let us consider a general, fully discrete problem: 
+
+[1.x.114] 
+
+The general form of the  [2.x.108] th equation then reads: 
+
+[1.x.115] 
+
+where  [2.x.109]  is the set of degrees of freedom that DoF  [2.x.110]  couples with (i.e., for which either the matrix  [2.x.111]  or matrix  [2.x.112]  has a nonzero entry at position  [2.x.113] ). If all coefficients fulfill the following conditions: 
+
+[1.x.116] 
+
+all solutions  [2.x.114]  keep their sign from the previous ones  [2.x.115] , and consequently from the initial values  [2.x.116] . See e.g. [1.x.117] for more information on positivity preservation. 
+
+Depending on the PDE to solve and the time integration scheme used, one is able to deduce conditions for the time step  [2.x.117] . For the heat equation with the Crank-Nicolson scheme, [1.x.118] have translated it to the following ones: 
+
+[1.x.119] 
+
+where  [2.x.118]  denotes the mass matrix and  [2.x.119]  the stiffness matrix with  [2.x.120]  for  [2.x.121] , respectively. With  [2.x.122] , we can formulate bounds for the global time step  [2.x.123]  as follows: 
+
+[1.x.120] 
+
+In other words, the time step is constrained by [1.x.121] in case of a Crank-Nicolson scheme. These bounds should be considered along with the CFL condition to ensure significance of the performed simulations. 
+
+Being unable to make the time step as small as we want to get more accuracy without losing the positivity property is annoying. It raises the question of whether we can at least [1.x.122] the minimal time step we can choose  to ensure positivity preservation in this particular tutorial. Indeed, we can use the SparseMatrix objects for both mass and stiffness that are created via the MatrixCreator functions. Iterating through each entry via SparseMatrixIterators lets us check for diagonal and off-diagonal entries to set a proper time step dynamically. For quadratic matrices, the diagonal element is stored as the first member of a row (see SparseMatrix documentation). An exemplary code snippet on how to grab the entries of interest from the  [2.x.124]  is shown below. 
+
+[1.x.123] 
+
+
+
+Using the information so computed, we can bound the time step via the formulas above. [1.x.124] [1.x.125]  [2.x.125]  
+
+ [2.x.126] 

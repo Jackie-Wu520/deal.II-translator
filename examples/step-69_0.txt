@@ -1,0 +1,1603 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] ,  [2.x.3] . 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5][1.x.6][1.x.7][1.x.8][1.x.9][1.x.10][1.x.11][1.x.12][1.x.13][1.x.14][1.x.15][1.x.16][1.x.17][1.x.18][1.x.19][1.x.20][1.x.21][1.x.22][1.x.23][1.x.24][1.x.25][1.x.26][1.x.27][1.x.28][1.x.29][1.x.30][1.x.31] 
+
+[1.x.32] 
+
+ [2.x.4]  [2.x.5] Sandia National Laboratories is a multimission laboratory managed and operated by National Technology & Engineering Solutions of Sandia, LLC, a wholly owned subsidiary of Honeywell International Inc., for the U.S. Department of Energy's National Nuclear Security Administration under contract DE-NA0003525. This document describes objective technical results and analysis. Any subjective views or opinions that might be expressed in the paper do not necessarily represent the views of the U.S. Department of Energy or the United States Government. [2.x.6]  
+
+ [2.x.7]  This tutorial step implements a first-order accurate [1.x.33] based on a first-order [1.x.34] for solving Euler's equations of gas dynamics  [2.x.8] . As such it is presented primarily for educational purposes. For actual research computations you might want to consider exploring a corresponding [1.x.35] that uses [1.x.36] techniques, and strong stability-preserving (SSP) time integration, see  [2.x.9]  ([1.x.37]). 
+
+ [2.x.10]  
+
+[1.x.38] [1.x.39][1.x.40] 
+
+
+This tutorial presents a first-order scheme for solving compressible Euler's equations that is based on three ingredients: a [1.x.41]-type discretization of Euler's equations in the context of finite elements; a graph-viscosity stabilization based on a [1.x.42] upper bound of the local wave speed; and explicit time-stepping. As such, the ideas and techniques presented in this tutorial step are drastically different from those used in  [2.x.11] , which focuses on the use of automatic differentiation. From a programming perspective this tutorial will focus on a number of techniques found in large-scale computations: hybrid thread-MPI parallelization; efficient local numbering of degrees of freedom; concurrent post-processing and write-out of results using worker threads; as well as checkpointing and restart. 
+
+It should be noted that first-order schemes in the context of hyperbolic conservation laws require prohibitively many degrees of freedom to resolve certain key features of the simulated fluid, and thus, typically only serve as elementary building blocks in higher-order schemes  [2.x.12] . However, we hope that the reader still finds the tutorial step to be a good starting point (in particular with respect to the programming techniques) before jumping into full research codes such as the second-order scheme discussed in  [2.x.13] . 
+
+
+[1.x.43] [1.x.44][1.x.45] 
+
+
+The compressible Euler's equations of gas dynamics are written in conservative form as follows: 
+
+[1.x.46] 
+
+where  [2.x.14] , and  [2.x.15] , and  [2.x.16]  is the space dimension. We say that  [2.x.17]  is the state and  [2.x.18]  is the flux of the system. In the case of Euler's equations the state is given by  [2.x.19] : where  [2.x.20]  denotes the density,  [2.x.21]  is the momentum, and  [2.x.22]  is the total energy of the system. The flux of the system  [2.x.23]  is defined as 
+
+[1.x.47] 
+
+where  [2.x.24]  is the identity matrix and  [2.x.25]  denotes the tensor product. Here, we have introduced the pressure  [2.x.26]  that, in general, is defined by a closed-form equation of state. In this tutorial we limit the discussion to the class of polytropic ideal gases for which the pressure is given by 
+
+[1.x.48] 
+
+where the factor  [2.x.27]  denotes the [1.x.49]. 
+
+
+[1.x.50][1.x.51] 
+
+
+Hyperbolic conservation laws, such as 
+
+[1.x.52] 
+
+pose a significant challenge with respect to solution theory. An evident observation is that rewriting the equation in variational form and testing with the solution itself does not lead to an energy estimate because the pairing  [2.x.28]  (understood as the  [2.x.29]  inner product or duality pairing) is not guaranteed to be non-negative. Notions such as energy-stability or  [2.x.30] -stability are (in general) meaningless in this context. 
+
+Historically, the most fruitful step taken in order to deepen the understanding of hyperbolic conservation laws was to assume that the solution is formally defined as  [2.x.31]  where  [2.x.32]  is the solution of the parabolic regularization 
+
+[1.x.53] 
+
+Such solutions, which are understood as the solution recovered in the zero-viscosity limit, are often referred to as [1.x.54]. (This is, because physically  [2.x.33]  can be understood as related to the viscosity of the fluid, i.e., a quantity that indicates the amount of friction neighboring gas particles moving at different speeds exert on each other. The Euler equations themselves are derived under the assumption of no friction, but can physically be expected to describe the limiting case of vanishing friction or viscosity.) Global existence and uniqueness of such solutions is an open issue. However, we know at least that if such viscosity solutions exists they have to satisfy the constraint  [2.x.34]  for all  [2.x.35]  and  [2.x.36]  where 
+
+[1.x.55] 
+
+Here,  [2.x.37]  denotes the specific entropy 
+
+[1.x.56] 
+
+We will refer to  [2.x.38]  as the invariant set of Euler's equations. In other words, a state  [2.x.39]  obeys positivity of the density, positivity of the internal energy, and a local minimum principle on the specific entropy. This condition is a simplified version of a class of pointwise stability constraints satisfied by the exact (viscosity) solution. By pointwise we mean that the constraint has to be satisfied at every point of the domain, not just in an averaged (integral, or high order moments) sense. 
+
+In context of a numerical approximation, a violation of such a constraint has dire consequences: it almost surely leads to catastrophic failure of the numerical scheme, loss of hyperbolicity, and overall, loss of well-posedness of the (discrete) problem. It would also mean that we have computed something that can not be interpreted physically. (For example, what are we to make of a computed solution with a negative density?) In the following we will formulate a scheme that ensures that the discrete approximation of  [2.x.40]  remains in  [2.x.41] . 
+
+
+[1.x.57][1.x.58] 
+
+
+Following  [2.x.42] ,  [2.x.43] ,  [2.x.44] , and  [2.x.45] , at this point it might look tempting to base a discretization of Euler's equations on a (semi-discrete) variational formulation: 
+
+[1.x.59] 
+
+Here,  [2.x.46]  is an appropriate finite element space, and  [2.x.47]  is some linear stabilization method (possibly complemented with some ad-hoc shock-capturing technique, see for instance Chapter 5 of  [2.x.48]  and references therein). Most time-dependent discretization approaches described in the deal.II tutorials are based on such a (semi-discrete) variational approach. Fundamentally, from an analysis perspective, variational discretizations are conceived to provide some notion of global (integral) stability, meaning an estimate of the form 
+
+[1.x.60] 
+
+holds true, where  [2.x.49]  could represent the  [2.x.50] -norm or, more generally, some discrete (possibly mesh dependent) energy-norm. Variational discretizations of hyperbolic conservation laws have been very popular since the mid eighties, in particular combined with SUPG-type stabilization and/or upwinding techniques (see the early work of  [2.x.51]  and  [2.x.52] ). They have proven to be some of the best approaches for simulations in the subsonic shockless regime and similarly benign situations. 
+
+<!-- In particular, tutorial  [2.x.53]  focuses on Euler's equation of gas dynamics in the subsonic regime using dG techniques. --> 
+
+However, in the transonic and supersonic regimes, and shock-hydrodynamics applications the use of variational schemes might be questionable. In fact, at the time of this writing, most shock-hydrodynamics codes are still firmly grounded on finite volume methods. The main reason for failure of variational schemes in such extreme regimes is the lack of pointwise stability. This stems from the fact that [1.x.61] bounds on integrated quantities (e.g. integrals of moments) have in general no implications on pointwise properties of the solution. While some of these problems might be alleviated by the (perpetual) chase of the right shock capturing scheme, finite difference-like and finite volume schemes still have an edge in many regards. 
+
+In this tutorial step we therefore depart from variational schemes. We will present a completely algebraic formulation (with the flavor of a collocation-type scheme) that preserves constraints pointwise, i.e., 
+
+[1.x.62] 
+
+Contrary to finite difference/volume schemes, the scheme implemented in this step maximizes the use of finite element software infrastructure, works on any mesh, in any space dimension, and is theoretically guaranteed to always work, all the time, no exception. This illustrates that deal.II can be used far beyond the context of variational schemes in Hilbert spaces and that a large number of classes, modules and namespaces from deal.II can be adapted for such a purpose. 
+
+
+[1.x.63][1.x.64] 
+
+
+Let  [2.x.54]  be scalar-valued finite dimensional space spanned by a basis  [2.x.55]  where:  [2.x.56]  and  [2.x.57]  is the set of all indices (nonnegative integers) identifying each scalar Degree of Freedom (DOF) in the mesh. Therefore a scalar finite element functional  [2.x.58]  can be written as  [2.x.59]  with  [2.x.60] . We introduce the notation for vector-valued approximation spaces  [2.x.61] . Let  [2.x.62] , then it can be written as  [2.x.63]  where  [2.x.64]  and  [2.x.65]  is a scalar-valued shape function. 
+
+ [2.x.66]  We purposely refrain from using vector-valued finite element spaces in our notation. Vector-valued finite element spaces are natural for variational formulations of PDE systems (e.g. Navier-Stokes). In such context, the interactions that have to be computed describe [1.x.65]: with proper renumbering of the vector-valued DoFHandler (i.e. initialized with an FESystem) it is possible to compute the block-matrices (required in order to advance the solution) with relative ease. However, the interactions that have to be computed in the context of time-explicit collocation-type schemes (such as finite differences and/or the scheme presented in this tutorial) can be better described as [1.x.66] (not between DOFs). In addition, in our case we do not solve a linear equation in order to advance the solution. This leaves very little reason to use vector-valued finite element spaces both in theory and/or practice. 
+
+We will use the usual Lagrange finite elements: let  [2.x.67]  denote the set of all support points (see  [2.x.68]  "this glossary entry"), where  [2.x.69] . Then each index  [2.x.70]  uniquely identifies a support point  [2.x.71] , as well as a scalar-valued shape function  [2.x.72] . With this notation at hand we can define the (explicit time stepping) scheme as: 
+
+[1.x.67] 
+
+where 
+
+  -  [2.x.73]      is the lumped mass matrix 
+
+  -  [2.x.74]  is the time step size 
+
+  -  [2.x.75]  (note that  [2.x.76] )     is a vector-valued matrix that was used to approximate the divergence     of the flux in a weak sense. 
+
+  -  [2.x.77]  is the adjacency list     containing all degrees of freedom coupling to the index  [2.x.78] . In other     words  [2.x.79]  contains all nonzero column indices for row     index i.  [2.x.80]  will also be called a "stencil". 
+
+  -  [2.x.81]  is the flux  [2.x.82]  of the     hyperbolic system evaluated for the state  [2.x.83]  associated     with support point  [2.x.84] . 
+
+  -  [2.x.85]  if  [2.x.86]  is the so     called [1.x.68]. The graph viscosity serves as a     stabilization term, it is somewhat the discrete counterpart of      [2.x.87]  that appears in the notion of viscosity     solution described above. We will base our construction of  [2.x.88]  on     an estimate of the maximal local wavespeed  [2.x.89]  that     will be explained in detail in a moment. 
+
+  - the diagonal entries of the viscosity matrix are defined as      [2.x.90] . 
+
+  -  [2.x.91]  is a     normalization of the  [2.x.92]  matrix that enters the     approximate Riemann solver with which we compute an the approximations      [2.x.93]  on the local wavespeed. (This will be explained     further down below). 
+
+The definition of  [2.x.94]  is far from trivial and we will postpone the precise definition in order to focus first on some algorithmic and implementation questions. We note that 
+
+  -  [2.x.95]  and  [2.x.96]  do not evolve in time (provided we keep the     discretization fixed). It thus makes sense to assemble these     matrices/vectors once in a so called [1.x.69] and reuse     them in every time step. They are part of what we are going to call     off-line data. 
+
+  - At every time step we have to evaluate  [2.x.97]  and      [2.x.98] , which will     constitute the bulk of the computational cost. 
+
+Consider the following pseudo-code, illustrating a possible straight forward strategy for computing the solution  [2.x.99]  at a new time  [2.x.100]  given a known state  [2.x.101]  at time  [2.x.102] : 
+
+[1.x.70] 
+
+
+
+We note here that: 
+
+- This "assembly" does not require any form of quadrature or cell-loops. 
+
+- Here  [2.x.103]  and  [2.x.104]  are a global matrix and a global vector containing all the vectors  [2.x.105]  and all the states  [2.x.106]  respectively. 
+
+-  [2.x.107] ,  [2.x.108] , and  [2.x.109]  are hypothetical implementations that either collect (from) or write (into) global matrices and vectors. 
+
+- If we assume a Cartesian mesh in two space dimensions, first-order polynomial space  [2.x.110] , and that  [2.x.111]  is an interior node (i.e.  [2.x.112]  is not on the boundary of the domain) then:  [2.x.113]  should contain nine state vector elements (i.e. all the states in the patch/macro element associated to the shape function  [2.x.114] ). This is one of the major differences with the usual cell-based loop where the gather functionality (encoded in FEValuesBase<dim, spacedim>.get_function_values() in the case of deal.II) only collects values for the local cell (just a subset of the patch). 
+
+The actual implementation will deviate from above code in one key aspect: the time-step size  [2.x.115]  has to be chosen subject to a CFL condition 
+
+[1.x.71] 
+
+where  [2.x.116]  is a chosen constant. This will require to compute all  [2.x.117]  in a separate step prior to actually performing above update. The core principle remains unchanged, though: we do not loop over cells but rather over all edges of the sparsity graph. 
+
+ [2.x.118]  It is not uncommon to encounter such fully-algebraic schemes (i.e. no bilinear forms, no cell loops, and no quadrature) outside of the finite element community in the wider CFD community. There is a rich history of application of this kind of schemes, also called [1.x.72] or [1.x.73] finite element schemes (see for instance  [2.x.119]  for a historical overview). However, it is important to highlight that the algebraic structure of the scheme (presented in this tutorial) and the node-loops are not just a performance gimmick. Actually, the structure of this scheme was born out of theoretical necessity: the proof of pointwise stability of the scheme hinges on the specific algebraic structure of the scheme. In addition, it is not possible to compute the algebraic viscosities  [2.x.120]  using cell-loops since they depend nonlinearly on information that spans more than one cell (superposition does not hold: adding contributions from separate cells does not lead to the right result). 
+
+[1.x.74][1.x.75] 
+
+
+In the example considered in this tutorial step we use three different types of boundary conditions: essential-like boundary conditions (we prescribe a state at the left boundary of our domain), outflow boundary conditions (also called "do-nothing" boundary conditions) at the right boundary of the domain, and "reflecting" boundary conditions  [2.x.121]  (also called "slip" boundary conditions) at the top, bottom, and surface of the obstacle. We will not discuss much about essential and "do-nothing" boundary conditions since their implementation is relatively easy and the reader will be able to pick-up the implementation directly from the (documented) source code. In this portion of the introduction we will focus only on the "reflecting" boundary conditions which are somewhat more tricky. 
+
+ [2.x.122]  At the time of this writing (early 2020) it is not unreasonable to say that both analysis and implementation of stable boundary conditions for hyperbolic systems of conservation laws is an open issue. For the case of variational formulations, stable boundary conditions are those leading to a well-posed (coercive) bilinear form. But for general hyperbolic systems of conservation laws (and for the algebraic formulation used in this tutorial) coercivity has no applicability and/or meaning as a notion of stability. In this tutorial step we will use preservation of the invariant set as our main notion of stability which (at the very least) guarantees well-posedness of the discrete problem. 
+
+For the case of the reflecting boundary conditions we will proceed as follows: 
+
+- For every time step advance in time satisfying no boundary condition at all. 
+
+- Let  [2.x.123]  be the portion of the boundary where we want to   enforce reflecting boundary conditions. At the end of the time step we enforce   reflecting boundary conditions strongly in a post-processing step where we   execute the projection     [1.x.76] 
+
+  that removes the normal component of  [2.x.124] . This is a somewhat   naive idea that preserves a few fundamental properties of the PDE as we   explain below. 
+
+This is approach is usually called "explicit treatment of boundary conditions". The well seasoned finite element person might find this approach questionable. No doubt, when solving parabolic, or elliptic equations, we typically enforce essential (Dirichlet-like) boundary conditions by making them part of the approximation space  [2.x.125] , and treat natural (e.g. Neumann) boundary conditions as part of the variational formulation. We also know that explicit treatment of boundary conditions (in the context of parabolic PDEs) almost surely leads to catastrophic consequences. However, in the context of nonlinear hyperbolic equations we have that: 
+
+- It is relatively easy to prove that (for the case of reflecting boundary conditions) explicit treatment of boundary conditions is not only conservative but also guarantees preservation of the property  [2.x.126]  for all  [2.x.127]  (well-posedness). This is perhaps the most important reason to use explicit enforcement of boundary conditions. 
+
+- To the best of our knowledge: we are not aware of any mathematical result proving that it is possible to guarantee the property  [2.x.128]  for all  [2.x.129]  when using either direct enforcement of boundary conditions into the approximation space, or weak enforcement using the Nitsche penalty method (which is for example widely used in discontinuous Galerkin schemes). In addition, some of these traditional ideas lead to quite restrictive time step constraints. 
+
+- There is enough numerical evidence suggesting that explicit treatment of Dirichlet-like boundary conditions is stable under CFL conditions and does not introduce any loss in accuracy. 
+
+If  [2.x.130]  represents Euler's equation with reflecting boundary conditions on the entirety of the boundary (i.e.  [2.x.131] ) and we integrate in space and time  [2.x.132]  we would obtain 
+
+[1.x.77] 
+
+Note that momentum is NOT a conserved quantity (interaction with walls leads to momentum gain/loss): however  [2.x.133]  has to satisfy a momentum balance. Even though we will not use reflecting boundary conditions in the entirety of the domain, we would like to know that our implementation of reflecting boundary conditions is consistent with the conservation properties mentioned above. In particular, if we use the projection  [2.x.134]  in the entirety of the domain the following discrete mass-balance can be guaranteed: 
+
+[1.x.78] 
+
+where  [2.x.135]  is the pressure at the nodes that lie at the boundary. Clearly  [2.x.136]  is the discrete counterpart of  [2.x.137] . The proof of identity  [2.x.138]  is omitted, but we briefly mention that it hinges on the definition of the [1.x.79]  [2.x.139]  provided in  [2.x.140] . We also note that this enforcement of reflecting boundary conditions is different from the one originally advanced in  [2.x.141] . [1.x.80] [1.x.81] 
+
+
+[1.x.82]  [1.x.83] 
+
+
+
+
+The set of include files is quite standard. The most intriguing part is the fact that we will rely solely on deal.II data structures for MPI parallelization, in particular  [2.x.142]  and  [2.x.143]  included through  [2.x.144]  and  [2.x.145] . Instead of a Trilinos, or PETSc specific matrix class, we will use a non-distributed  [2.x.146]  ( [2.x.147] ) to store the local part of the  [2.x.148] ,  [2.x.149]  and  [2.x.150]  matrices. 
+
+[1.x.84] 
+
+
+
+In addition to above deal.II specific includes, we also include four boost headers. The first two are for binary archives that we will use for implementing a check-pointing and restart mechanism. 
+
+[1.x.85] 
+
+
+
+The last two header files are for creating custom iterator ranges over integer intervals. 
+
+[1.x.86] 
+
+
+
+For  [2.x.151]   [2.x.152]   [2.x.153]   [2.x.154]  and  [2.x.155]  
+
+[1.x.87] 
+
+
+
+
+[1.x.88]  [1.x.89] 
+
+
+
+
+We begin our actual implementation by declaring all classes with their data structures and methods upfront. In contrast to previous example steps we use a more fine-grained encapsulation of concepts, data structures, and parameters into individual classes. A single class thus usually centers around either a single data structure (such as the Triangulation) in the  [2.x.156]  class, or a single method (such as the  [2.x.157]  function of the  [2.x.158]  class). We typically declare parameter variables and scratch data object `private` and make methods and data structures used by other classes `public`. 
+
+
+
+
+ [2.x.159]  A cleaner approach would be to guard access to all data structures by [1.x.90]. For the sake of brevity, we refrain from that approach, though. 
+
+
+
+
+We also note that the vast majority of classes is derived from ParameterAcceptor. This facilitates the population of all the global parameters into a single (global) ParameterHandler. More explanations about the use of inheritance from ParameterAcceptor as a global subscription mechanism can be found in  [2.x.160] . 
+
+[1.x.91] 
+
+
+
+We start with defining a number of  [2.x.161]  constants used throughout the tutorial step. This allows us to refer to boundary types by a mnemonic (such as  [2.x.162] ) rather than a numerical value. 
+
+
+
+
+
+
+
+[1.x.92] 
+
+
+
+
+[1.x.93]  [1.x.94]    
+
+
+The class  [2.x.163]  contains all data structures concerning the mesh (triangulation) and discretization (mapping, finite element, quadrature) of the problem. As mentioned, we use the ParameterAcceptor class to automatically populate problem-specific parameters, such as the geometry information ( [2.x.164] , etc.) or the refinement level ( [2.x.165] ) from a parameter file. This requires us to split the initialization of data structures into two functions: We initialize everything that does not depend on parameters in the constructor, and defer the creation of the mesh to the  [2.x.166]  method that can be called once all parameters are read in via  [2.x.167]  
+
+[1.x.95] 
+
+
+
+
+[1.x.96]  [1.x.97]    
+
+
+The class  [2.x.168]  contains pretty much all components of the discretization that do not evolve in time, in particular, the DoFHandler, SparsityPattern, boundary maps, the lumped mass matrix,  [2.x.169]  and  [2.x.170]  matrices. Here, the term [1.x.98] refers to the fact that all the class members of  [2.x.171]  have well-defined values independent of the current time step. This means that they can be initialized ahead of time (at [1.x.99]) and are not meant to be modified at any later time step. For instance, the sparsity pattern should not change as we advance in time (we are not doing any form of adaptivity in space). Similarly, the entries of the lumped mass matrix should not be modified as we advance in time either.    
+
+
+We also compute and store a  [2.x.172]  that contains a map from a global index of type  [2.x.173]  of a boundary degree of freedom to a tuple consisting of a normal vector, the boundary id, and the position associated with the degree of freedom. We have to compute and store this geometric information in this class because we won't have access to geometric (or cell-based) information later on in the algebraic loops over the sparsity pattern.    
+
+
+
+
+ [2.x.174]  Even though this class currently does not have any parameters that could be read in from a parameter file we nevertheless derive from ParameterAcceptor and follow the same idiom of providing a  [2.x.175] ) method as for the class Discretization. 
+
+[1.x.100] 
+
+
+
+
+[1.x.101]  [1.x.102]    
+
+
+The member functions of this class are utility functions and data structures specific to Euler's equations: 
+
+- The type alias  [2.x.176]  is used for the states  [2.x.177]  
+
+- The type alias  [2.x.178]  is used for the fluxes  [2.x.179] . 
+
+- The  [2.x.180]  function extracts  [2.x.181]  out of the state vector  [2.x.182]  and stores it in a  [2.x.183] . 
+
+- The  [2.x.184]  function computes  [2.x.185]  from a given state vector  [2.x.186] .    
+
+
+The purpose of the class members  [2.x.187] ,  [2.x.188]  is evident from their names. We also provide a function  [2.x.189] , that computes the wave speed estimate mentioned above,  [2.x.190] , which is used in the computation of the  [2.x.191]  matrix.    
+
+
+
+
+ [2.x.192]  The  [2.x.193]  macro expands to a (compiler specific) pragma that ensures that the corresponding function defined in this class is always inlined, i.e., the function body is put in place for every invocation of the function, and no call (and code indirection) is generated. This is stronger than the  [2.x.194]  keyword, which is more or less a (mild) suggestion to the compiler that the programmer thinks it would be beneficial to inline the function.  [2.x.195]  should only be used rarely and with caution in situations such as this one, where we actually know (due to benchmarking) that inlining the function in question improves performance.    
+
+
+Finally, we observe that this is the only class in this tutorial step that is tied to a particular "physics" or "hyperbolic conservation law" (in this case Euler's equations). All the other classes are primarily "discretization" classes, very much agnostic of the particular physics being solved. 
+
+[1.x.103] 
+
+
+
+
+[1.x.104]  [1.x.105]    
+
+
+The class  [2.x.196] 's only public data attribute is a  [2.x.197]   [2.x.198]  that computes the initial state of a given point and time. This function is used for populating the initial flow field as well as setting Dirichlet boundary conditions (at inflow boundaries) explicitly in every time step.    
+
+
+For the purpose of this example step we simply implement a homogeneous uniform flow field for which the direction and a 1D primitive state (density, velocity, pressure) are read from the parameter file.    
+
+
+It would be desirable to initialize the class in a single shot: initialize/set the parameters and define the class members that depend on these default parameters. However, since we do not know the actual values for the parameters, this would be sort of meaningless and unsafe in general (we would like to have mechanisms to check the consistency of the input parameters). Instead of defining another  [2.x.199]  method to be called (by-hand) after the call to  [2.x.200]  we provide an "implementation" for the class member  [2.x.201]  which is automatically called when invoking  [2.x.202]  for every class that inherits from ParameterAceptor. 
+
+[1.x.106] 
+
+
+
+We declare a private callback function that will be wired up to the  [2.x.203]  signal. 
+
+[1.x.107] 
+
+
+
+
+[1.x.108]  [1.x.109]    
+
+
+With the  [2.x.204]  classes at hand we can now implement the explicit time-stepping scheme that was introduced in the discussion above. The main method of the  [2.x.205]  class is <code>make_one_step(vector_type &U, double t)</code> that takes a reference to a state vector  [2.x.206]  (as input arguments) computes the updated solution, stores it in the vector  [2.x.207] , and returns the chosen  [2.x.208] size  [2.x.209] .    
+
+
+The other important method is  [2.x.210]  which primarily sets the proper partition and sparsity pattern for the temporary vector  [2.x.211]  respectively. 
+
+[1.x.110] 
+
+
+
+
+[1.x.111]  [1.x.112]    
+
+
+At its core, the Schlieren class implements the class member  [2.x.212] . The main purpose of this class member is to compute an auxiliary finite element field  [2.x.213] , that is defined at each node by [1.x.113] where  [2.x.214]  can in principle be any scalar quantity. In practice though, the density is a natural candidate, viz.  [2.x.215] . [1.x.114] postprocessing is a standard method for enhancing the contrast of a visualization inspired by actual experimental X-ray and shadowgraphy techniques of visualization. (See  [2.x.216]  for another example where we create a Schlieren plot.) 
+
+[1.x.115] 
+
+
+
+
+[1.x.116]  [1.x.117]    
+
+
+Now, all that is left to do is to chain the methods implemented in the  [2.x.217] , and  [2.x.218]  classes together. We do this in a separate class  [2.x.219]  that contains an object of every class and again reads in a number of parameters with the help of the ParameterAcceptor class. 
+
+[1.x.118] 
+
+
+
+
+[1.x.119]  [1.x.120] 
+
+
+
+
+
+[1.x.121]  [1.x.122] 
+
+
+
+
+The first major task at hand is the typical triplet of grid generation, setup of data structures, and assembly. A notable novelty in this example step is the use of the ParameterAcceptor class that we use to populate parameter values: we first initialize the ParameterAcceptor class by calling its constructor with a string  [2.x.220]  denoting the correct subsection in the parameter file. Then, in the constructor body every parameter value is initialized to a sensible default value and registered with the ParameterAcceptor class with a call to  [2.x.221]  
+
+[1.x.123] 
+
+
+
+Note that in the previous constructor we only passed the MPI communicator to the  [2.x.222]  but we still have not initialized the underlying geometry/mesh. As mentioned earlier, we have to postpone this task to the  [2.x.223]  function that gets called after the  [2.x.224]  function has populated all parameter variables with the final values read from the parameter file.    
+
+
+The  [2.x.225]  function is the last class member that has to be implemented. It creates the actual triangulation that is a benchmark configuration consisting of a channel with a disk obstacle, see  [2.x.226] . We construct the geometry by modifying the mesh generated by  [2.x.227]  We refer to  [2.x.228] ,  [2.x.229] , and  [2.x.230]  for an overview how to create advanced meshes. We first create 4 temporary (non distributed) coarse triangulations that we stitch together with the  [2.x.231]  function. We center the disk at  [2.x.232]  with a diameter of  [2.x.233] . The lower left corner of the channel has coordinates ( [2.x.234] ) and the upper right corner has ( [2.x.235] ,  [2.x.236] ). 
+
+[1.x.124] 
+
+
+
+We have to fix up the left edge that is currently located at  [2.x.237]  [2.x.238]  and has to be shifted to  [2.x.239]  [2.x.240] . As a last step the boundary has to be colorized with  [2.x.241]  on the right,  [2.x.242]  on the upper and lower outer boundaries and the obstacle. 
+
+
+
+
+
+
+
+[1.x.125] 
+
+
+
+
+[1.x.126]  [1.x.127] 
+
+
+
+
+Not much is done in the constructor of  [2.x.243]  other than initializing the corresponding class members in the initialization list. 
+
+[1.x.128] 
+
+
+
+Now we can initialize the DoFHandler, extract the IndexSet objects for locally owned and locally relevant DOFs, and initialize a  [2.x.244]  object that is needed for distributed vectors. 
+
+[1.x.129] 
+
+
+
+
+[1.x.130]  [1.x.131] 
+
+
+
+
+We are now in a position to create the sparsity pattern for our matrices. There are quite a few peculiarities that need a detailed explanation. We avoid using a distributed matrix class (as for example provided by Trilinos or PETSc) and instead rely on deal.II's own SparseMatrix object to store the local part of all matrices. This design decision is motivated by the fact that (a) we actually never perform a matrix-vector multiplication, and (b) we can always assemble the local part of a matrix exclusively on a given MPI rank. Instead, we will compute nonlinear updates while iterating over (the local part) of a connectivity stencil; a task for which deal.II's own SparsityPattern is specifically optimized for.      
+
+
+This design consideration has a caveat, though. What makes the deal.II SparseMatrix class fast is the [1.x.132] used in the SparsityPattern (see  [2.x.245] ). This, unfortunately, does not play nicely with a global distributed index range because a sparsity pattern with CSR cannot contain "holes" in the index range. The distributed matrices offered by deal.II avoid this by translating from a global index range into a contiguous local index range. But this is precisely the type of index manipulation we want to avoid in our iteration over the stencil because it creates a measurable overhead.      
+
+
+The  [2.x.246]  class already implements the translation from a global index range to a contiguous local (per MPI rank) index range: we don't have to reinvent the wheel. We just need to use that translation capability (once and only once) in order to create a "local" sparsity pattern for the contiguous index range  [2.x.247]  [2.x.248]  [2.x.249] . That capability can be invoked by the  [2.x.250]  function. Once the sparsity pattern is created using local indices, all that is left to do is to ensure that (when implementing our scatter and gather auxiliary functions) we always access elements of a distributed vector by a call to  [2.x.251]  This way we avoid index translations altogether and operate exclusively with local indices. 
+
+
+
+
+
+
+
+[1.x.133] 
+
+
+
+We have to create the "local" sparsity pattern by hand. We therefore loop over all locally owned and ghosted cells (see  [2.x.252] ) and extract the (global)  [2.x.253]  associated with the cell DOFs and renumber them using  [2.x.254] .        
+
+
+
+
+ [2.x.255]  In the case of a locally owned dof, such renumbering consist of applying a shift (i.e. we subtract an offset) such that now they will become a number in the integer interval  [2.x.256]  [2.x.257]  [2.x.258] . However, in the case of a ghosted dof (i.e. not locally owned) the situation is quite different, since the global indices associated with ghosted DOFs will not be (in general) a contiguous set of integers. 
+
+
+
+
+
+
+
+[1.x.134] 
+
+
+
+This concludes the setup of the DoFHandler and SparseMatrix objects. Next, we have to assemble various matrices. We define a number of helper functions and data structures in an anonymous namespace. 
+
+
+
+
+
+
+
+[1.x.135] 
+
+
+
+ [2.x.259]  class that will be used to assemble the offline data matrices using WorkStream. It acts as a container: it is just a struct where WorkStream stores the local cell contributions. Note that it also contains a class member  [2.x.260]  used to store the local contributions required to compute the normals at the boundary. 
+
+
+
+
+
+
+
+[1.x.136] 
+
+
+
+Next we introduce a number of helper functions that are all concerned about reading and writing matrix and vector entries. They are mainly motivated by providing slightly more efficient code and [1.x.137] for otherwise somewhat tedious code. 
+
+
+
+
+The first function we introduce,  [2.x.261] , will be used to read the value stored at the entry pointed by a SparsityPattern iterator  [2.x.262] . The function works around a small deficiency in the SparseMatrix interface: The SparsityPattern is concerned with all index operations of the sparse matrix stored in CRS format. As such the iterator already knows the global index of the corresponding matrix entry in the low-level vector stored in the SparseMatrix object. Due to the lack of an interface in the SparseMatrix for accessing the element directly with a SparsityPattern iterator, we unfortunately have to create a temporary SparseMatrix iterator. We simply hide this in the  [2.x.263]  function. 
+
+
+
+
+
+
+
+[1.x.138] 
+
+
+
+The  [2.x.264]  helper is the inverse operation of  [2.x.265] : Given an iterator and a value, it sets the entry pointed to by the iterator in the matrix. 
+
+
+
+
+
+
+
+[1.x.139] 
+
+
+
+ [2.x.266] : we note that  [2.x.267] . If  [2.x.268]  then  [2.x.269] . Which basically implies that we need one matrix per space dimension to store the  [2.x.270]  vectors. Similar observation follows for the matrix  [2.x.271] . The purpose of  [2.x.272]  is to retrieve those entries and store them into a  [2.x.273]  for our convenience. 
+
+
+
+
+
+
+
+[1.x.140] 
+
+
+
+ [2.x.274]  (first interface): this first function signature, having three input arguments, will be used to retrieve the individual components  [2.x.275]  of a matrix. The functionality of  [2.x.276]  and  [2.x.277]  is very much the same, but their context is different: the function  [2.x.278]  does not rely on an iterator (that actually knows the value pointed to) but rather on the indices  [2.x.279]  of the entry in order to retrieve its actual value. We should expect  [2.x.280]  to be slightly more expensive than  [2.x.281] . The use of  [2.x.282]  will be limited to the task of computing the algebraic viscosity  [2.x.283]  in the particular case that when both  [2.x.284]  and  [2.x.285]  lie at the boundary.      
+
+
+
+
+ [2.x.286]  The reader should be aware that accessing an arbitrary  [2.x.287]  entry of a matrix (say for instance Trilinos or PETSc matrices) is in general unacceptably expensive. Here is where we might want to keep an eye on complexity: we want this operation to have constant complexity, which is the case of the current implementation using deal.II matrices. 
+
+
+
+
+
+
+
+[1.x.141] 
+
+
+
+ [2.x.288]  (second interface): this second function signature having two input arguments will be used to gather the state at a node  [2.x.289]  and return it as a  [2.x.290]  for our convenience. 
+
+
+
+
+
+
+
+[1.x.142] 
+
+
+
+ [2.x.291] : this function has three input arguments, the first one is meant to be a "global object" (say a locally owned or locally relevant vector), the second argument which could be a  [2.x.292] , and the last argument which represents a index of the global object. This function will be primarily used to write the updated nodal values, stored as  [2.x.293] , into the global objects. 
+
+
+
+
+
+
+
+[1.x.143] 
+
+
+
+We are now in a position to assemble all matrices stored in  [2.x.294] : the lumped mass entries  [2.x.295] , the vector-valued matrices  [2.x.296]  and  [2.x.297] , and the boundary normals  [2.x.298] .    
+
+
+In order to exploit thread parallelization we use the WorkStream approach detailed in the  [2.x.299]  "Parallel computing with multiple processors" accessing shared memory. As customary this requires definition of 
+
+- Scratch data (i.e. input info required to carry out computations): in this case it is  [2.x.300] . 
+
+- The worker: in our case this is the  [2.x.301]  function that actually computes the local (i.e. current cell) contributions from the scratch data. 
+
+- A copy data: a struct that contains all the local assembly contributions, in this case  [2.x.302] . 
+
+- A copy data routine: in this case it is  [2.x.303]  in charge of actually coping these local contributions into the global objects (matrices and/or vectors)    
+
+
+Most of the following lines are spent in the definition of the worker  [2.x.304]  and the copy data routine  [2.x.305] . There is not much to say about the WorkStream framework since the vast majority of ideas are reasonably well-documented in  [2.x.306] ,  [2.x.307]  and  [2.x.308]  among others.    
+
+
+Finally, assuming that  [2.x.309]  is a support point at the boundary, the (nodal) normals are defined as:    
+
+
+
+
+[1.x.144] 
+
+   
+
+
+We will compute the numerator of this expression first and store it in  [2.x.310] . We will normalize these vectors in a posterior loop. 
+
+
+
+
+
+
+
+[1.x.145] 
+
+
+
+What follows is the initialization of the scratch data required by WorkStream 
+
+
+
+
+
+
+
+[1.x.146] 
+
+
+
+We compute the local contributions for the lumped mass matrix entries  [2.x.311]  and and vectors  [2.x.312]  in the usual fashion: 
+
+[1.x.147] 
+
+
+
+Now we have to compute the boundary normals. Note that the following loop does not do much unless the element has faces on the boundary of the domain. 
+
+[1.x.148] 
+
+
+
+Note that "normal" will only represent the contributions from one of the faces in the support of the shape function phi_j. So we cannot normalize this local contribution right here, we have to take it "as is", store it and pass it to the copy data routine. The proper normalization requires an additional loop on nodes. This is done in the copy function below. 
+
+[1.x.149] 
+
+
+
+Last, we provide a copy_local_to_global function as required for the WorkStream 
+
+[1.x.150] 
+
+
+
+At this point in time we are done with the computation of  [2.x.313]  and  [2.x.314] , but so far the matrix  [2.x.315]  contains just a copy of the matrix  [2.x.316] . That's not what we really want: we have to normalize its entries. In addition, we have not filled the entries of the matrix  [2.x.317]   and the vectors stored in the map  [2.x.318]  are not normalized.      
+
+
+In principle, this is just offline data, it doesn't make much sense to over-optimize their computation, since their cost will get amortized over the many time steps that we are going to use. However, computing/storing the entries of the matrix  [2.x.319]  are perfect to illustrate thread-parallel node-loops: 
+
+- we want to visit every node  [2.x.320]  in the mesh/sparsity graph, 
+
+- and for every such node we want to visit to every  [2.x.321]  such that  [2.x.322] .      
+
+
+From an algebraic point of view, this is equivalent to: visiting every row in the matrix and for each one of these rows execute a loop on the columns. Node-loops is a core theme of this tutorial step (see the pseudo-code in the introduction) that will repeat over and over again. That's why this is the right time to introduce them.      
+
+
+We have the thread parallelization capability  [2.x.323]  that is somehow more general than the WorkStream framework. In particular,  [2.x.324]  can be used for our node-loops. This functionality requires four input arguments which we explain in detail (for the specific case of our thread-parallel node loops): 
+
+- The iterator  [2.x.325]  points to a row index. 
+
+- The iterator  [2.x.326]  points to a numerically higher row index. 
+
+- The function  [2.x.327]  and  [2.x.328]  define a sub-range within the range spanned by the end and begin iterators defined in the two previous bullets) applies an operation to every iterator in such subrange. We may as well call  [2.x.329]  the "worker". 
+
+- Grainsize: minimum number of iterators (in this case representing rows) processed by each thread. We decided for a minimum of 4096 rows.      
+
+
+A minor caveat here is that the iterators  [2.x.330]  and  [2.x.331]  supplied to  [2.x.332]  have to be random access iterators: internally,  [2.x.333]  will break the range defined by the  [2.x.334]  and  [2.x.335]  iterators into subranges (we want to be able to read any entry in those subranges with constant complexity). In order to provide such iterators we resort to  [2.x.336]       
+
+
+The bulk of the following piece of code is spent defining the "worker"  [2.x.337] : i.e. the  operation applied at each row of the sub-range. Given a fixed  [2.x.338]  we want to visit every column/entry in such row. In order to execute such columns-loops we use [1.x.151] from the standard library, where: 
+
+-  [2.x.339]  gives us an iterator starting at the first column of the row, 
+
+-  [2.x.340]  is an iterator pointing at the last column of the row, 
+
+- the last argument required by  [2.x.341]  is the operation applied at each nonzero entry (a lambda expression in this case) of such row.      
+
+
+We note that,  [2.x.342]  will operate on disjoint sets of rows (the subranges) and our goal is to write into these rows. Because of the simple nature of the operations we want to carry out (computation and storage of normals, and normalization of the  [2.x.343]  of entries) threads cannot conflict attempting to write the same entry (we do not need a scheduler). 
+
+[1.x.152] 
+
+
+
+First column-loop: we compute and store the entries of the matrix norm_matrix and write normalized entries into the matrix nij_matrix: 
+
+[1.x.153] 
+
+
+
+Finally, we normalize the vectors stored in  [2.x.344] . This operation has not been thread parallelized as it would neither illustrate any important concept nor lead to any noticeable speed gain. 
+
+[1.x.154] 
+
+
+
+At this point we are very much done with anything related to offline data. 
+
+
+
+
+
+[1.x.155]  [1.x.156] 
+
+
+
+
+In this section we describe the implementation of the class members of the  [2.x.345]  class. Most of the code here is specific to the compressible Euler's equations with an ideal gas law. If we wanted to re-purpose  [2.x.346]  for a different conservation law (say for: instance the shallow water equation) most of the implementation of this class would have to change. But most of the other classes (in particular those defining loop structures) would remain unchanged.    
+
+
+We start by implementing a number of small member functions for computing  [2.x.347] ,  [2.x.348] , and the flux  [2.x.349]  of the system. The functionality of each one of these functions is self-explanatory from their names. 
+
+
+
+
+
+
+
+[1.x.157] 
+
+
+
+Now we discuss the computation of  [2.x.350] . The analysis and derivation of sharp upper-bounds of maximum wavespeeds of Riemann problems is a very technical endeavor and we cannot include an advanced discussion about it in this tutorial. In this portion of the documentation we will limit ourselves to sketch the main functionality of our implementation functions and point to specific academic references in order to help the (interested) reader trace the source (and proper mathematical justification) of these ideas.    
+
+
+In general, obtaining a sharp guaranteed upper-bound on the maximum wavespeed requires solving a quite expensive scalar nonlinear problem. This is typically done with an iterative solver. In order to simplify the presentation in this example step we decided not to include such an iterative scheme. Instead, we will just use an initial guess as a guess for an upper bound on the maximum wavespeed. More precisely, equations (2.11) (3.7), (3.8) and (4.3) of  [2.x.351]  are enough to define a guaranteed upper bound on the maximum wavespeed. This estimate is returned by a call to the function  [2.x.352] . At its core the construction of such an upper bound uses the so-called two-rarefaction approximation for the intermediate pressure  [2.x.353] , see for instance Equation (4.46), page 128 in  [2.x.354] .    
+
+
+The estimate returned by  [2.x.355]  is guaranteed to be an upper bound, it is in general quite sharp, and overall sufficient for our purposes. However, for some specific situations (in particular when one of states is close to vacuum conditions) such an estimate will be overly pessimistic. That's why we used a second estimate to avoid this degeneracy that will be invoked by a call to the function  [2.x.356] . The most important function here is  [2.x.357]  which takes the minimum between the estimates returned by  [2.x.358]  and  [2.x.359] .    
+
+
+We start again by defining a couple of helper functions:    
+
+
+The first function takes a state  [2.x.360]  and a unit vector  [2.x.361]  and computes the [1.x.158] 1D state in direction of the unit vector. 
+
+[1.x.159] 
+
+
+
+For this, we have to change the momentum to  [2.x.362]  and have to subtract the kinetic energy of the perpendicular part from the total energy: 
+
+[1.x.160] 
+
+
+
+We return the 1D state in [1.x.161] variables instead of conserved quantities. The return array consists of density  [2.x.363] , velocity  [2.x.364] , pressure  [2.x.365]  and local speed of sound  [2.x.366] : 
+
+
+
+
+
+
+
+[1.x.162] 
+
+
+
+At this point we also define two small functions that return the positive and negative part of a double. 
+
+
+
+
+
+
+
+[1.x.163] 
+
+
+
+Next, we need two local wavenumbers that are defined in terms of a primitive state  [2.x.367]  and a given pressure  [2.x.368]   [2.x.369]   Eqn. (3.7): 
+
+[1.x.164] 
+
+Here, the  [2.x.370]  denotes the positive part of the given argument. 
+
+
+
+
+
+
+
+[1.x.165] 
+
+
+
+Analougously  [2.x.371]  Eqn. (3.8): 
+
+[1.x.166] 
+
+
+
+
+
+
+
+
+
+[1.x.167] 
+
+
+
+All that is left to do is to compute the maximum of  [2.x.372]  and  [2.x.373]  computed from the left and right primitive state ( [2.x.374]  Eqn. (2.11)), where  [2.x.375]  is given by  [2.x.376]  Eqn (4.3): 
+
+
+
+
+
+
+
+[1.x.168] 
+
+
+
+We compute the second upper bound of the maximal wavespeed that is, in general, not as sharp as the two-rarefaction estimate. But it will save the day in the context of near vacuum conditions when the two-rarefaction approximation might attain extreme values: 
+
+[1.x.169] 
+
+
+
+ [2.x.377]  The constant 5.0 multiplying the maximum of the sound speeds is [1.x.170] an ad-hoc constant, [1.x.171] a tuning parameter. It defines an upper bound for any  [2.x.378] . Do not play with it! 
+
+
+
+
+
+
+
+[1.x.172] 
+
+
+
+The following is the main function that we are going to call in order to compute  [2.x.379] . We simply compute both maximal wavespeed estimates and return the minimum. 
+
+
+
+
+
+
+
+[1.x.173] 
+
+
+
+We conclude this section by defining static arrays  [2.x.380]  that contain strings describing the component names of our state vector. We have template specializations for dimensions one, two and three, that are used later in DataOut for naming the corresponding components: 
+
+
+
+
+
+
+
+[1.x.174] 
+
+
+
+
+[1.x.175]  [1.x.176] 
+
+
+
+
+The last preparatory step, before we discuss the implementation of the forward Euler scheme, is to briefly implement the `InitialValues` class.    
+
+
+In the constructor we initialize all parameters with default values, declare all parameters for the `ParameterAcceptor` class and connect the  [2.x.381]  slot to the respective signal.    
+
+
+The  [2.x.382]  slot will be invoked from ParameterAceptor after the call to  [2.x.383]  In that regard, its use is appropriate for situations where the parameters have to be postprocessed (in some sense) or some consistency condition between the parameters has to be checked. 
+
+
+
+
+
+
+
+[1.x.177] 
+
+
+
+So far the constructor of  [2.x.384]  has defined default values for the two private members  [2.x.385]  and added them to the parameter list. But we have not defined an implementation of the only public member that we really care about, which is  [2.x.386]  (the function that we are going to call to actually evaluate the initial solution at the mesh nodes). At the top of the function, we have to ensure that the provided initial direction is not the zero vector.    
+
+
+
+
+ [2.x.387]  As commented, we could have avoided using the method  [2.x.388]  and defined a class member  [2.x.389]  in order to define the implementation of  [2.x.390] . But for illustrative purposes we want to document a different way here and use the call back signal from ParameterAcceptor. 
+
+
+
+
+
+
+
+[1.x.178] 
+
+
+
+Next, we implement the  [2.x.391]  function object with a lambda function computing a uniform flow field. For this we have to translate a given primitive 1d state (density  [2.x.392] , velocity  [2.x.393] , and pressure  [2.x.394] ) into a conserved n-dimensional state (density  [2.x.395] , momentum  [2.x.396] , and total energy  [2.x.397] ). 
+
+
+
+
+
+
+
+[1.x.179] 
+
+
+
+
+[1.x.180]  [1.x.181] 
+
+
+
+
+The constructor of the  [2.x.398]  class does not contain any surprising code: 
+
+
+
+
+
+
+
+[1.x.182] 
+
+
+
+In the class member  [2.x.399]  we initialize the temporary vector  [2.x.400] . The vector  [2.x.401]  will be used to store the solution update temporarily before its contents is swapped with the old vector. 
+
+
+
+
+
+
+
+[1.x.183] 
+
+
+
+It is now time to implement the forward Euler step. Given a (writable reference) to the old state  [2.x.402]  at time  [2.x.403]  we update the state  [2.x.404]  in place and return the chosen time-step size. We first declare a number of read-only references to various different variables and data structures. We do this is mainly to have shorter variable names (e.g.,  [2.x.405]  instead of  [2.x.406] ). 
+
+
+
+
+
+
+
+[1.x.184] 
+
+
+
+[1.x.185]: Computing the  [2.x.407]  graph viscosity matrix.      
+
+
+It is important to highlight that the viscosity matrix has to be symmetric, i.e.,  [2.x.408] . In this regard we note here that  [2.x.409]  (or equivalently  [2.x.410] ) provided either  [2.x.411]  or  [2.x.412]  is a support point located away from the boundary. In this case we can check that  [2.x.413]  by construction, which guarantees the property  [2.x.414] .      
+
+
+However, if both support points  [2.x.415]  or  [2.x.416]  happen to lie on the boundary, then, the equalities  [2.x.417]  and  [2.x.418]  do not necessarily hold true. The only mathematically safe solution for this dilemma is to compute both of them  [2.x.419]  and  [2.x.420]  and take the maximum.      
+
+
+Overall, the computation of  [2.x.421]  is quite expensive. In order to save some computing time we exploit the fact that the viscosity matrix has to be symmetric (as mentioned above): we only compute the upper-triangular entries of  [2.x.422]  and copy the corresponding entries to the lower-triangular counterpart.      
+
+
+We use again  [2.x.423]  for thread-parallel for loops. Pretty much all the ideas for parallel traversal that we introduced when discussing the assembly of the matrix  [2.x.424]  and the normalization of  [2.x.425]  above are used here again.      
+
+
+We define again a "worker" function  [2.x.426]  that computes the viscosity  [2.x.427]  for a subrange [i1, i2) of column indices: 
+
+[1.x.186] 
+
+
+
+For a given column index i we iterate over the columns of the sparsity pattern from  [2.x.428]  to  [2.x.429] : 
+
+[1.x.187] 
+
+
+
+We only compute  [2.x.430]  if  [2.x.431]  (upper triangular entries) and later copy the values over to  [2.x.432] . 
+
+[1.x.188] 
+
+
+
+If both support points happen to be at the boundary we have to compute  [2.x.433]  as well and then take  [2.x.434] . After this we can finally set the upper triangular and lower triangular entries. 
+
+[1.x.189] 
+
+
+
+[1.x.190]: Compute diagonal entries  [2.x.435]  and  [2.x.436] . 
+
+
+
+
+So far we have computed all off-diagonal entries of the matrix  [2.x.437] . We still have to fill its diagonal entries defined as  [2.x.438] . We use again  [2.x.439]  for this purpose. While computing the  [2.x.440] s we also determine the largest admissible time-step, which is defined as [1.x.191] Note that the operation  [2.x.441]  is intrinsically global, it operates on all nodes: first we have to take the minimum over all threads (of a given node) and then we have to take the minimum over all MPI processes. In the current implementation: 
+
+- We store   [2.x.442]  (per node) as [1.x.192]. The internal implementation of  [2.x.443]  will take care of guarding any possible race condition when more than one thread attempts to read and/or write  [2.x.444]  at the same time. 
+
+- In order to take the minimum over all MPI process we use the utility function  [2.x.445] . 
+
+
+
+
+
+
+
+[1.x.193] 
+
+
+
+on_subranges() will be executed on every thread individually. The variable  [2.x.446]  is thus stored thread locally. 
+
+
+
+
+
+
+
+[1.x.194] 
+
+
+
+We store the negative sum of the d_ij entries at the diagonal position 
+
+[1.x.195] 
+
+
+
+and compute the maximal local time-step size  [2.x.447] : 
+
+[1.x.196] 
+
+
+
+ [2.x.448]  contains the largest possible time-step size computed for the (thread local) subrange. At this point we have to synchronize the value over all threads. This is were we use the [1.x.197] [1.x.198] update mechanism: 
+
+[1.x.199] 
+
+
+
+After all threads have finished we can simply synchronize the value over all MPI processes: 
+
+
+
+
+
+
+
+[1.x.200] 
+
+
+
+This is a good point to verify that the computed  [2.x.449]  is indeed a valid floating point number. 
+
+[1.x.201] 
+
+
+
+[1.x.202]: Perform update. 
+
+
+
+
+At this point, we have computed all viscosity coefficients  [2.x.450]  and we know the maximal admissible time-step size  [2.x.451] . This means we can now compute the update:      
+
+
+[1.x.203]      
+
+
+This update formula is slightly different from what was discussed in the introduction (in the pseudo-code). However, it can be shown that both equations are algebraically equivalent (they will produce the same numerical values). We favor this second formula since it has natural cancellation properties that might help avoid numerical artifacts. 
+
+
+
+
+
+
+
+[1.x.204] 
+
+
+
+[1.x.205]: Fix up boundary states. 
+
+
+
+
+As a last step in the Forward Euler method, we have to fix up all boundary states. As discussed in the intro we 
+
+- advance in time satisfying no boundary condition at all, 
+
+- at the end of the time step enforce boundary conditions strongly in a post-processing step.      
+
+
+Here, we compute the correction [1.x.206] which removes the normal component of  [2.x.452] . 
+
+
+
+
+
+
+
+[1.x.207] 
+
+
+
+We only iterate over the locally owned subset: 
+
+[1.x.208] 
+
+
+
+On free slip boundaries we remove the normal component of the momentum: 
+
+[1.x.209] 
+
+
+
+On Dirichlet boundaries we enforce initial conditions strongly: 
+
+[1.x.210] 
+
+
+
+[1.x.211]: We now update the ghost layer over all MPI ranks, swap the temporary vector with the solution vector  [2.x.453]  (that will get returned by reference) and return the chosen time-step size  [2.x.454] : 
+
+
+
+
+
+
+
+[1.x.212] 
+
+
+
+
+[1.x.213]  [1.x.214]    
+
+
+At various intervals we will output the current state  [2.x.455]  of the solution together with a so-called Schlieren plot. The constructor of the  [2.x.456]  class again contains no surprises. We simply supply default values to and register two parameters: 
+
+- schlieren_beta: is an ad-hoc positive amplification factor in order to enhance the contrast in the visualization. Its actual value is a matter of taste. 
+
+- schlieren_index: is an integer indicating which component of the state  [2.x.457]  are we going to use in order to generate the visualization. 
+
+
+
+
+
+
+
+[1.x.215] 
+
+
+
+Again, the  [2.x.458]  function initializes two temporary the vectors ( [2.x.459] ). 
+
+
+
+
+
+
+
+[1.x.216] 
+
+
+
+We now discuss the implementation of the class member  [2.x.460] , which basically takes a component of the state vector  [2.x.461]  and computes the Schlieren indicator for such component (the formula of the Schlieren indicator can be found just before the declaration of the class  [2.x.462] ). We start by noting that this formula requires the "nodal gradients"  [2.x.463] . However, nodal values of gradients are not defined for  [2.x.464]  finite element functions. More generally, pointwise values of gradients are not defined for  [2.x.465]  functions. The simplest technique we can use to recover gradients at nodes is weighted-averaging i.e.    
+
+
+[1.x.217]    
+
+
+where  [2.x.466]  is the support of the shape function  [2.x.467] , and  [2.x.468]  is the weight. The weight could be any positive function such as  [2.x.469]  (that would allow us to recover the usual notion of mean value). But as usual, the goal is to reuse the off-line data as much as possible. In this sense, the most natural choice of weight is  [2.x.470] . Inserting this choice of weight and the expansion  [2.x.471]  into  [2.x.472]  we get :    
+
+
+[1.x.218]    
+
+
+Using this last formula we can recover averaged nodal gradients without resorting to any form of quadrature. This idea aligns quite well with the whole spirit of edge-based schemes (or algebraic schemes) where we want to operate on matrices and vectors as directly as it could be possible avoiding by all means assembly of bilinear forms, cell-loops, quadrature, or any other intermediate construct/operation between the input arguments (the state from the previous time-step) and the actual matrices and vectors required to compute the update.    
+
+
+The second thing to note is that we have to compute global minimum and maximum  [2.x.473]  and  [2.x.474] . Following the same ideas used to compute the time step size in the class member  [2.x.475]  we define  [2.x.476]  and  [2.x.477]  as atomic doubles in order to resolve any conflicts between threads. As usual, we use  [2.x.478]  and  [2.x.479]  to find the global maximum/minimum among all MPI processes.    
+
+
+Finally, it is not possible to compute the Schlieren indicator in a single loop over all nodes. The entire operation requires two loops over nodes: 
+
+   
+
+
+
+
+- The first loop computes  [2.x.480]  for all  [2.x.481]  in the mesh, and the bounds  [2.x.482]  and  [2.x.483] . 
+
+- The second loop finally computes the Schlieren indicator using the formula    
+
+
+[1.x.219]    
+
+
+This means that we will have to define two workers  [2.x.484]  for each one of these stages. 
+
+
+
+
+
+
+
+[1.x.220] 
+
+
+
+We define the r_i_max and r_i_min in the current MPI process as atomic doubles in order to avoid race conditions between threads: 
+
+[1.x.221] 
+
+
+
+First loop: compute the averaged gradient at each node and the global maxima and minima of the gradients. 
+
+[1.x.222] 
+
+
+
+We fix up the gradient r_i at free slip boundaries similarly to how we fixed up boundary states in the forward Euler step. This avoids sharp, artificial gradients in the Schlieren plot at free slip boundaries and is a purely cosmetic choice. 
+
+
+
+
+
+
+
+[1.x.223] 
+
+
+
+We remind the reader that we are not interested in the nodal gradients per se. We only want their norms in order to compute the Schlieren indicator (weighted with the lumped mass matrix  [2.x.485] ): 
+
+[1.x.224] 
+
+
+
+We compare the current_r_i_max and current_r_i_min (in the current subrange) with r_i_max and r_i_min (for the current MPI process) and update them if necessary: 
+
+
+
+
+
+
+
+[1.x.225] 
+
+
+
+And synchronize  [2.x.486]  over all MPI processes. 
+
+
+
+
+
+
+
+[1.x.226] 
+
+
+
+Second loop: we now have the vector  [2.x.487]  and the scalars  [2.x.488]  at our disposal. We are thus in a position to actually compute the Schlieren indicator. 
+
+
+
+
+
+
+
+[1.x.227] 
+
+
+
+And finally, exchange ghost elements. 
+
+[1.x.228] 
+
+
+
+
+[1.x.229]  [1.x.230]    
+
+
+With all classes implemented it is time to create an instance of  [2.x.489] ,  [2.x.490] , and  [2.x.491] , and run the forward Euler step in a loop.    
+
+
+In the constructor of  [2.x.492]  we now initialize an instance of all classes, and declare a number of parameters controlling output. Most notable, we declare a boolean parameter  [2.x.493]  that will control whether the program attempts to restart from an interrupted computation, or not. 
+
+
+
+
+
+
+
+[1.x.231] 
+
+
+
+We start by implementing a helper function  [2.x.494]  in an anonymous namespace that is used to output messages in the terminal with some nice formatting. 
+
+
+
+
+
+
+
+[1.x.232] 
+
+
+
+With  [2.x.495]  in place it is now time to implement the  [2.x.496]  that contains the main loop of our program. 
+
+
+
+
+
+
+
+[1.x.233] 
+
+
+
+We start by reading in parameters and initializing all objects. We note here that the call to  [2.x.497]  reads in all parameters from the parameter file (whose name is given as a string argument). ParameterAcceptor handles a global ParameterHandler that is initialized with subsections and parameter declarations for all class instances that are derived from ParameterAceptor. The call to initialize enters the subsection for each each derived class, and sets all variables that were added using  [2.x.498]  
+
+
+
+
+
+
+
+[1.x.234] 
+
+
+
+Next we create the triangulation, assemble all matrices, set up scratch space, and initialize the DataOut<dim> object: 
+
+
+
+
+
+
+
+[1.x.235] 
+
+
+
+We will store the current time and state in the variable  [2.x.499] : 
+
+
+
+
+
+
+
+[1.x.236] 
+
+
+
+
+[1.x.237]  [1.x.238]      
+
+
+By default the boolean  [2.x.500]  is set to false, i.e. the following code snippet is not run. However, if  [2.x.501]  we indicate that we have indeed an interrupted computation and the program shall restart by reading in an old state consisting of  [2.x.502] ,  [2.x.503]  from a checkpoint file. These checkpoint files will be created in the  [2.x.504]  routine discussed below. 
+
+
+
+
+
+
+
+[1.x.239] 
+
+
+
+We use a  [2.x.505]  to store and read in the contents the checkpointed state. 
+
+
+
+
+
+
+
+[1.x.240] 
+
+
+
+ [2.x.506]  iterates over all components of the state vector  [2.x.507] . We read in every entry of the component in sequence and update the ghost layer afterwards: 
+
+[1.x.241] 
+
+
+
+With either the initial state set up, or an interrupted state restored it is time to enter the main loop: 
+
+
+
+
+
+
+
+[1.x.242] 
+
+
+
+We first print an informative status message 
+
+
+
+
+
+
+
+[1.x.243] 
+
+
+
+and then perform a single forward Euler step. Note that the state vector  [2.x.508]  is updated in place and that  [2.x.509]  returns the chosen step size. 
+
+
+
+
+
+
+
+[1.x.244] 
+
+
+
+Post processing, generating output and writing out the current state is a CPU and IO intensive task that we cannot afford to do every time step - in particular with explicit time stepping. We thus only schedule output by calling the  [2.x.510]  function if we are past a threshold set by  [2.x.511] . 
+
+
+
+
+
+
+
+[1.x.245] 
+
+
+
+We wait for any remaining background output thread to finish before printing a summary and exiting. 
+
+[1.x.246] 
+
+
+
+The  [2.x.512]  takes an initial time "t" as input argument and populates a state vector  [2.x.513]  with the help of the  [2.x.514]  object. 
+
+
+
+
+
+
+
+[1.x.247] 
+
+
+
+The function signature of  [2.x.515]  is not quite right for  [2.x.516]  We work around this issue by, first, creating a lambda function that for a given position  [2.x.517]  returns just the value of the  [2.x.518] th component. This lambda in turn is converted to a  [2.x.519]  with the help of the ScalarFunctionFromFunctionObject wrapper. 
+
+
+
+
+
+
+
+[1.x.248] 
+
+
+
+
+[1.x.249]  [1.x.250]    
+
+
+Writing out the final vtk files is quite an IO intensive task that can stall the main loop for a while. In order to avoid this we use an [1.x.251] strategy by creating a background thread that will perform IO while the main loop is allowed to continue. In order for this to work we have to be mindful of two things: 
+
+- Before running the  [2.x.520]  thread, we have to create a copy of the state vector  [2.x.521] . We store it in the vector  [2.x.522] . 
+
+- We have to avoid any MPI communication in the background thread, otherwise the program might deadlock. This implies that we have to run the postprocessing outside of the worker thread. 
+
+
+
+
+
+
+
+[1.x.252] 
+
+
+
+If the asynchronous writeback option is set we launch a background thread performing all the slow IO to disc. In that case we have to make sure that the background thread actually finished running. If not, we have to wait to for it to finish. We launch said background thread with [1.x.253] that returns a [1.x.254] object. This  [2.x.523]  object contains the return value of the function, which is in our case simply  [2.x.524] . 
+
+
+
+
+
+
+
+[1.x.255] 
+
+
+
+At this point we make a copy of the state vector, run the schlieren postprocessor, and run  [2.x.525]  The actual output code is standard: We create a DataOut instance, attach all data vectors we want to output and call  [2.x.526]  There is one twist, however. In order to perform asynchronous IO on a background thread we create the DataOut<dim> object as a shared pointer that we pass on to the worker thread to ensure that once we exit this function and the worker thread finishes the DataOut<dim> object gets destroyed again. 
+
+
+
+
+
+
+
+[1.x.256] 
+
+
+
+Next we create a lambda function for the background thread. We [1.x.257] the  [2.x.527]  pointer as well as most of the arguments of the output function by value so that we have access to them inside the lambda function. 
+
+[1.x.258] 
+
+
+
+We checkpoint the current state by doing the precise inverse operation to what we discussed for the [1.x.259]: 
+
+
+
+
+
+
+
+[1.x.260] 
+
+
+
+If the asynchronous writeback option is set we launch a new background thread with the help of [1.x.261] function. The function returns a [1.x.262] object that we can use to query the status of the background thread. At this point we can return from the  [2.x.528]  function and resume with the time stepping in the main loop - the thread will run in the background. 
+
+[1.x.263] 
+
+
+
+And finally, the main function. 
+
+
+
+
+
+
+
+[1.x.264] 
+
+[1.x.265] [1.x.266][1.x.267] 
+
+
+Running the program with default parameters in release mode takes about 1 minute on a 4 core machine (with hyperthreading): 
+
+[1.x.268] 
+
+
+
+One thing that becomes evident is the fact that the program spends two thirds of the execution time computing the graph viscosity d_ij and about a third of the execution time in performing the update, where computing the flux  [2.x.529]  is the expensive operation. The preset default resolution is about 37k gridpoints, which amounts to about 148k spatial degrees of freedom in 2D. An animated schlieren plot of the solution looks as follows: 
+
+ [2.x.530]  
+
+It is evident that 37k gridpoints for the first-order method is nowhere near the resolution needed to resolve any flow features. For comparison, here is a "reference" computation with a second-order method and about 9.5M gridpoints ([1.x.269]): 
+
+ [2.x.531]  
+
+So, we give the first-order method a second chance and run it with about 2.4M gridpoints on a small compute server: 
+
+[1.x.270] 
+
+
+
+And with the following result: 
+
+ [2.x.532]  
+
+That's substantially better, although of course at the price of having run the code for roughly 2 hours on 16 cores. 
+
+
+
+
+[1.x.271] [1.x.272][1.x.273] 
+
+
+The program showcased here is really only first-order accurate, as discussed above. The pictures above illustrate how much diffusion that introduces and how far the solution is from one that actually resolves the features we care about. 
+
+This can be fixed, but it would exceed what a *tutorial* is about. Nevertheless, it is worth showing what one can achieve by adding a second-order scheme. For example, here is a video computed with [1.x.274] that shows (with a different color scheme) a 2d simulation that corresponds to the cases shown above: 
+
+[1.x.275] 
+
+
+
+This simulation was done with 38 million degrees of freedom (continuous  [2.x.533]  finite elements) per component of the solution vector. The exquisite detail of the solution is remarkable for these kinds of simulations, including in the sub-sonic region behind the obstacle. 
+
+One can also with relative ease further extend this to the 3d case: 
+
+[1.x.276] 
+
+
+
+Solving this becomes expensive, however: The simulation was done with 1,817 million degrees of freedom (continuous  [2.x.534]  finite elements) per component (for a total of 9.09 billion spatial degrees of freedom) and ran on 30,720 MPI ranks. The code achieved an average througput of 969M grid points per second (0.04M gridpoints per second per CPU). The front and back wall show a "Schlieren plot": the magnitude of the gradient of the density on an exponential scale from white (low) to black (high). All other cutplanes and the surface of the obstacle show the magnitude of the vorticity on a white (low) - yellow (medium) - red (high) scale. (The scales of the individual cutplanes have been adjusted for a nicer visualization.) [1.x.277] [1.x.278]  [2.x.535]  
+
+ [2.x.536] 

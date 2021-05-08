@@ -1,0 +1,947 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] ,  [2.x.3] ,  [2.x.4] . 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5][1.x.6][1.x.7][1.x.8][1.x.9][1.x.10][1.x.11][1.x.12][1.x.13][1.x.14][1.x.15][1.x.16][1.x.17][1.x.18][1.x.19][1.x.20][1.x.21][1.x.22][1.x.23][1.x.24][1.x.25][1.x.26][1.x.27][1.x.28] 
+
+ [2.x.5]  
+
+[1.x.29] 
+
+ [2.x.6]  
+
+
+[1.x.30][1.x.31] 
+
+
+[1.x.32][1.x.33] 
+
+
+In this tutorial we consider a mixing problem in the laminar flow regime. Such problems occur in a wide range of applications ranging from chemical engineering to power generation (e.g. turbomachinery). Mixing problems are particularly hard to solve numerically, because they often involve a container (with fixed boundaries, and possibly complex geometries such as baffles), represented by the domain  [2.x.7] , and one (or more) immersed and rotating impellers (represented by the domain  [2.x.8] ). The domain in which we would like to solve the flow equations is the (time dependent) difference between the two domains, namely:  [2.x.9] . 
+
+For rotating impellers, the use of Arbitrary Lagrangian Eulerian formulations (in which the fluid domain -- along with the mesh! -- is smoothly deformed to follow the deformations of the immersed solid) is not possible, unless only small times (i.e., small fluid domain deformations) are considered. If one wants to track the evolution of the flow across multiple rotations of the impellers, the resulting deformed grid would simply be too distorted to be useful. 
+
+In this case, a viable alternative strategy would be to use non-matching methods (similarly to what we have done in  [2.x.10] ), where a background fixed grid (that may or may not be locally refined in time to better capture the solid motion) is coupled with a rotating, independent, grid. 
+
+In order to maintain the same notations used in  [2.x.11] , we use  [2.x.12]  to denote the domain in  [2.x.13]  representing the container of both the fluid and the impeller, and we use  [2.x.14]  in  [2.x.15]  to denote either the full impeller (when its `spacedim` measure is non-negligible, i.e., when we can represent it as a grid of dimension `dim` equal to `spacedim`), a co-dimension one representation of a thin impeller, or just the boundary of the full impeller. 
+
+The domain  [2.x.16]  is embedded in  [2.x.17]  ( [2.x.18] ) and it is non-matching: It does not, in general, align with any of the features of the volume mesh. We solve a partial differential equation on  [2.x.19] , enforcing some conditions on the solution of the problem on the embedded domain  [2.x.20]  by some penalization techniques. In the current case, the condition is that the velocity of the fluid at points on  [2.x.21]  equal the velocity of the solid impeller at that point. 
+
+The technique we describe here is presented in the literature using one of many names: the [1.x.34] and the [1.x.35] among others.  The main principle is that the discretization of the two grids are kept completely independent. In the present tutorial, this approach is used to solve for the motion of a viscous fluid, described by the Stokes equation, that is agitated by a rigid non-deformable impeller. 
+
+Thus, the equations solved in  [2.x.22]  are the Stokes equations for a creeping flow (i.e. a flow where  [2.x.23] ) and a no-slip boundary condition is applied on the moving *embedded domain*  [2.x.24]  associated with the impeller. However, this tutorial could be readily extended to other equations (e.g. the Navier-Stokes equations, linear elasticity equation, etc.). It can be seen as a natural extension of  [2.x.25]  that enables the solution of large problems using a distributed parallel computing architecture via MPI. 
+
+However, contrary to  [2.x.26] , the Dirichlet boundary conditions on  [2.x.27]  are imposed weakly instead of through the use of Lagrange multipliers, and we concentrate on dealing with the coupling of two fully distributed triangulations (a combination that was not possible in the implementation of  [2.x.28] ). 
+
+There are two interesting scenarios that occur when one wants to enforce conditions on the embedded domain  [2.x.29] : 
+
+- The geometrical dimension `dim` of the embedded domain  [2.x.30]  is the same of the domain  [2.x.31]  (`spacedim`), that is, the spacedim-dimensional measure of  [2.x.32]  is not zero. In this case, the imposition of the Dirichlet boundary boundary condition on  [2.x.33]  is done through a volumetric penalization. If the applied penalization only depends on the velocity, this is often referred to as  [2.x.34]  penalization whereas if the penalization depends on both the velocity and its gradient, it is an  [2.x.35]  penalization. The case of the  [2.x.36]  penalization is very similar to a Darcy-type approach. Both  [2.x.37]  and  [2.x.38]  penalizations have been analyzed extensively (see, for example,  [2.x.39] ). 
+
+- The embedded domain  [2.x.40]  has an intrinsic dimension `dim` which is smaller than that of  [2.x.41]  (`spacedim`), thus its spacedim-dimensional measure is zero; for example it is a curve embedded in a two dimensional domain, or a surface embedded in a three-dimensional domain. This is of course physically impossible, but one may consider very thin sheets of metal moving in a fluid as essentially lower-dimensional if the thickness of the sheet is negligible. In this case, the boundary condition is imposed weakly on  [2.x.42]  by applying the [1.x.36] method (see  [2.x.43] ). 
+
+Both approaches have very similar requirements and result in highly similar formulations. Thus, we treat them almost in the same way. 
+
+In this tutorial program we are not interested in further details on  [2.x.44] : we assume that the dimension of the embedded domain (`dim`) is always smaller by one or equal with respect to the dimension of the embedding domain  [2.x.45]  (`spacedim`). 
+
+We are going to solve the following differential problem: given a sufficiently regular function  [2.x.46]  on  [2.x.47] , find the solution  [2.x.48]  to 
+
+[1.x.37] 
+
+
+
+This equation, which we have normalized by scaling the time units in such a way that the viscosity has a numerical value of 1, describes slow, viscous flow such as honey or lava. The main goal of this tutorial is to show how to impose the velocity field condition  [2.x.49]  on a non-matching  [2.x.50]  in a weak way, using a penalization method. A more extensive discussion of the Stokes problem including body forces, different boundary conditions, and solution strategies can be found in  [2.x.51] . 
+
+Let us start by considering the Stokes problem alone, in the entire domain  [2.x.52] . We look for a velocity field  [2.x.53]  and a pressure field  [2.x.54]  that satisfy the Stokes equations with homogeneous boundary conditions on  [2.x.55] . 
+
+The weak form of the Stokes equations is obtained by first writing it in vector form as [1.x.38] 
+
+forming the dot product from the left with a vector-valued test function  [2.x.56] , and integrating over the domain  [2.x.57] , yielding the following set of equations: [1.x.39] 
+
+which has to hold for all test functions  [2.x.58] . 
+
+
+Integrating by parts and exploiting the boundary conditions on  [2.x.59] , we obtain the following variational problem: [1.x.40] 
+
+
+
+where  [2.x.60]  represents the  [2.x.61]  scalar product. This is the same variational form used in  [2.x.62] . 
+
+This variational formulation does not take into account the embedded domain. Contrary to  [2.x.63] , we do not enforce strongly the constraints of  [2.x.64]  on  [2.x.65] , but enforce them weakly via a penalization term. 
+
+The analysis of this weak imposition of the boundary condition depends on the spacedim-dimensional measure of  [2.x.66]  as either positive (if `dim` is equal to `spacedim`) or zero (if `dim` is smaller than `spacedim`). We discuss both scenarios. 
+
+
+[1.x.41][1.x.42] 
+
+
+In this case, we assume that  [2.x.67]  is the boundary of the actual impeller, that is, a closed curve embedded in a two-dimensional domain or a closed surface in a three-dimensional domain. The idea of this method starts by considering a weak imposition of the Dirichlet boundary condition on  [2.x.68] , following the Nitsche method. This is achieved by using the following modified formulation on the fluid domain, where no strong conditions on the test functions on  [2.x.69]  are imposed: 
+
+[1.x.43] 
+
+
+
+The integrals over  [2.x.70]  are lower-dimensional integrals. It can be shown (see  [2.x.71] ) that there exists a positive constant  [2.x.72]  so that if  [2.x.73] , the weak imposition of the boundary will be consistent and stable. The first two additional integrals on  [2.x.74]  (the second line in the equation above) appear naturally after integrating by parts, when one does not assume that  [2.x.75]  is zero on  [2.x.76] . 
+
+The third line in the equation above contains two terms that are added to ensure consistency of the weak form, and a stabilization term, that is there to enforce the boundary condition with an error which is consistent with the approximation error. The consistency terms and the stabilization term are added to the right hand side with the actual boundary data  [2.x.77] . 
+
+When  [2.x.78]  satisfies the condition  [2.x.79]  on  [2.x.80] , all the consistency and stability integrals on  [2.x.81]  cancel out, and one is left with the usual weak form of Stokes flow, that is, the above formulation is consistent. 
+
+We note that an alternative (non-symmetric) formulation can be used : 
+
+[1.x.44] 
+
+Note the different sign of the first terms on the third and fourth lines. In this case, the stability and consistency conditions become  [2.x.82] . In the symmetric case, the value of  [2.x.83]  is dependent on  [2.x.84] , and it is in general chosen such that  [2.x.85]  with  [2.x.86]  a measure of size of the face being integrated and  [2.x.87]  a constant such that  [2.x.88] . This is as one usually does with the Nitsche penalty method to enforcing Dirichlet boundary conditions. 
+
+The non-symmetric approach, on the other hand, is related to how one enforced continuity for the non-symmetric interior penalty method for discontinuous Galerkin methods (the "NIPG" method  [2.x.89] ). Even if the non-symmetric case seems advantageous w.r.t. possible choices of stabilization parameters, we opt for the symmetric discretization, since in this case it can be shown that the dual problem is also consistent, leading to a solution where not only the energy norm of the solution converges with the correct order, but also its  [2.x.90]  norm. Furthermore, the resulting matrix remains symmetric. 
+
+The above formulation works under the assumption that the domain is discretized exactly. However, if the deformation of the impeller is a rigid body motion, it is possible to artificially extend the solution of the Stokes problem inside the propeller itself, since a rigid body motion is also a solution to the Stokes problem. The idea is then to solve the same problem, inside  [2.x.91] , imposing the same boundary conditions on  [2.x.92] , using the same penalization technique, and testing with test functions  [2.x.93]  which are globally continuous over  [2.x.94] . 
+
+This results in the following (intermediate) formulation: [1.x.45] 
+
+where the jump terms, denoted with  [2.x.95] , are computed with respect to a fixed orientation of the normal vector  [2.x.96] . The factor of 2 appears in front of  [2.x.97]  since we see every part of  [2.x.98]  twice, once from within the fluid and once from within the obstacle moving around in it. (For all of the other integrals over  [2.x.99] , we visit each part of  [2.x.100]  twice, but with opposite signs, and consequently get the jump terms.) 
+
+Here we notice that, unlike in discontinuous Galerkin methods, the test and trial functions are continuous across  [2.x.101] . Moreover, if  [2.x.102]  is not aligned with cell boundaries, all the jump terms are also zero, since, in general, finite element function spaces are smooth inside each cell, and if  [2.x.103]  cuts through an element intersecting its boundary only at a finite number of points, all the contributions on  [2.x.104] , with the exception of the stabilization ones, can be neglected from the formulation, resulting in the following final form of the variational formulation: 
+
+[1.x.46] 
+
+
+
+In  [2.x.105] , the imposition of the constraint required the addition of new variables in the form of Lagrange multipliers. This is not the case for this tutorial program. The imposition of the boundary condition using Nitsche's method only modifies the system matrix and the right-hand side without adding additional unknowns. However, the velocity vector  [2.x.106]  on the embedded domain will not match exactly the prescribed velocity  [2.x.107] , but only up to a numerical error which is in the same order as the interpolation error of the finite element method. Furthermore, as in  [2.x.108] , we still need to integrate over the non-matching embedded grid in order to construct the boundary term necessary to impose the boundary condition over  [2.x.109] . 
+
+
+[1.x.47][1.x.48] 
+
+
+In this case,  [2.x.110]  has the same dimension, but is embedded into  [2.x.111] . We can think of this as a thick object moving around in the fluid. In the case of  [2.x.112]  penalization, the additional penalization term can be interpreted as a Darcy term within  [2.x.113] , resulting in: 
+
+[1.x.49] 
+
+
+
+Here, integrals over  [2.x.114]  are simply integrals over a part of the volume. The  [2.x.115]  penalization thus consists in adding a volumetric term that constrains the velocity of the fluid to adhere to the velocity of the rigid body within  [2.x.116] . Also in this case,  [2.x.117]  must be chosen sufficiently large in order to ensure that the Dirichlet boundary condition in  [2.x.118]  is sufficiently respected, but not too high in order to maintain the proper conditioning of the system matrix. 
+
+A  [2.x.119]  penalization may be constructed in a similar manner, with the addition of a viscous component to the penalization that dampens the velocity gradient within  [2.x.120] : 
+
+[1.x.50] 
+
+
+
+Notice that the  [2.x.121]  penalization (`dim` equal to `spacedim`) and the Nitsche penalization (`dim` equal to `spacedim-1`) result in the exact same numerical implementation, thanks to the dimension independent capabilities of deal.II. 
+
+
+[1.x.51][1.x.52] 
+
+
+In this tutorial, both the embedded grid  [2.x.122]  and the embedding grid are described using a  [2.x.123]  These two triangulations can be built from functions in the GridGenerator namespace or by reading a mesh file produced with another application (e.g. GMSH, see the discussion in  [2.x.124] ). This is slightly more general than what was previously done in  [2.x.125] . 
+
+The addition of the immersed boundary method, whether it is in the `dim=spacedim` or `dim<spacedim` case, only introduces additional terms in the system matrix and the right-hand side of the system which result from the integration over  [2.x.126] . This does not modify the number of variables for which the problem must be solved. The challenge is thus related to the integrals that must be carried over  [2.x.127] . 
+
+As usual in finite elements we split this integral into contributions from all cells of the triangulation used to discretize  [2.x.128] , we transform the integral on  [2.x.129]  to an integral on the reference element  [2.x.130] , where  [2.x.131]  is the mapping from  [2.x.132]  to  [2.x.133] , and compute the integral on  [2.x.134]  using a quadrature formula. For example: 
+
+[1.x.53] 
+
+Computing this sum is non-trivial because we have to evaluate  [2.x.135] . In general, if  [2.x.136]  and  [2.x.137]  are not aligned, the point  [2.x.138]  is completely arbitrary with respect to  [2.x.139] , and unless we figure out a way to interpolate all basis functions of  [2.x.140]  on an arbitrary point on  [2.x.141] , we cannot compute the integral needed. 
+
+
+To evaluate  [2.x.142]  the following steps needs to be taken (as shown in the picture below): 
+
+- For a given cell  [2.x.143]  in  [2.x.144]  compute the real point  [2.x.145] , where  [2.x.146]  is one of the quadrature points used for the integral on  [2.x.147] . This is the easy part:  [2.x.148]  gives us the real-space locations of all quadrature points. 
+
+- Find the cell of  [2.x.149]  in which  [2.x.150]  lies. We shall call this element  [2.x.151] . 
+
+- Find the reference coordinates within  [2.x.152]  of  [2.x.153] . For this, we need the inverse of the mapping  [2.x.154]  that transforms the reference element  [2.x.155]  into the element  [2.x.156] :  [2.x.157] . 
+
+- Evaluate the basis function  [2.x.158]  of the  [2.x.159]  mesh at this   point  [2.x.160] . This is, again, relatively simple using FEValues. 
+
+
+ [2.x.161]  
+
+In  [2.x.162] , the second through fourth steps above were computed by calling, in turn, 
+
+-  [2.x.163]  followed by 
+
+-  [2.x.164]  We then 
+
+- construct a custom Quadrature formula, containing the point in the reference  cell and then 
+
+- construct an FEValues object, with the given quadrature formula, and  initialized with the cell obtained in the first step. 
+
+Although this approach could work for the present case, it does not lends itself readily to parallel simulations using distributed triangulations. Indeed, since the position of the quadrature points on the cells of the embedded domain  [2.x.165]  do not match that of the embedding triangulation and since  [2.x.166]  is constantly moving, this would require that the triangulation representing  [2.x.167]  be stored in it's entirety for all of the processors. As the number of processor and the number of cells in  [2.x.168]  increases, this leads to a severe bottleneck in terms of memory. Consequently, an alternative strategy is sought in this step. 
+
+
+[1.x.54][1.x.55] 
+
+
+Remember that for both the penalization approach ( [2.x.169]  or  [2.x.170] ) and the Nitsche method, we want to compute integrals that are approximated by the quadrature. That is, we need to compute [1.x.56] If you followed the discussion above, then you will recall that  [2.x.171]  and  [2.x.172]  are shape functions defined on the fluid mesh. The only things defined on the solid mesh are:  [2.x.173] , which is the location of a quadrature point on a solid cell that is part of  [2.x.174] ,  [2.x.175]  is the determinant of its Jacobian, and  [2.x.176]  the corresponding quadrature weight. 
+
+The important part to realize is now this:  [2.x.177]  is a property of the quadrature formula and does not change with time. Furthermore, the Jacobian matrix of  [2.x.178]  itself changes as the solid obstacle moves around in the fluid, but because the solid is considered non-deforming (it only translates and rotates, but doesn't dilate), the determinant of the Jacobian remains constant. As a consequence, the product  [2.x.179]  (which we typically denote by `JxW`) remains constant for each quadrature point. So the only thing we need keep track of are the positions  [2.x.180]  -- but these move with the velocity of the solid domain. 
+
+In other words, we don't actually need to keep the solid mesh at all. All we need is the positions  [2.x.181]  and corresponding `JxW` values. Since both of these properties are point-properties (or point-vectors) that are attached to the solid material, they can be idealized as a set of disconnected infinitesimally small "particles", which carry the required `JxW` information with the movement of the solid. deal.II has the ability to distribute and store such a set of particles in large-scale parallel computations in the form of the ParticleHandler class (for details on the implementation see  [2.x.182] ), and we will make use of this functionality in this tutorial. 
+
+Thus, the approach taken in this step is as follows: 
+
+- Create a  [2.x.183]  for the domain  [2.x.184] ; 
+
+- Create  [2.x.185]  at the positions of the quadrature points on  [2.x.186] ; 
+
+- Call the  [2.x.187]  function,   to distribute the particles across processors, *following the solid   triangulation*; 
+
+- Attach the `JxW` values as a "property" to each  [2.x.188]  object. 
+
+This structure is relatively expensive to generate, but must only be generated once per simulation. Once the  [2.x.189]  is generated and the required information is attached to the particle, the integrals over  [2.x.190]  can be carried out by exploiting the fact that particles are grouped cellwise inside ParticleHandler, allowing us to: 
+
+- Looping over all cells of  [2.x.191]  that contain at least one particle 
+
+- Looping over all particles in the given cell 
+
+- Compute the integrals and fill the global matrix. 
+
+Since the  [2.x.192]  can manage the exchange of particles from one processor to the other, the embedded triangulation can be moved or deformed by displacing the particles. The only constraint associated with this displacement is that particles should be displaced by a distance that is no larger than the size of one cell. That's because that is the limit to which  [2.x.193]  can track which cell a particle that leaves its current cell now resides in. 
+
+Once the entire problem (the Stokes problem and the immersed boundary imposition) is assembled, the final saddle point problem is solved by an iterative solver, applied to the Schur complement  [2.x.194]  (whose construction is described, for example, in  [2.x.195] ), and we construct  [2.x.196]  using LinearOperator classes. 
+
+
+[1.x.57][1.x.58] 
+
+
+The problem we solve here is a demonstration of the time-reversibility of Stokes flow. This is often illustrated in science education experiments with a Taylor-Couette flow and dye droplets that revert back to their original shape after the fluid has been displaced in a periodic manner. 
+
+[1.x.59] 
+
+
+
+In the present problem, a very viscous fluid is agitated by the rotation of an impeller, which, in 2D, is modeled by a rectangular grid. The impeller rotates for a given number of revolutions, after which the flow is reversed such that the same number of revolutions is carried out in the opposite direction. We recall that since the Stokes equations are self-adjoint, creeping flows are reversible. Consequently, if the impeller motion is reversed in the opposite direction, the fluid should return to its original position. In the present case, this is illustrated by inserting a circle of passive tracer particles that are advected by the fluid and which return to their original position, thus demonstrating the time-reversibility of the flow. 
+
+
+[1.x.60][1.x.61] 
+
+
+This tutorial program uses a number of techniques on imposing velocity conditions on non-matching interfaces in the interior of the fluid. For more background material, you may want to look up the following references:  [2.x.197] ,  [2.x.198] ,  [2.x.199] ,  [2.x.200] ,  [2.x.201] . [1.x.62] [1.x.63] 
+
+
+[1.x.64]  [1.x.65] Most of these have been introduced elsewhere, we'll comment only on the new ones. The switches close to the top that allow selecting between PETSc and Trilinos linear algebra capabilities are similar to the ones in  [2.x.202]  and  [2.x.203] . 
+
+
+
+
+
+
+
+[1.x.66] 
+
+
+
+These are the only new include files with regard to  [2.x.204] . In this tutorial, the non-matching coupling between the solid and the fluid is computed using an intermediate data structure that keeps track of how the locations of quadrature points of the solid evolve within the fluid mesh. This data structure needs to keep track of the position of the quadrature points on each cell describing the solid domain, of the quadrature weights, and possibly of the normal vector to each point, if the solid domain is of co-dimension one. 
+
+
+
+
+Deal.II offers these facilities in the Particles namespace, through the ParticleHandler class. ParticleHandler is a class that allows you to manage a collection of particles (objects of type  [2.x.205]  representing a collection of points with some attached properties (e.g., an id) floating on a  [2.x.206]  The methods and classes in the namespace Particles allows one to easily implement Particle-In-Cell methods and particle tracing on distributed triangulations. 
+
+
+
+
+We "abuse" this data structure to store information about the location of solid quadrature points embedded in the surrounding fluid grid, including integration weights, and possibly surface normals. The reason why we use this additional data structure is related to the fact that the solid and the fluid grids might be non-overlapping, and if we were using two separate triangulation objects, would be distributed independently among parallel processes. 
+
+
+
+
+In order to couple the two problems, we rely on the ParticleHandler class, storing in each particle the position of a solid quadrature point (which is in general not aligned to any of the fluid quadrature points), its weight, and any other information that may be required to couple the two problems. These locations are then propagated along with the (prescribed) velocity of the solid impeller. 
+
+
+
+
+Ownership of the solid quadrature points is initially inherited from the MPI partitioning on the solid mesh itself. The Particles so generated are later distributed to the fluid mesh using the methods of the ParticleHandler class. This allows transparent exchange of information between MPI processes about the overlapping pattern between fluid cells and solid quadrature points. 
+
+[1.x.67] 
+
+
+
+When generating the grids, we allow reading it from a file, and if deal.II has been built with OpenCASCADE support, we also allow reading CAD files and use them as manifold descriptors for the grid (see  [2.x.207]  for a detailed description of the various Manifold descriptors that are available in the OpenCASCADE namespace) 
+
+[1.x.68] 
+
+
+
+
+[1.x.69]  [1.x.70] 
+
+
+
+
+Similarly to what we have done in  [2.x.208] , we set up a class that holds all the parameters of our problem and derive it from the ParameterAcceptor class to simplify the management and creation of parameter files.    
+
+
+The ParameterAcceptor paradigm requires all parameters to be writable by the ParameterAcceptor methods. In order to avoid bugs that would be very difficult to track down (such as writing things like `time = 0` instead of `time == 0`), we declare all the parameters in an external class, which is initialized before the actual `StokesImmersedProblem` class, and pass it to the main class as a `const` reference.    
+
+
+The constructor of the class is responsible for the connection between the members of this class and the corresponding entries in the ParameterHandler. Thanks to the use of the  [2.x.209]  method, this connection is trivial, but requires all members of this class to be writeable. 
+
+[1.x.71] 
+
+
+
+however, since this class will be passed as a `const` reference to the StokesImmersedProblem class, we have to make sure we can still set the time correctly in the objects derived by the Function class defined herein. In order to do so, we declare both the  [2.x.210]  and  [2.x.211]  members to be `mutable`, and define the following little helper method that sets their time to the correct value. 
+
+[1.x.72] 
+
+
+
+The remainder of the class consists largely of member variables that describe the details of the simulation and its discretization. The following parameters are about where output should land, the spatial and temporal discretization (the default is the  [2.x.212]  Taylor-Hood discretization which uses a polynomial degree of 2 for the velocity), and how many time steps should elapse before we generate graphical output again: 
+
+[1.x.73] 
+
+
+
+We allow every grid to be refined independently. In this tutorial, no physics is resolved on the solid grid, and its velocity is given as a datum. However it is relatively straightforward to incorporate some elasticity model in this tutorial, and transform it into a fully fledged FSI solver. 
+
+[1.x.74] 
+
+
+
+To provide a rough description of the fluid domain, we use the method extract_rtree_level() applied to the tree of bounding boxes of each locally owned cell of the fluid triangulation. The higher the level of the tree, the larger the number of extracted bounding boxes, and the more accurate is the description of the fluid domain. However, a large number of bounding boxes also implies a large communication cost, since the collection of bounding boxes is gathered by all processes. 
+
+[1.x.75] 
+
+
+
+The only two numerical parameters used in the equations are the viscosity of the fluid, and the penalty term  [2.x.213]  used in the Nitsche formulation: 
+
+[1.x.76] 
+
+
+
+By default, we create a hyper_cube without colorization, and we use homogeneous Dirichlet boundary conditions. In this set we store the boundary ids to use when setting the boundary conditions: 
+
+[1.x.77] 
+
+
+
+We illustrate here another way to create a Triangulation from a parameter file, using the method  [2.x.214]  that takes the name of a function in the GridGenerator namespace, and its arguments as a single string representing the arguments as a tuple.      
+
+
+The mechanism with which the arguments are parsed from and to a string is explained in detail in the  [2.x.215]  class, which is used to translate from strings to most of the basic STL types (vectors, maps, tuples) and basic deal.II types (Point, Tensor, BoundingBox, etc.).      
+
+
+In general objects that can be represented by rank 1 uniform elements (i.e.,  [2.x.216]  Point<dim>,  [2.x.217]  etc.) are comma separated. Additional ranks take a semicolon, allowing you to parse strings into objects of type  [2.x.218]  or, for example,  [2.x.219]  as `0.0, 0.1; 0.1, 0.2`. This string could be interpreted as a vector of two Point objects, or a vector of vector of doubles.      
+
+
+When the entries are not uniform, as in the tuple case, we use a colon to separate the various entries. For example, a string like `5: 0.1, 0.2` could be used to parse an object of type  [2.x.220]  Point<2>>` or a  [2.x.221]   [2.x.222]       
+
+
+In our case most of the arguments are Point objects (representing centers, corners, subdivision elements, etc.), integer values (number of subdivisions), double values (radius, lengths, etc.), or boolean options (such as the `colorize` option that many GridGenerator functions take).      
+
+
+In the example below, we set reasonable default values, but these can be changed at run time by selecting any other supported function of the GridGenerator namespace. If the GridGenerator function fails, this program will interpret the name of the grid as a vtk grid filename, and the arguments as a map from manifold_id to the CAD files describing the geometry of the domain. Every CAD file will be analyzed and a Manifold of the OpenCASCADE namespace will be generated according to the content of the CAD file itself.      
+
+
+To be as generic as possible, we do this for each of the generated grids: the fluid grid, the solid grid, but also the tracer particles which are also generated using a triangulation. 
+
+[1.x.78] 
+
+
+
+Similarly, we allow for different local refinement strategies. In particular, we limit the maximum number of refinement levels, in order to control the minimum size of the fluid grid, and guarantee that it is compatible with the solid grid. The minimum number of refinement levels is also controlled to ensured sufficient accuracy in the bulk of the flow. Additionally, we perform local refinement based on standard error estimators on the fluid velocity field.      
+
+
+We permit the user to choose between the two most common refinement strategies, namely `fixed_number` or `fixed_fraction`, that refer to the methods  [2.x.223]  and  [2.x.224]       
+
+
+Refinement may be done every few time steps, instead of continuously, and we control this value by the `refinement_frequency` parameter: 
+
+[1.x.79] 
+
+
+
+Finally, the following two function objects are used to control the source term of Stokes flow and the angular velocity at which we move the solid body. In a more realistic simulation, the solid velocity or its deformation would come from the solution of an auxiliary problem on the solid domain. In this example step we leave this part aside, and simply impose a fixed rotational velocity field along the z-axis on the immersed solid, governed by a function that can be specified in the parameter file: 
+
+[1.x.80] 
+
+
+
+There remains the task of declaring what run-time parameters we can accept in input files. We split the parameters in various categories, by putting them in different sections of the ParameterHandler class. We begin by declaring all the global parameters used by StokesImmersedProblem in the global scope: 
+
+[1.x.81] 
+
+
+
+Next section is dedicated to the parameters used to create the various grids. We will need three different triangulations: `Fluid grid` is used to define the fluid domain, `Solid grid` defines the solid domain, and `Particle grid` is used to distribute some tracer particles, that are advected with the velocity and only used as passive tracers. 
+
+[1.x.82] 
+
+
+
+The final task is to correct the default dimension for the right hand side function and define a meaningful default angular velocity instead of zero. 
+
+[1.x.83] 
+
+
+
+Once the angular velocity is provided as a Function object, we reconstruct the pointwise solid velocity through the following class which derives from the Function class. It provides the value of the velocity of the solid body at a given position by assuming that the body rotates around the origin (or the  [2.x.225]  axis in 3d) with a given angular velocity. 
+
+[1.x.84] 
+
+
+
+We assume that the angular velocity is directed along the z-axis, i.e., we model the actual angular velocity as if it was a two-dimensional rotation, irrespective of the actual value of `spacedim`. 
+
+[1.x.85] 
+
+
+
+Similarly, we assume that the solid position can be computed explicitly at each time step, exploiting the knowledge of the angular velocity. We compute the exact position of the solid particle assuming that the solid is rotated by an amount equal to the time step multiplied by the angular velocity computed at the point `p`: 
+
+[1.x.86] 
+
+
+
+
+[1.x.87]  [1.x.88] 
+
+
+
+
+We are now ready to introduce the main class of our tutorial program. As usual, other than the constructor, we leave a single public entry point: the `run()` method. Everything else is left `private`, and accessed through the run method itself. 
+
+[1.x.89] 
+
+
+
+The next section contains the `private` members of the class. The first method is similar to what is present in previous example. However it not only takes care of generating the grid for the fluid, but also the grid for the solid. The second computes the largest time step that guarantees that each particle moves of at most one cell. This is important to ensure that the  [2.x.226]  can find which cell a particle ends up in, as it can only look from one cell to its immediate neighbors (because, in a parallel setting, every MPI process only knows about the cells it owns as well as their immediate neighbors). 
+
+[1.x.90] 
+
+
+
+The next two functions initialize the  [2.x.227]  objects used in this class. We have two such objects: One represents passive tracers, used to plot the trajectories of fluid particles, while the the other represents material particles of the solid, which are placed at quadrature points of the solid grid. 
+
+[1.x.91] 
+
+
+
+The remainder of the set up is split in two parts: The first of the following two functions creates all objects that are needed once per simulation, whereas the other sets up all objects that need to be reinitialized at every refinement step. 
+
+[1.x.92] 
+
+
+
+The assembly routine is very similar to other Stokes assembly routines, with the exception of the Nitsche restriction part, which exploits one of the particle handlers to integrate on a non-matching part of the fluid domain, corresponding to the position of the solid. We split these two parts into two separate functions. 
+
+[1.x.93] 
+
+
+
+The remaining functions solve the linear system (which looks almost identical to the one in  [2.x.228] ) and then postprocess the solution: The refine_and_transfer() method is called only every `refinement_frequency` steps to adapt the mesh and also make sure that all the fields that were computed on the time step before refinement are transferred correctly to the new grid. This includes vector fields, as well as particle information. Similarly, we call the two output methods only every `output_frequency` steps. 
+
+[1.x.94] 
+
+
+
+Let us then move on to the member functions of the class. The first deals with run-time parameters that are read from a parameter file. As noted before, we make sure we cannot modify this object from within this class, by making it a `const` reference. 
+
+[1.x.95] 
+
+
+
+Then there is also the MPI communicator object that we will use to let processes send information across the network if the program runs in parallel, along with the `pcout` object and timer information that has also been employed by  [2.x.229] , for example: 
+
+[1.x.96] 
+
+
+
+Next is one of the main novelties with regard to  [2.x.230] . Here we assume that both the solid and the fluid are fully distributed triangulations. This allows the problem to scale to a very large number of degrees of freedom, at the cost of communicating all the overlapping regions between non matching triangulations. This is especially tricky, since we make no assumptions on the relative position or distribution of the various subdomains of the two triangulations. In particular, we assume that every process owns only a part of the `solid_tria`, and only a part of the `fluid_tria`, not necessarily in the same physical region, and not necessarily overlapping.      
+
+
+We could in principle try to create the initial subdivisions in such a way that each process's subdomains overlap between the solid and the fluid regions. However, this overlap would be destroyed during the simulation, and we would have to redistribute the DoFs again and again. The approach we follow in this tutorial is more flexible, and not much more expensive. We make two all-to-all communications at the beginning of the simulation to exchange information about an (approximate) information of the geometrical occupancy of each processor (done through a collection of bounding boxes).      
+
+
+This information is used by the  [2.x.231]  class to exchange (using a some-to-some communication pattern) all particles, so that every process knows about the particles that live on the region occupied by the fluid subdomain that it owns.      
+
+
+In order to couple the overlapping regions, we exploit the facilities implemented in the ParticleHandler class. 
+
+[1.x.97] 
+
+
+
+Next come descriptions of the finite elements in use, along with appropriate quadrature formulas and the corresponding DoFHandler objects. For the current implementation, only `fluid_fe` is really necessary. For completeness, and to allow easy extension, we also keep the `solid_fe` around, which is however initialized to a FE_Nothing finite element space, i.e., one that has no degrees of freedom.      
+
+
+We declare both finite element spaces as  [2.x.232]  objects rather than regular member variables, to allow their generation after `StokesImmersedProblemParameters` has been initialized. In particular, they will be initialized in the `initial_setup()` method. 
+
+[1.x.98] 
+
+
+
+Similarly to how things are done in  [2.x.233] , we use a block system to treat the Stokes part of the problem, and follow very closely what was done there. 
+
+[1.x.99] 
+
+
+
+Using this partitioning of degrees of freedom, we can then define all of the objects necessary to describe the linear systems in question: 
+
+[1.x.100] 
+
+
+
+Let us move to the particles side of this program. There are two  [2.x.234]  objects used to couple the solid with the fluid, and to describe the passive tracers. These, in many ways, play a role similar to the DoFHandler class used in the discretization, i.e., they provide for an enumeration of particles and allow querying information about each particle. 
+
+[1.x.101] 
+
+
+
+For every tracer particle, we need to compute the velocity field in its current position, and update its position using a discrete time stepping scheme. We do this using distributed linear algebra objects that store the coordinates of each particle's location or velocity. That is, these vectors have `tracer_particle_handler.n_global_particles() * spacedim` entries that we will store in a way so that parts of the vector are partitioned across all processes. (Implicitly, we here make the assumption that the `spacedim` coordinates of each particle are stored in consecutive entries of the vector.) Thus, we need to determine who the owner of each vector entry is. We set this owner to be equal to the process that generated that particle at time  [2.x.235] . This information is stored for every process in the `locally_owned_tracer_particle_coordinates` IndexSet.      
+
+
+Once the particles have been distributed around to match the process that owns the region where the particle lives, we will need read access from that process to the corresponding velocity field. We achieve this by filling a read only velocity vector field that contains the relevant information in ghost entries. This is achieved using the `locally_relevant_tracer_particle_coordinates` IndexSet, that keeps track of how things change during the simulation, i.e., it keeps track of where particles that the current process owns have ended up being, and who owns the particles that ended up in my subdomain.      
+
+
+While this is not the most efficient strategy, we keep it this way to illustrate how things would work in a real fluid-structure interaction (FSI) problem. If a particle is linked to a specific solid degree of freedom, we are not free to choose who owns it, and we have to communicate this information around. We illustrate this here, and show that the communication pattern is point-to-point, and negligible in terms of total cost of the algorithm.      
+
+
+The vectors defined based on these subdivisions are then used to store the particles velocities (read-only, with ghost entries) and their displacement (read/write, no ghost entries). 
+
+[1.x.102] 
+
+
+
+One of the key points of this tutorial program is the coupling between two independent  [2.x.236]  objects, one of which may be moving and deforming (with possibly large deformations) with respect to the other. When both the fluid and the solid triangulations are of type  [2.x.237]  every process has access only to its fraction of locally owned cells of each of the two triangulations. As mentioned above, in general, the locally owned domains are not overlapping.      
+
+
+In order to allow for the efficient exchange of information between non-overlapping  [2.x.238]  objects, some algorithms of the library require the user to provide a rough description of the area occupied by the locally owned part of the triangulation, in the form of a collection of axis-aligned bounding boxes for each process, that provide a full covering of the locally owned part of the domain. This kind of information can then be used in situations where one needs to send information to the owner of the cell surrounding a known location, without knowing who that owner may in fact be. But, if one knows a collection of bounding boxes for the geometric area or volume each process owns, then we can determine a subset of all processes that might possibly own the cell in which that location lies: namely, all of those processes whose bounding boxes contain that point. Instead of sending the information associated to that location to all processes, one can then get away with only sending it to a small subset of the processes with point-to-point communication primitives. (You will notice that this also allows for the typical time-vs-memory trade-off: The more data we are willing to store about each process's owned area -- in the form of more refined bounding box information -- the less communication we have to perform.)      
+
+
+We construct this information by gathering a vector (of length  [2.x.239]  of vectors of BoundingBox objects. We fill this vector using the extract_rtree_level() function, and allow the user to select what level of the tree to extract. The "level" corresponds to how coarse/fine the overlap of the area with bounding boxes should be.      
+
+
+As an example, this is what would be extracted by the extract_rtree_level() function applied to a two dimensional hyper ball, distributed over three processes. Each image shows in green the bounding boxes associated to the locally owned cells of the triangulation on each process, and in violet the bounding boxes extracted from the rtree:      
+
+
+ [2.x.240]   [2.x.241]   [2.x.242]       
+
+
+We store these boxes in a global member variable, which is updated at every refinement step: 
+
+[1.x.103] 
+
+
+
+
+[1.x.104]  [1.x.105] 
+
+
+
+
+
+[1.x.106]  [1.x.107] 
+
+
+
+
+In the constructor, we create the mpi_communicator as well as the triangulations and dof_handler for both the fluid and the solid. Using the mpi_communicator, both the ConditionalOStream and TimerOutput object are constructed. 
+
+[1.x.108] 
+
+
+
+In order to generate the grid, we first try to use the functions in the deal.II GridGenerator namespace, by leveraging the  [2.x.243]  If this function fails, then we use the following method, where the name is interpreted as a filename, and the arguments are interpreted as a map from manifold ids to CAD files, and are converted to Manifold descriptors using the OpenCASCADE namespace facilities. At the top, we read the file into a triangulation: 
+
+[1.x.109] 
+
+
+
+If we got to this point, then the Triangulation has been read, and we are ready to attach to it the correct manifold descriptions. We perform the next lines of code only if deal.II has been built with OpenCASCADE support. For each entry in the map, we try to open the corresponding CAD file, we analyze it, and according to its content, opt for either a  [2.x.244]  (if the CAD file contains a single `TopoDS_Edge` or a single `TopoDS_Wire`) or a  [2.x.245]  if the file contains a single face. Notice that if the CAD files do not contain single wires, edges, or faces, an assertion will be throw in the generation of the Manifold.      
+
+
+We use the  [2.x.246]  class to do the conversion from the string to a map between manifold ids and file names for us: 
+
+[1.x.110] 
+
+
+
+Now we check how many faces are contained in the `Shape`. OpenCASCADE is intrinsically 3D, so if this number is zero, we interpret this as a line manifold, otherwise as a  [2.x.247]  in `spacedim` = 3, or  [2.x.248]  in `spacedim` = 2. 
+
+[1.x.111] 
+
+
+
+We use this trick, because  [2.x.249]  is only implemented for spacedim = 3. The check above makes sure that things actually work correctly. 
+
+[1.x.112] 
+
+
+
+We also allow surface descriptions in two dimensional spaces based on single NURBS patches. For this to work, the CAD file must contain a single `TopoDS_Face`. 
+
+[1.x.113] 
+
+
+
+Now let's put things together, and make all the necessary grids. As mentioned above, we first try to generate the grid internally, and if we fail (i.e., if we end up in the `catch` clause), then we proceed with the above function.    
+
+
+We repeat this pattern for both the fluid and the solid mesh. 
+
+[1.x.114] 
+
+
+
+
+[1.x.115]  [1.x.116] 
+
+
+
+
+Once the solid and fluid grids have been created, we start filling the  [2.x.250]  objects. The first one we take care of is the one we use to keep track of passive tracers in the fluid. These are simply transported along, and in some sense their locations are unimportant: We just want to use them to see where flow is being transported. We could use any way we choose to determine where they are initially located. A convenient one is to create the initial locations as the vertices of a mesh in a shape of our choice -- a choice determined by one of the run-time parameters in the parameter file.    
+
+
+In this implementation, we create tracers using the support points of a FE_Q finite element space defined on a temporary grid, which is then discarded. Of this grid, we only keep around the  [2.x.251]  objects (stored in a  [2.x.252]  class) associated to the support points.    
+
+
+The  [2.x.253]  class offers the possibility to insert a set of particles that live physically in the part of the domain owned by the active process. However, in this case this function would not suffice. The particles generated as the locally owned support points of an FE_Q object on an arbitrary grid (non-matching with regard to the fluid grid) have no reasons to lie in the same physical region of the locally owned subdomain of the fluid grid. In fact this will almost never be the case, especially since we want to keep track of what is happening to the particles themselves.    
+
+
+In particle-in-cell methods (PIC), it is often customary to assign ownership of the particles to the process where the particles lie. In this tutorial we illustrate a different approach, which is useful if one wants to keep track of information related to the particles (for example, if a particle is associated to a given degree of freedom, which is owned by a specific process and not necessarily the same process that owns the fluid cell where the particle happens to be at any given time). In the approach used here, ownership of the particles is assigned once at the beginning, and one-to-one communication happens whenever the original owner needs information from the process that owns the cell where the particle lives. We make sure that we set ownership of the particles using the initial particle distribution, and keep the same ownership throughout the execution of the program.    
+
+
+With this overview out of the way, let us see what the function does. At the top, we create a temporary triangulation and DoFHandler object from which we will take the node locations for initial particle locations: 
+
+[1.x.117] 
+
+
+
+This is where things start to get complicated. Since we may run this program in a parallel environment, every parallel process will now have created these temporary triangulations and DoFHandlers. But, in fully distributed triangulations, the active process only knows about the locally owned cells, and has no idea of how other processes have distributed their own cells. This is true for both the temporary triangulation created above as well as the fluid triangulation into which we want to embed the particles below. On the other hand, these locally known portions of the two triangulations will, in general, not overlap. That is, the locations of the particles we will create from the node locations of the temporary mesh are arbitrary, and may fall within a region of the fluid triangulation that the current process doesn't have access to (i.e., a region of the fluid domain where cells are artificial). In order to understand who to send those particles to, we need to have a (rough) idea of how the fluid grid is distributed among processors.      
+
+
+We construct this information by first building an index tree of boxes bounding the locally owned cells, and then extracting one of the first levels of the tree: 
+
+[1.x.118] 
+
+
+
+Each process now has a collection of bounding boxes that completely enclose all locally owned processes (but that may overlap the bounding boxes of other processes). We then exchange this information between all participating processes so that every process knows the bounding boxes of all other processes.      
+
+
+Equipped with this knowledge, we can then initialize the `tracer_particle_handler` to the fluid mesh and generate the particles from the support points of the (temporary) tracer particles triangulation. This function call uses the `global_bounding_boxes` object we just constructed to figure out where to send the particles whose locations were derived from the locally owned part of the `particles_dof_handler`. At the end of this call, every particle will have been distributed to the correct process (i.e., the process that owns the fluid cell where the particle lives). We also output their number to the screen at this point. 
+
+[1.x.119] 
+
+
+
+Each particle so created has a unique ID. At some point in the algorithm below, we will need vectors containing position and velocity information for each particle. This vector will have size `n_particles * spacedim`, and we will have to store the elements of this vector in a way so that each parallel process "owns" those elements that correspond to coordinates of the particles it owns. In other words, we have to partition the index space between zero and `n_particles * spacedim` among all processes. We can do this by querying the `tracer_particle_handler` for the IDs of its locally relevant particles, and construct the indices that would be needed to store in a (parallel distributed) vector of the position and velocity of all particles where we implicitly assume that we store the coordinates of each location or velocity in `spacedim` successive vector elements (this is what the  [2.x.254]  function does). 
+
+[1.x.120] 
+
+
+
+At the beginning of the simulation, all particles are in their original position. When particles move, they may traverse to a part of the domain which is owned by another process. If this happens, the current process keeps formally "ownership" of the particles, but may need read access from the process where the particle has landed. We keep this information in another index set, which stores the indices of all particles that are currently on the current process's subdomain, independently if they have always been here or not.      
+
+
+Keeping this index set around allows us to leverage linear algebra classes for all communications regarding positions and velocities of the particles. This mimics what would happen in the case where another problem was solved in the solid domain (as in fluid-structure interaction. In this latter case, additional DOFs on the solid domain would be coupled to what is occurring in the fluid domain. 
+
+[1.x.121] 
+
+
+
+Finally, we make sure that upon refinement, particles are correctly transferred. When performing local refinement or coarsening, particles will land in another cell. We could in principle redistribute all particles after refining, however this would be overly expensive.      
+
+
+The  [2.x.255]  class has a way to transfer information from a cell to its children or to its parent upon refinement, without the need to reconstruct the entire data structure. This is done by registering two callback functions to the triangulation. These functions will receive a signal when refinement is about to happen, and when it has just happened, and will take care of transferring all information to the newly refined grid with minimal computational cost. 
+
+[1.x.122] 
+
+
+
+Similarly to what we have done for passive tracers, we next set up the particles that track the quadrature points of the solid mesh. The main difference here is that we also want to attach a weight value (the "JxW" value of the quadrature point) to each of particle, so that we can compute integrals even without direct access to the original solid grid.    
+
+
+This is achieved by leveraging the "properties" concept of the  [2.x.256]  class. It is possible to store (in a memory efficient way) an arbitrary number of `double` numbers for each of the  [2.x.257]  objects inside a  [2.x.258]  object. We use this possibility to store the JxW values of the quadrature points of the solid grid.    
+
+
+In our case, we only need to store one property per particle: the JxW value of the integration on the solid grid. This is passed at construction time to the solid_particle_handler object as the last argument 
+
+[1.x.123] 
+
+
+
+The number of particles that we generate locally is equal to the total number of locally owned cells times the number of quadrature points used in each cell. We store all these points in a vector, and their corresponding properties in a vector of vectors: 
+
+[1.x.124] 
+
+
+
+We proceed in the same way we did with the tracer particles, reusing the computed bounding boxes. However, we first check that the `global_fluid_bounding_boxes` object has been actually filled. This should certainly be the case here, since this method is called after the one that initializes the tracer particles. However, we want to make sure that if in the future someone decides (for whatever reason) to initialize first the solid particle handler, or to copy just this part of the tutorial, a meaningful exception is thrown when things don't work as expected      
+
+
+Since we have already stored the position of the quadrature points, we can use these positions to insert the particles directly using the `solid_particle_handler` instead of having to go through a  [2.x.259]  function: 
+
+[1.x.125] 
+
+
+
+As in the previous function, we end by making sure that upon refinement, particles are correctly transferred: 
+
+[1.x.126] 
+
+
+
+
+[1.x.127]  [1.x.128] 
+
+
+
+
+We set up the finite element space and the quadrature formula to be used throughout the step. For the fluid, we use Taylor-Hood elements (e.g.  [2.x.260] ). Since we do not solve any equation on the solid domain, an empty finite element space is generated. A natural extension of this program would be to solve a fluid structure interaction problem, which would require that the `solid_fe` use more useful FiniteElement class.    
+
+
+Like for many other functions, we store the time necessary to carry out the operations we perform here. The current function puts its timing information into a section with label "Initial setup". Numerous other calls to this timer are made in various functions. They allow to monitor the absolute and relative cost of each individual function to identify bottlenecks. 
+
+[1.x.129] 
+
+
+
+We next construct the distributed block matrices and vectors which are used to solve the linear equations that arise from the problem. This function is adapted from  [2.x.261]  and we refer to this step for a thorough explanation. 
+
+[1.x.130] 
+
+
+
+
+[1.x.131]  [1.x.132] 
+
+
+
+
+We assemble the system matrix, the preconditioner matrix, and the right hand side. The code is adapted from  [2.x.262] , which is essentially what  [2.x.263]  also has, and is pretty standard if you know what the Stokes equations look like. 
+
+[1.x.133] 
+
+
+
+The following method is then the one that deals with the penalty terms that result from imposing the velocity on the impeller. It is, in a sense, the heart of the tutorial, but it is relatively straightforward. Here we exploit the `solid_particle_handler` to compute the Nitsche restriction or the penalization in the embedded domain. 
+
+[1.x.134] 
+
+
+
+We loop over all the local particles. Although this could be achieved directly by looping over all the cells, this would force us to loop over numerous cells which do not contain particles. Consequently, we loop over all the particles, but, we get the reference of the cell in which the particle lies and then loop over all particles within that cell. This enables us to skip the cells which do not contain particles, yet to assemble the local matrix and rhs of each cell to apply the Nitsche restriction. Once we are done with all particles on one cell, we advance the `particle` iterator to the particle past the end of the ones on the current cell (this is the last line of the `while` loop's body). 
+
+[1.x.135] 
+
+
+
+We get an iterator to the cell within which the particle lies from the particle itself. We can then assemble the additional terms in the system matrix and the right hand side as we would normally. 
+
+[1.x.136] 
+
+
+
+So then let us get the collection of cells that are located on this cell and iterate over them. From each particle we gather the location and the reference location of the particle as well as the additional information that is attached to the particle. In the present case, this information is the "JxW" of the quadrature points which were used to generate the particles.          
+
+
+Using this information, we can add the contribution of the quadrature point to the local_matrix and local_rhs. We can evaluate the value of the shape function at the position of each particle easily by using its reference location. 
+
+[1.x.137] 
+
+
+
+
+[1.x.138]  [1.x.139] 
+
+
+
+
+This function solves the linear system with FGMRES with a block diagonal preconditioner and an algebraic multigrid (AMG) method for the diagonal blocks. The preconditioner applies a V cycle to the  [2.x.264]  (i.e., the velocity-velocity) block and a CG with the mass matrix for the  [2.x.265]  block (which is our approximation to the Schur complement: the pressure mass matrix assembled above). 
+
+[1.x.140] 
+
+
+
+
+[1.x.141]  [1.x.142] 
+
+
+
+
+We deal with mesh refinement in a completely standard way: 
+
+[1.x.143] 
+
+
+
+
+[1.x.144]  [1.x.145] 
+
+
+
+
+We output the results (velocity and pressure) on the fluid domain using the standard parallel capabilities of deal.II. A single compressed vtu file is written that agglomerates the information of all processors. An additional `.pvd` record is written to associate the physical time to the vtu files. 
+
+[1.x.146] 
+
+
+
+Similarly, we write the particles (either from the solid or the tracers) as a single compressed vtu file through the  [2.x.266]  object. This simple object does not write the additional information attached as "properties" to the particles, but only writes their id -- but then, we don't care about the "JxW" values of these particle locations anyway, so no information that we may have wanted to visualize is lost. 
+
+[1.x.147] 
+
+
+
+
+[1.x.148]  [1.x.149] 
+
+
+
+
+This function now orchestrates the entire simulation. It is very similar to the other time dependent tutorial programs -- take  [2.x.267]  or  [2.x.268]  as an example. At the beginning, we output some status information and also save all current parameters to a file in the output directory, for reproducibility. 
+
+[1.x.150] 
+
+
+
+We then start the time loop. We initialize all the elements of the simulation in the first cycle 
+
+[1.x.151] 
+
+
+
+After the first time step, we displace the solid body at the beginning of each time step to take into account the fact that is has moved. 
+
+[1.x.152] 
+
+
+
+In order to update the state of the system, we first interpolate the fluid velocity at the position of the tracer particles and, with a naive explicit Euler scheme, advect the massless tracer particles. 
+
+[1.x.153] 
+
+
+
+Using these new locations, we can then assemble the Stokes system and solve it. 
+
+[1.x.154] 
+
+
+
+With the appropriate frequencies, we then write the information of the solid particles, the tracer particles, and the fluid domain into files for visualization, and end the time step by adapting the mesh. 
+
+[1.x.155] 
+
+
+
+
+[1.x.156]  [1.x.157] 
+
+
+
+
+The remainder of the code, the `main()` function, is standard, with the exception of the handling of input parameter files. We allow the user to specify an optional parameter file as an argument to the program. If nothing is specified, we use the default file "parameters.prm", which is created if non existent. The file name is scanned for the the string "23" first, and "3" afterwards. If the filename contains the string "23", the problem classes are instantiated with template arguments 2 and 3 respectively. If only the string "3" is found, then both template arguments are set to 3, otherwise both are set to 2. 
+
+
+
+
+If the program is called without any command line arguments (i.e., `argc==1`), then we just use "parameters.prm" by default. 
+
+[1.x.158] 
+
+[1.x.159][1.x.160] 
+
+
+The directory in which this program is run contains a number of sample parameter files that you can use to reproduce the results presented in this section. If you do not specify a parameter file as an argument on the command line, the program will try to read the file "`parameters.prm`" by default, and will execute the two dimensional version of the code. As explained in the discussion of the source code, if your file name contains the string "23", then the program will run a three dimensional problem, with immersed solid of co-dimension one. If it contains the string "3", it will run a three dimensional problem, with immersed solid of co-dimension zero, otherwise it will run a two dimensional problem with immersed solid of co-dimension zero. 
+
+Regardless of the specific parameter file name, if the specified file does not exist, when you execute the program you will get an exception that no such file can be found: 
+
+[1.x.161] 
+
+
+
+However, as the error message already states, the code that triggers the exception will also generate the specified file ("`parameters.prm`" in this case) that simply contains the default values for all parameters this program cares about (for the correct dimension and co-dimension, according to the whether a string "23" or "3" is contained in the file name). By inspection of the default parameter file, we see the following: 
+
+[1.x.162] 
+
+
+
+If you now run the program, you will get a file called `parameters_22.prm` in the directory specified by the parameter `Output directory` (which defaults to the current directory) containing a shorter version of the above parameters (without comments and documentation), documenting all parameters that were used to run your program: 
+
+[1.x.163] 
+
+
+
+The rationale behind creating first `parameters.prm` file (the first time the program is run) and then a `output/parameters_22.prm` (every time you run the program with an existing input file), is because you may want to leave most parameters to their default values, and only modify a handful of them, while still beeing able to reproduce the results and inspect what parameters were used for a specific simulation. It is generally good scientific practice to store the parameter file you used for a simulation along with the simulation output so that you can repeat the exact same run at a later time if necessary. 
+
+Another reason is because the input file may only contain those parameters that differ from their defaults. For example, you could use the following (perfectly valid) parameter file with this tutorial program: 
+
+[1.x.164] 
+
+and you would run the program with Q3/Q2 Taylor-Hood finite elements, for 101 steps, using a Nitsche penalty of `10`, and leaving all the other parameters to their default value. The output directory then contains a record of not just these parameters, but indeed all parameters used in the simulation. You can inspect all the other parameters in the produced file `parameters_22.prm`. 
+
+
+[1.x.165][1.x.166] 
+
+
+The default problem generates a co-dimension zero impeller, consisting of a rotating rectangular grid, where the rotation is for half a time unit in one direction, and half a time unit in the opposite direction, with constant angular velocity equal to  [2.x.269] . Consequently, the impeller does half a rotation and returns to its original position. The following animation displays the velocity magnitude, the motion of the solid impeller and of the tracer particles. 
+
+
+ [2.x.270]  
+
+On one core, the output of the program will look like the following: 
+
+[1.x.167] 
+
+
+
+You may notice that assembling the coupling system is more expensive than assembling the Stokes part. This depends highly on the number of Gauss points (solid particles) that are used to apply the Nitsche restriction. In the present case, a relatively low number of tracer particles are used. Consequently, tracking their motion is relatively cheap. 
+
+The following movie shows the evolution of the solution over time: 
+
+[1.x.168] 
+
+
+
+The movie shows the rotating obstacle in gray (actually a superposition of the solid particles plotted with large enough dots that they overlap), [1.x.169] in light colors (including the corner vertices that form at specific times during the simulation), and the tracer particles in bluish tones. 
+
+The simulation shows that at the end time, the tracer particles have somewhat returned to their original position, although they have been distorted by the flow field. The following image compares the initial and the final position of the particles after one time unit of flow. 
+
+ [2.x.271]  
+
+In this case, we see that the tracer particles that were outside of the swept volume of the impeller have returned very close to their initial position, whereas those in the swept volume were slightly more deformed. This deformation is non-physical. It is caused by the numerical error induced by the explicit Euler scheme used to advect the particles, by the loss of accuracy due to the fictitious domain and, finally, by the discretization error on the Stokes equations. The first two errors are the leading cause of this deformation and they could be alleviated by the use of a finer mesh and a lower time step. 
+
+
+[1.x.170][1.x.171] 
+
+
+To play around a little bit, we complicate the fictitious domain (taken from https://grabcad.com/library/lungstors-blower-1), and run a co-dimension one simulation in three space dimensions, using the following "`parameters_23.prm`" file: 
+
+[1.x.172] 
+
+
+
+In this case, the timing outputs are a bit different: 
+
+[1.x.173] 
+
+
+
+Now, the solver is taking most of the solution time in three dimensions, and the particle motion and Nitsche assembly remain relatively unimportant as far as run time is concerned. 
+
+
+
+
+[1.x.174] 
+
+
+
+
+[1.x.175] [1.x.176][1.x.177] 
+
+
+The current tutorial program shows a one-way coupling between the fluid and the solid, where the solid motion is imposed (and not solved for), and read in the solid domain by exploiting the location and the weights of the solid quadrature points. 
+
+The structure of the code already allows one to implement a two-way coupling, by exploiting the possibility to read values of the fluid velocity on the quadrature points of the solid grid. For this to be more efficient in terms of MPI communication patterns, one should maintain ownership of the quadrature points on the solid processor that owns the cells where they have been created. In the current code, it is sufficient to define the IndexSet of the vectors used to exchange information of the quadrature points by using the solid partition instead of the initial fluid partition. 
+
+This allows the combination of the technique used in this tutorial program with those presented in the tutorial  [2.x.272]  to solve a fluid structure interaction problem with distributed Lagrange multipliers, on  [2.x.273]  objects. 
+
+The timings above show that the current preconditioning strategy does not work well for Nitsche penalization, and we should come up with a better preconditioner if we want to aim at larger problems. Moreover, a checkpoint restart strategy should be implemented to allow for longer simulations to be interrupted and restored, as it is done for example in the  [2.x.274]  tutorial. [1.x.178] [1.x.179]  [2.x.275]  
+
+ [2.x.276] 

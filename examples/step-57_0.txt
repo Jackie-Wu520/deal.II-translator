@@ -1,0 +1,500 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] ,  [2.x.3] . 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5][1.x.6][1.x.7][1.x.8][1.x.9][1.x.10][1.x.11][1.x.12][1.x.13][1.x.14][1.x.15][1.x.16][1.x.17][1.x.18][1.x.19][1.x.20][1.x.21][1.x.22][1.x.23][1.x.24][1.x.25][1.x.26][1.x.27][1.x.28][1.x.29][1.x.30][1.x.31][1.x.32][1.x.33] 
+
+ [2.x.4]  
+
+[1.x.34] 
+
+ [2.x.5]  
+
+[1.x.35] [1.x.36][1.x.37] 
+
+
+[1.x.38][1.x.39] 
+
+
+In this tutorial we show how to solve the incompressible Navier Stokes equations (NSE) with Newton's method. The flow we consider here is assumed to be steady. In a domain  [2.x.6] ,  [2.x.7] , with a piecewise smooth boundary  [2.x.8] , and a given force field  [2.x.9] , we seek a velocity field  [2.x.10]  and a pressure field  [2.x.11]  satisfying [1.x.40] 
+
+
+
+Unlike the Stokes equations as discussed in  [2.x.12] , the NSE are a nonlinear system of equations because of the convective term  [2.x.13] . The first step of computing a numerical solution is to linearize the system and this will be done using Newton's method. A time-dependent problem is discussed in  [2.x.14] , where the system is linearized using the solution from the last time step and no nonlinear solve is necessary. 
+
+[1.x.41][1.x.42] 
+
+
+We define a nonlinear function whose root is a solution to the NSE by [1.x.43] 
+
+
+
+Assuming the initial guess is good enough to guarantee the convergence of Newton's iteration and denoting  [2.x.15] , Newton's iteration on a vector function can be defined as [1.x.44] 
+
+
+
+where  [2.x.16]  is the approximate solution in step  [2.x.17] ,  [2.x.18]  represents the solution from the previous step, and  [2.x.19]  is the Jacobian matrix evaluated at  [2.x.20] . A similar iteration can be found in  [2.x.21] . 
+
+The Newton iteration formula implies the new solution is obtained by adding an update term to the old solution. Instead of evaluating the Jacobian matrix and taking its inverse, we consider the update term as a whole, that is [1.x.45] 
+
+
+
+where  [2.x.22] . 
+
+We can find the update term by solving the system [1.x.46] 
+
+
+
+Here, the left of the previous equation represents the directional gradient of  [2.x.23]  along  [2.x.24]  at  [2.x.25] . By definition, the directional gradient is given by [1.x.47] 
+
+
+
+Therefore, we arrive at the linearized system: [1.x.48] 
+
+
+
+where  [2.x.26]  and  [2.x.27]  are the solutions from the previous iteration. Additionally, the right hand side of the second equation is not zero since the discrete solution is not exactly divergence free (divergence free for the continuous solution). The right hand side here acts as a correction which leads the discrete solution of the velocity to be divergence free along Newton's iteration. In this linear system, the only unknowns are the update terms  [2.x.28]  and  [2.x.29] , and we can use a similar strategy to the one used in  [2.x.30]  (and derive the weak form in the same way). 
+
+Now, Newton's iteration can be used to solve for the update terms: 
+
+ [2.x.31]     [2.x.32] Initialization: Initial guess  [2.x.33]  and  [2.x.34] , tolerance  [2.x.35] ; [2.x.36]     [2.x.37] Linear solve to compute update term  [2.x.38]  and        [2.x.39] ; [2.x.40]     [2.x.41] Update the approximation:        [2.x.42]  and        [2.x.43] ; [2.x.44]     [2.x.45] Check residual norm:  [2.x.46] :        [2.x.47]           [2.x.48] If  [2.x.49] , STOP. [2.x.50]           [2.x.51] If  [2.x.52] , back to step 2. [2.x.53]         [2.x.54]  [2.x.55]   [2.x.56]  
+
+[1.x.49][1.x.50] 
+
+
+The initial guess needs to be close enough to the solution for Newton's method to converge; hence, finding a good starting value is crucial to the nonlinear solver. 
+
+When the viscosity  [2.x.57]  is large, a good initial guess can be obtained by solving the Stokes equation with viscosity  [2.x.58] . While problem dependent, this works for  [2.x.59]  for the test problem considered here. 
+
+However, the convective term  [2.x.60]  will be dominant if the viscosity is small, like  [2.x.61]  in test case 2.  In this situation, we use a continuation method to set up a series of auxiliary NSEs with viscosity approaching the one in the target NSE. Correspondingly, we create a sequence  [2.x.62]  with  [2.x.63] , and accept that the solutions to two NSE with viscosity  [2.x.64]  and  [2.x.65]  are close if  [2.x.66]  is small.  Then we use the solution to the NSE with viscosity  [2.x.67]  as the initial guess of the NSE with  [2.x.68] . This can be thought of as a staircase from the Stokes equations to the NSE we want to solve. 
+
+That is, we first solve a Stokes problem [1.x.51] 
+
+
+
+to get the initial guess for [1.x.52] 
+
+
+
+which also acts as the initial guess of the continuation method. Here  [2.x.69]  is relatively large so that the solution to the Stokes problem with viscosity  [2.x.70]  can be used as an initial guess for the NSE in Newton's iteration. 
+
+Then the solution to [1.x.53] 
+
+
+
+acts as the initial guess for [1.x.54] 
+
+
+
+This process is repeated with a sequence of viscosities  [2.x.71]  that is determined experimentally so that the final solution can used as a starting guess for the Newton iteration. 
+
+[1.x.55][1.x.56] 
+
+
+At each step of Newton's iteration, the problem results in solving a saddle point systems of the form [1.x.57] 
+
+
+
+This system matrix has the same block structure as the one in  [2.x.72] . However, the matrix  [2.x.73]  at the top left corner is not symmetric because of the nonlinear term. Instead of solving the above system, we can solve the equivalent system [1.x.58] 
+
+
+
+with a parameter  [2.x.74]  and an invertible matrix  [2.x.75] . Here  [2.x.76]  is the Augmented Lagrangian term; see [1] for details. 
+
+Denoting the system matrix of the new system by  [2.x.77]  and the right-hand side by  [2.x.78] , we solve it iteratively with right preconditioning  [2.x.79]  as  [2.x.80] , where [1.x.59] 
+
+
+
+with  [2.x.81]  and  [2.x.82]  is the corresponding Schur complement  [2.x.83] . We let  [2.x.84]  where  [2.x.85]  is the pressure mass matrix, then  [2.x.86]  can be approximated by [1.x.60] 
+
+
+
+See [1] for details. 
+
+We decompose  [2.x.87]  as [1.x.61] 
+
+
+
+Here two inexact solvers will be needed for  [2.x.88]  and  [2.x.89] , respectively (see [1]). Since the pressure mass matrix is symmetric and positive definite, CG with ILU as a preconditioner is appropriate to use for  [2.x.90] . For simplicity, we use the direct solver UMFPACK for  [2.x.91] . The last ingredient is a sparse matrix-vector product with  [2.x.92] . Instead of computing the matrix product in the augmented Lagrangian term in  [2.x.93] , we assemble Grad-Div stabilization  [2.x.94] , as explained in [2]. 
+
+[1.x.62][1.x.63] 
+
+
+We use the lid driven cavity flow as our test case; see [3] for details. The computational domain is the unit square and the right-hand side is  [2.x.95] . The boundary condition is [1.x.64] 
+
+
+
+When solving this problem, the error consists of the nonlinear error (from Newton's iteration) and the discretization error (dependent on mesh size). The nonlinear part decreases with each Newton iteration and the discretization error reduces with mesh refinement. In this example, the solution from the coarse mesh is transferred to successively finer meshes and used as an initial guess. Therefore, the nonlinear error is always brought below the tolerance of Newton's iteration and the discretization error is reduced with each mesh refinement. 
+
+Inside the loop, we involve three solvers: one for  [2.x.96] , one for  [2.x.97]  and one for  [2.x.98] . The first two solvers are invoked in the preconditioner and the outer solver gives us the update term. Overall convergence is controlled by the nonlinear residual; as Newton's method does not require an exact Jacobian, we employ FGMRES with a relative tolerance of only 1e-4 for the outer linear solver. In fact, we use the truncated Newton solve for this system. As described in  [2.x.99] , the inner linear solves are also not required to be done very accurately. Here we use CG with a relative tolerance of 1e-6 for the pressure mass matrix. As expected, we still see convergence of the nonlinear residual down to 1e-14. Also, we use a simple line search algorithm for globalization of the Newton method. 
+
+The cavity reference values for  [2.x.100]  and  [2.x.101]  are from [4] and [5], respectively, where  [2.x.102]  is the Reynolds number and can be located at [8]. Here the viscosity is defined by  [2.x.103] . Even though we can still find a solution for  [2.x.104]  and the references contain results for comparison, we limit our discussion here to  [2.x.105] . This is because the solution is no longer stationary starting around  [2.x.106]  but instead becomes periodic, see [7] for details. 
+
+[1.x.65][1.x.66] 
+
+ [2.x.107]  
+
+   [2.x.108]   An Augmented Lagrangian-Based Approach to the Oseen Problem, M. Benzi and M. Olshanskii, SIAM J. SCI. COMPUT. 2006    [2.x.109]   Efficient augmented Lagrangian-type preconditioning for the Oseen problem using Grad-Div stabilization, Timo Heister and Gerd Rapin    [2.x.110]   http://www.cfd-online.com/Wiki/Lid-driven_cavity_problem    [2.x.111]   High-Re solution for incompressible flow using the Navier-Stokes Equations and a Multigrid Method, U. Ghia, K. N. Ghia, and C. T. Shin    [2.x.112]   Numerical solutions of 2-D steady incompressible driven cavity flow at high Reynolds numbers, E. Erturk, T.C. Corke and C. Gokcol    [2.x.113]  Implicit Weighted ENO Schemes for the Three-Dimensional Incompressible Navier-Stokes Equations, Yang et al, 1998    [2.x.114]  The 2D lid-driven cavity problem revisited, C. Bruneau and M. Saad, 2006    [2.x.115]  https://en.wikipedia.org/wiki/Reynolds_number  [2.x.116]  [1.x.67] [1.x.68] 
+
+
+[1.x.69]  [1.x.70] 
+
+
+
+
+As usual, we start by including some well-known files: 
+
+[1.x.71] 
+
+
+
+To transfer solutions between meshes, this file is included: 
+
+[1.x.72] 
+
+
+
+This file includes UMFPACK: the direct solver: 
+
+[1.x.73] 
+
+
+
+And the one for ILU preconditioner: 
+
+[1.x.74] 
+
+
+
+
+[1.x.75]  [1.x.76] 
+
+
+
+
+This class manages the matrices and vectors described in the introduction: in particular, we store a BlockVector for the current solution, current Newton update, and the line search update.  We also store two AffineConstraints objects: one which enforces the Dirichlet boundary conditions and one that sets all boundary values to zero. The first constrains the solution vector while the second constraints the updates (i.e., we never update boundary values, so we force the relevant update vector values to be zero). 
+
+[1.x.77] 
+
+
+
+
+[1.x.78]  [1.x.79] 
+
+
+
+
+In this problem we set the velocity along the upper surface of the cavity to be one and zero on the other three walls. The right hand side function is zero so we do not need to set the right hand side function in this tutorial. The number of components of the boundary function is  [2.x.117] . We will ultimately use  [2.x.118]  to set boundary values, which requires the boundary value functions to have the same number of components as the solution, even if all are not used. Put another way: to make this function happy we define boundary values for the pressure even though we will never actually use them. 
+
+[1.x.80] 
+
+
+
+
+[1.x.81]  [1.x.82]    
+
+
+As discussed in the introduction, the preconditioner in Krylov iterative methods is implemented as a matrix-vector product operator. In practice, the Schur complement preconditioner is decomposed as a product of three matrices (as presented in the first section). The  [2.x.119]  in the first factor involves a solve for the linear system  [2.x.120] . Here we solve this system via a direct solver for simplicity. The computation involved in the second factor is a simple matrix-vector multiplication. The Schur complement  [2.x.121]  can be well approximated by the pressure mass matrix and its inverse can be obtained through an inexact solver. Because the pressure mass matrix is symmetric and positive definite, we can use CG to solve the corresponding linear system. 
+
+[1.x.83] 
+
+
+
+We can notice that the initialization of the inverse of the matrix at the top left corner is completed in the constructor. If so, every application of the preconditioner then no longer requires the computation of the matrix factors. 
+
+
+
+
+
+
+
+[1.x.84] 
+
+
+
+
+[1.x.85]  [1.x.86] 
+
+[1.x.87]  [1.x.88]    
+
+
+The constructor of this class looks very similar to the one in  [2.x.122] . The only difference is the viscosity and the Augmented Lagrangian coefficient  [2.x.123] . 
+
+[1.x.89] 
+
+
+
+
+[1.x.90]  [1.x.91]    
+
+
+This function initializes the DoFHandler enumerating the degrees of freedom and constraints on the current mesh. 
+
+[1.x.92] 
+
+
+
+The first step is to associate DoFs with a given mesh. 
+
+[1.x.93] 
+
+
+
+We renumber the components to have all velocity DoFs come before the pressure DoFs to be able to split the solution vector in two blocks which are separately accessed in the block preconditioner. 
+
+[1.x.94] 
+
+
+
+In Newton's scheme, we first apply the boundary condition on the solution obtained from the initial step. To make sure the boundary conditions remain satisfied during Newton's iteration, zero boundary conditions are used for the update  [2.x.124] . Therefore we set up two different constraint objects. 
+
+[1.x.95] 
+
+
+
+
+[1.x.96]  [1.x.97]    
+
+
+On each mesh the SparsityPattern and the size of the linear system are different. This function initializes them after mesh refinement. 
+
+[1.x.98] 
+
+
+
+
+[1.x.99]  [1.x.100]    
+
+
+This function builds the system matrix and right hand side that we currently work on. The  [2.x.125]  argument is used to determine which set of constraints we apply (nonzero for the initial step and zero for the others). The  [2.x.126]  argument determines whether to assemble the whole system or only the right hand side vector, respectively. 
+
+[1.x.101] 
+
+
+
+For the linearized system, we create temporary storage for present velocity and gradient, and present pressure. In practice, they are all obtained through their shape functions at quadrature points. 
+
+
+
+
+
+
+
+[1.x.102] 
+
+
+
+The assembly is similar to  [2.x.127] . An additional term with gamma as a coefficient is the Augmented Lagrangian (AL), which is assembled via grad-div stabilization.  As we discussed in the introduction, the bottom right block of the system matrix should be zero. Since the pressure mass matrix is used while creating the preconditioner, we assemble it here and then move it into a separate SparseMatrix at the end (same as in  [2.x.128] ). 
+
+[1.x.103] 
+
+
+
+Finally we move pressure mass matrix into a separate matrix: 
+
+[1.x.104] 
+
+
+
+Note that settings this pressure block to zero is not identical to not assembling anything in this block, because this operation here will (incorrectly) delete diagonal entries that come in from hanging node constraints for pressure DoFs. This means that our whole system matrix will have rows that are completely zero. Luckily, FGMRES handles these rows without any problem. 
+
+[1.x.105] 
+
+
+
+
+[1.x.106]  [1.x.107]    
+
+
+In this function, we use FGMRES together with the block preconditioner, which is defined at the beginning of the program, to solve the linear system. What we obtain at this step is the solution vector. If this is the initial step, the solution vector gives us an initial guess for the Navier Stokes equations. For the initial step, nonzero constraints are applied in order to make sure boundary conditions are satisfied. In the following steps, we will solve for the Newton update so zero constraints are used. 
+
+[1.x.108] 
+
+
+
+
+[1.x.109]  [1.x.110]    
+
+
+After finding a good initial guess on the coarse mesh, we hope to decrease the error through refining the mesh. Here we do adaptive refinement similar to  [2.x.129]  except that we use the Kelly estimator on the velocity only. We also need to transfer the current solution to the next mesh using the SolutionTransfer class. 
+
+[1.x.111] 
+
+
+
+First the DoFHandler is set up and constraints are generated. Then we create a temporary BlockVector  [2.x.130] , whose size is according with the solution on the new mesh. 
+
+[1.x.112] 
+
+
+
+Transfer solution from coarse to fine mesh and apply boundary value constraints to the new transferred solution. Note that present_solution is still a vector corresponding to the old mesh. 
+
+[1.x.113] 
+
+
+
+Finally set up matrix and vectors and set the present_solution to the interpolated data. 
+
+[1.x.114] 
+
+
+
+
+[1.x.115]  [1.x.116]    
+
+
+This function implements the Newton iteration with given tolerance, maximum number of iterations, and the number of mesh refinements to do.    
+
+
+The argument  [2.x.131]  tells us whether  [2.x.132]  is necessary, and which part, system matrix or right hand side vector, should be assembled. If we do a line search, the right hand side is already assembled while checking the residual norm in the last iteration. Therefore, we just need to assemble the system matrix at the current iteration. The last argument  [2.x.133]  determines whether or not graphical output should be produced. 
+
+[1.x.117] 
+
+
+
+To make sure our solution is getting close to the exact solution, we let the solution be updated with a weight  [2.x.134]  such that the new residual is smaller than the one of last step, which is done in the following loop. This is the same line search algorithm used in  [2.x.135] . 
+
+[1.x.118] 
+
+
+
+
+[1.x.119]  [1.x.120]    
+
+
+This function will provide us with an initial guess by using a continuation method as we discussed in the introduction. The Reynolds number is increased  [2.x.136] by-step until we reach the target value. By experiment, the solution to Stokes is good enough to be the initial guess of NSE with Reynolds number 1000 so we start there.  To make sure the solution from previous problem is close enough to the next one, the step size must be small enough. 
+
+[1.x.121] 
+
+
+
+
+[1.x.122]  [1.x.123]    
+
+
+This function is the same as in  [2.x.137]  except that we choose a name for the output file that also contains the Reynolds number (i.e., the inverse of the viscosity in the current context). 
+
+[1.x.124] 
+
+
+
+
+[1.x.125]  [1.x.126]    
+
+
+In our test case, we do not know the analytical solution. This function outputs the velocity components along  [2.x.138]  and  [2.x.139]  so they can be compared with data from the literature. 
+
+[1.x.127] 
+
+
+
+
+[1.x.128]  [1.x.129]    
+
+
+This is the last step of this program. In this part, we generate the grid and run the other functions respectively. The max refinement can be set by the argument. 
+
+[1.x.130] 
+
+
+
+If the viscosity is smaller than  [2.x.140] , we have to first search for an initial guess via a continuation method. What we should notice is the search is always on the initial mesh, that is the  [2.x.141]  mesh in this program. After that, we just do the same as we did when viscosity is larger than  [2.x.142] : run Newton's iteration, refine the mesh, transfer solutions, and repeat. 
+
+[1.x.131] 
+
+
+
+When the viscosity is larger than 1/1000, the solution to Stokes equations is good enough as an initial guess. If so, we do not need to search for the initial guess using a continuation method. Newton's iteration can be started directly. 
+
+
+
+
+
+
+
+[1.x.132] 
+
+[1.x.133][1.x.134] 
+
+
+Now we use the method we discussed above to solve Navier Stokes equations with viscosity  [2.x.143]  and  [2.x.144] . 
+
+[1.x.135][1.x.136] 
+
+
+In the first test case the viscosity is set to be  [2.x.145] . As we discussed in the introduction, the initial guess is the solution to the corresponding Stokes problem. In the following table, the residuals at each Newton's iteration on every mesh is shown. The data in the table shows that Newton's iteration converges quadratically. 
+
+ [2.x.146]  
+
+
+
+
+
+
+
+
+The following figures show the sequence of generated grids. For the case of  [2.x.147] , the initial guess is obtained by solving Stokes on an  [2.x.148]  mesh, and the mesh is refined adaptively. Between meshes, the solution from the coarse mesh is interpolated to the fine mesh to be used as an initial guess. 
+
+ [2.x.149]  
+
+This picture is the graphical streamline result of lid-driven cavity with  [2.x.150] .  [2.x.151]  
+
+Then the solution is compared with a reference solution from [4] and the reference solution data can be found in the file "ref_2d_ghia_u.txt". 
+
+ [2.x.152]  
+
+[1.x.137][1.x.138] 
+
+
+Newton's iteration requires a good initial guess. However, the nonlinear term dominates when the Reynolds number is large, so that the solution to the Stokes equations may be far away from the exact solution. If the Stokes solution acts as the initial guess, the convergence will be lost. The following picture shows that the nonlinear iteration gets stuck and the residual no longer decreases in further iterations. 
+
+ [2.x.153]  
+
+The initial guess, therefore, has to be obtained via a continuation method which has been discussed in the introduction. Here the step size in the continuation method, that is  [2.x.154] , is 2000 and the initial mesh is of size  [2.x.155] . After obtaining an initial guess, the mesh is refined as in the previous test case. The following picture shows that at each refinement Newton's iteration has quadratic convergence. 52 steps of Newton's iterations are executed for solving this test case. 
+
+ [2.x.156]  
+
+We also show the residual from each step of Newton's iteration on every mesh. The quadratic convergence is clearly visible in the table. 
+
+ [2.x.157]  
+
+
+
+
+
+
+
+
+The sequence of generated grids looks like this:  [2.x.158]  We compare our solution with reference solution from [5].  [2.x.159]  The following picture presents the graphical result.  [2.x.160]  
+
+Furthermore, the error consists of the nonlinear error, which decreases as we perform Newton iterations, and the discretization error, which depends on the mesh size. That is why we have to refine the mesh and repeat Newton's iteration on the next finer mesh. From the table above, we can see that the residual (nonlinear error) is below 1e-12 on each mesh, but the following picture shows us the difference between solutions on subsequently finer meshes. 
+
+ [2.x.161]  
+
+[1.x.139] 
+
+[1.x.140][1.x.141] 
+
+
+[1.x.142][1.x.143] 
+
+
+It is easy to compare the currently implemented linear solver to just using UMFPACK for the whole linear system. You need to remove the nullspace containing the constant pressures and it is done in  [2.x.162] . More interesting is the comparison to other state of the art preconditioners like PCD. It turns out that the preconditioner here is very competitive, as can be seen in the paper [2]. 
+
+The following table shows the timing results between our iterative approach (FGMRES) compared to a direct solver (UMFPACK) for the whole system with viscosity set to 1/400. Even though we use the same direct solver for the velocity block in the iterative solver, it is considerably faster and consumes less memory. This will be even more pronounced in 3d. 
+
+ [2.x.163]  
+
+
+[1.x.144][1.x.145] 
+
+
+The code is set up to also run in 3d. Of course the reference values are different, see [6] for example. High resolution computations are not doable with this example as is, because a direct solver for the velocity block does not work well in 3d. Rather, a parallel solver based on algebraic or geometric multigrid is needed. See below. 
+
+[1.x.146][1.x.147] 
+
+
+For larger computations, especially in 3d, it is necessary to implement MPI parallel solvers and preconditioners. A good starting point would be  [2.x.164] , which uses algebraic multigrid for the velocity block for the Stokes equations. Another option would be to take a look at the list of codes in the [1.x.148], which already contains parallel Navier-Stokes solvers. [1.x.149] [1.x.150]  [2.x.165]  
+
+ [2.x.166] 

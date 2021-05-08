@@ -1,0 +1,322 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] . 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5][1.x.6][1.x.7][1.x.8][1.x.9][1.x.10][1.x.11][1.x.12][1.x.13][1.x.14][1.x.15][1.x.16][1.x.17][1.x.18][1.x.19][1.x.20][1.x.21][1.x.22][1.x.23][1.x.24][1.x.25] 
+
+ [2.x.3]  
+
+[1.x.26] 
+
+ [2.x.4]  In order to run this program, deal.II must be configured to use the UMFPACK sparse direct solver. Refer to the [1.x.27] for instructions how to do this. 
+
+[1.x.28] [1.x.29][1.x.30] 
+
+
+This program shows how to use Runge-Kutta methods to solve a time-dependent problem. It solves a small variation of the heat equation discussed first in  [2.x.5]  but, since the purpose of this program is only to demonstrate using more advanced ways to interface with deal.II's time stepping algorithms, only solves a simple problem on a uniformly refined mesh. 
+
+
+[1.x.31][1.x.32] 
+
+
+In this example, we solve the one-group time-dependent diffusion approximation of the neutron transport equation (see  [2.x.6]  for the time-independent multigroup diffusion). This is a model for how neutrons move around highly scattering media, and consequently it is a variant of the time-dependent diffusion equation -- which is just a different name for the heat equation discussed in  [2.x.7] , plus some extra terms. We assume that the medium is not fissible and therefore, the neutron flux satisfies the following equation: [1.x.33] 
+
+augmented by appropriate boundary conditions. Here,  [2.x.8]  is the velocity of neutrons (for simplicity we assume it is equal to 1 which can be achieved by simply scaling the time variable),  [2.x.9]  is the diffusion coefficient,  [2.x.10]  is the absorption cross section, and  [2.x.11]  is a source. Because we are only interested in the time dependence, we assume that  [2.x.12]  and  [2.x.13]  are constant. 
+
+Since this program only intends to demonstrate how to use advanced time stepping algorithms, we will only look for the solutions of relatively simple problems. Specifically, we are looking for a solution on a square domain  [2.x.14]  of the form [1.x.34] 
+
+By using quadratic finite elements, we can represent this function exactly at any particular time, and all the error will be due to the time discretization. We do this because it is then easy to observe the order of convergence of the various time stepping schemes we will consider, without having to separate spatial and temporal errors. 
+
+We impose the following boundary conditions: homogeneous Dirichlet for  [2.x.15]  and  [2.x.16]  and homogeneous Neumann conditions for  [2.x.17]  and  [2.x.18] . We choose the source term so that the corresponding solution is in fact of the form stated above: [1.x.35] 
+
+Because the solution is a sine in time, we know that the exact solution satisfies  [2.x.19] . Therefore, the error at time  [2.x.20]  is simply the norm of the numerical solution, i.e.,  [2.x.21] , and is particularly easily evaluated. In the code, we evaluate the  [2.x.22]  norm of the vector of nodal values of  [2.x.23]  instead of the  [2.x.24]  norm of the associated spatial function, since the former is simpler to compute; however, on uniform meshes, the two are just related by a constant and we can consequently observe the temporal convergence order with either. 
+
+
+[1.x.36][1.x.37] 
+
+
+The Runge-Kutta methods implemented in deal.II assume that the equation to be solved can be written as: [1.x.38] 
+
+On the other hand, when using finite elements, discretized time derivatives always result in the presence of a mass matrix on the left hand side. This can easily be seen by considering that if the solution vector  [2.x.25]  in the equation above is in fact the vector of nodal coefficients  [2.x.26]  for a variable of the form [1.x.39] 
+
+with spatial shape functions  [2.x.27] , then multiplying an equation of the form [1.x.40] 
+
+by test functions, integrating over  [2.x.28] , substituting  [2.x.29]  and restricting the test functions to the  [2.x.30]  from above, then this spatially discretized equation has the form [1.x.41] 
+
+where  [2.x.31]  is the mass matrix and  [2.x.32]  is the spatially discretized version of  [2.x.33]  (where  [2.x.34]  is typically the place where spatial derivatives appear, but this is not of much concern for the moment given that we only consider time derivatives). In other words, this form fits the general scheme above if we write [1.x.42] 
+
+
+
+Runke-Kutta methods are time stepping schemes that approximate  [2.x.35]  through a particular one-step approach. They are typically written in the form [1.x.43] 
+
+where for the form of the right hand side above [1.x.44] 
+
+Here  [2.x.36] ,  [2.x.37] , and  [2.x.38]  are known coefficients that identify which particular Runge-Kutta scheme you want to use, and  [2.x.39]  is the time step used. Different time stepping methods of the Runge-Kutta class differ in the number of stages  [2.x.40]  and the values they use for the coefficients  [2.x.41] ,  [2.x.42] , and  [2.x.43]  but are otherwise easy to implement since one can look up tabulated values for these coefficients. (These tables are often called Butcher tableaus.) 
+
+At the time of the writing of this tutorial, the methods implemented in deal.II can be divided in three categories:  [2.x.44]   [2.x.45]  Explicit Runge-Kutta; in order for a method to be explicit, it is necessary that in the formula above defining  [2.x.46] ,  [2.x.47]  does not appear on the right hand side. In other words, these methods have to satisfy  [2.x.48] .  [2.x.49]  Embedded (or adaptive) Runge-Kutta; we will discuss their properties below.  [2.x.50]  Implicit Runge-Kutta; this class of methods require the solution of a possibly nonlinear system the stages  [2.x.51]  above, i.e., they have  [2.x.52]  for at least one of the stages  [2.x.53] .  [2.x.54]  Many well known time stepping schemes that one does not typically associate with the names Runge or Kutta can in fact be written in a way so that they, too, can be expressed in these categories. They oftentimes represent the lowest-order members of these families. 
+
+
+[1.x.45][1.x.46] 
+
+
+These methods, only require a function to evaluate  [2.x.55]  but not (as implicit methods) to solve an equation that involves  [2.x.56]  for  [2.x.57] . As all explicit time stepping methods, they become unstable when the time step chosen is too large. 
+
+Well known methods in this class include forward Euler, third order Runge-Kutta, and fourth order Runge-Kutta (often abbreviated as RK4). 
+
+
+[1.x.47][1.x.48] 
+
+
+These methods use both a lower and a higher order method to estimate the error and decide if the time step needs to be shortened or can be increased. The term "embedded" refers to the fact that the lower-order method does not require additional evaluates of the function  [2.x.58]  but reuses data that has to be computed for the high order method anyway. It is, in other words, essentially free, and we get the error estimate as a side product of using the higher order method. 
+
+This class of methods include Heun-Euler, Bogacki-Shampine, Dormand-Prince (ode45 in Matlab and often abbreviated as RK45 to indicate that the lower and higher order methods used here are 4th and 5th order Runge-Kutta methods, respectively), Fehlberg, and Cash-Karp. 
+
+At the time of the writing, only embedded explicit methods have been implemented. 
+
+
+[1.x.49][1.x.50] 
+
+
+Implicit methods require the solution of (possibly nonlinear) systems of the form  [2.x.59]  for  [2.x.60]  in each (sub-)timestep. Internally, this is done using a Newton-type method and, consequently, they require that the user provide functions that can evaluate  [2.x.61]  and  [2.x.62]  or equivalently  [2.x.63] . 
+
+The particular form of this operator results from the fact that each Newton step requires the solution of an equation of the form 
+
+[1.x.51] 
+
+for some (given)  [2.x.64] . Implicit methods are always stable, regardless of the time step size, but too large time steps of course affect the [1.x.52] of the solution, even if the numerical solution remains stable and bounded. 
+
+Methods in this class include backward Euler, implicit midpoint, Crank-Nicolson, and the two stage SDIRK method (short for "singly diagonally implicit Runge-Kutta", a term coined to indicate that the diagonal elements  [2.x.65]  defining the time stepping method are all equal; this property allows for the Newton matrix  [2.x.66]  to be re-used between stages because  [2.x.67]  is the same every time). 
+
+
+[1.x.53][1.x.54] 
+
+
+By expanding the solution of our model problem as always using shape functions  [2.x.68]  and writing [1.x.55] 
+
+we immediately get the spatially discretized version of the diffusion equation as [1.x.56] 
+
+where [1.x.57] 
+
+See also  [2.x.69]  and  [2.x.70]  to understand how we arrive here. Boundary terms are not necessary due to the chosen boundary conditions for the current problem. To use the Runge-Kutta methods, we recast this as follows: [1.x.58] 
+
+In the code, we will need to be able to evaluate this function  [2.x.71]  along with its derivative, [1.x.59] 
+
+
+
+
+[1.x.60][1.x.61] 
+
+
+To simplify the problem, the domain is two dimensional and the mesh is uniformly refined (there is no need to adapt the mesh since we use quadratic finite elements and the exact solution is quadratic). Going from a two dimensional domain to a three dimensional domain is not very challenging. However if you intend to solve more complex problems where the mesh must be adapted (as is done, for example, in  [2.x.72] ), then it is important to remember the following issues: 
+
+ [2.x.73]   [2.x.74]  You will need to project the solution to the new mesh when the mesh is changed. Of course,      the mesh      used should be the same from the beginning to the end of each time step,      a question that arises because Runge-Kutta methods use multiple      evaluations of the equations within each time step.  [2.x.75]  You will need to update the mass matrix and its inverse every time the      mesh is changed.  [2.x.76]  The techniques for these steps are readily available by looking at  [2.x.77] . [1.x.62] [1.x.63] 
+
+
+[1.x.64]  [1.x.65] 
+
+
+
+
+The first task as usual is to include the functionality of these well-known deal.II library files and some C++ header files. 
+
+[1.x.66] 
+
+
+
+This is the only include file that is new: It includes all the Runge-Kutta methods. 
+
+[1.x.67] 
+
+
+
+The next step is like in all previous tutorial programs: We put everything into a namespace of its own and then import the deal.II classes and functions into it. 
+
+[1.x.68] 
+
+
+
+
+[1.x.69]  [1.x.70] 
+
+
+
+
+The next piece is the declaration of the main class. Most of the functions in this class are not new and have been explained in previous tutorials. The only interesting functions are  [2.x.78]  and  [2.x.79]  evaluates the diffusion equation,  [2.x.80] , at a given time and a given  [2.x.81] .  [2.x.82]  evaluates  [2.x.83]  or equivalently  [2.x.84]  at a given time, for a given  [2.x.85]  and  [2.x.86] . This function is needed when an implicit method is used. 
+
+[1.x.71] 
+
+
+
+The next three functions are the drivers for the explicit methods, the implicit methods, and the embedded explicit methods respectively. The driver function for embedded explicit methods returns the number of steps executed given that it only takes the number of time steps passed as an argument as a hint, but internally computed the optimal time step itself. 
+
+[1.x.72] 
+
+
+
+We choose quadratic finite elements and we initialize the parameters. 
+
+[1.x.73] 
+
+
+
+
+[1.x.74]  [1.x.75] Now, we create the constraint matrix and the sparsity pattern. Then, we initialize the matrices and the solution vector. 
+
+[1.x.76] 
+
+
+
+
+[1.x.77]  [1.x.78] In this function, we compute  [2.x.87]  and the mass matrix  [2.x.88] . The mass matrix is then inverted using a direct solver; the  [2.x.89]  variable will then store the inverse of the mass matrix so that  [2.x.90]  can be applied to a vector using the  [2.x.91]  function of that object. (Internally, UMFPACK does not really store the inverse of the matrix, but its LU factors; applying the inverse matrix is then equivalent to doing one forward and one backward solves with these two factors, which has the same complexity as applying an explicit inverse of the matrix). 
+
+[1.x.79] 
+
+
+
+
+[1.x.80]  [1.x.81]    
+
+
+In this function, the source term of the equation for a given time and a given point is computed. 
+
+[1.x.82] 
+
+
+
+
+[1.x.83]  [1.x.84]    
+
+
+Next, we evaluate the weak form of the diffusion equation at a given time  [2.x.92]  and for a given vector  [2.x.93] . In other words, as outlined in the introduction, we evaluate  [2.x.94] . For this, we have to apply the matrix  [2.x.95]  (previously computed and stored in the variable  [2.x.96] ) to  [2.x.97]  and then add the source term which we integrate as we usually do. (Integrating up the solution could be done using  [2.x.98]  if you wanted to save a few lines of code, or wanted to take advantage of doing the integration in parallel.) The result is then multiplied by  [2.x.99] . 
+
+[1.x.85] 
+
+
+
+
+[1.x.86]  [1.x.87]    
+
+
+We compute  [2.x.100] . This is done in several steps: 
+
+- compute  [2.x.101]  
+
+- invert the matrix to get  [2.x.102]  
+
+- compute  [2.x.103]  
+
+- compute  [2.x.104]  
+
+- return z. 
+
+[1.x.88] 
+
+
+
+
+[1.x.89]  [1.x.90]    
+
+
+The following function then outputs the solution in vtu files indexed by the number of the time step and the name of the time stepping method. Of course, the (exact) result should really be the same for all time stepping method, but the output here at least allows us to compare them. 
+
+[1.x.91] 
+
+
+
+
+[1.x.92]  [1.x.93]    
+
+
+This function is the driver for all the explicit methods. At the top it initializes the time stepping and the solution (by setting it to zero and then ensuring that boundary value and hanging node constraints are respected; of course, with the mesh we use here, hanging node constraints are not in fact an issue). It then calls  [2.x.105]  which performs one time step. Time is stored and incremented through a DiscreteTime object.    
+
+
+For explicit methods,  [2.x.106]  needs to evaluate  [2.x.107] , i.e, it needs  [2.x.108] . Because  [2.x.109]  is a member function, it needs to be bound to  [2.x.110] . After each evolution step, we again apply the correct boundary values and hanging node constraints.    
+
+
+Finally, the solution is output every 10 time steps. 
+
+[1.x.94] 
+
+
+
+
+[1.x.95]  [1.x.96] This function is equivalent to  [2.x.111]  but for implicit methods. When using implicit methods, we need to evaluate  [2.x.112]  and  [2.x.113]  for which we use the two member functions previously introduced. 
+
+[1.x.97] 
+
+
+
+
+[1.x.98]  [1.x.99] This function is the driver for the embedded explicit methods. It requires more parameters: 
+
+- coarsen_param: factor multiplying the current time step when the error is below the threshold. 
+
+- refine_param: factor multiplying the current time step when the error is above the threshold. 
+
+- min_delta: smallest time step acceptable. 
+
+- max_delta: largest time step acceptable. 
+
+- refine_tol: threshold above which the time step is refined. 
+
+- coarsen_tol: threshold below which the time step is coarsen.    
+
+
+Embedded methods use a guessed time step. If the error using this time step is too large, the time step will be reduced. If the error is below the threshold, a larger time step will be tried for the next time step.  [2.x.114]  is the guessed time step produced by the embedded method. In summary, time step size is potentially modified in three ways: 
+
+- Reducing or increasing time step size within  [2.x.115]  
+
+- Using the calculated  [2.x.116] . 
+
+- Automatically adjusting the step size of the last time step to ensure simulation ends precisely at  [2.x.117] . This adjustment is handled inside the DiscreteTime instance. 
+
+[1.x.100] 
+
+
+
+
+[1.x.101]  [1.x.102]    
+
+
+The following is the main function of the program. At the top, we create the grid (a [0,5]x[0,5] square) and refine it four times to get a mesh that has 16 by 16 cells, for a total of 256.  We then set the boundary indicator to 1 for those parts of the boundary where  [2.x.118]  and  [2.x.119] . 
+
+[1.x.103] 
+
+
+
+Next, we set up the linear systems and fill them with content so that they can be used throughout the time stepping process: 
+
+[1.x.104] 
+
+
+
+Finally, we solve the diffusion problem using several of the Runge-Kutta methods implemented in namespace TimeStepping, each time outputting the error at the end time. (As explained in the introduction, since the exact solution is zero at the final time, the error equals the numerical solution and can be computed by just taking the  [2.x.120]  norm of the solution vector.) 
+
+[1.x.105] 
+
+
+
+
+[1.x.106]  [1.x.107] 
+
+
+
+
+The following  [2.x.121]  function is similar to previous examples and need not be commented on. 
+
+[1.x.108] 
+
+[1.x.109][1.x.110] 
+
+
+The point of this program is less to show particular results, but instead to show how it is done. This we have already demonstrated simply by discussing the code above. Consequently, the output the program yields is relatively sparse and consists only of the console output and the solutions given in VTU format for visualization. 
+
+The console output contains both errors and, for some of the methods, the number of steps they performed: 
+
+[1.x.111] 
+
+
+
+As expected the higher order methods give (much) more accurate solutions. We also see that the (rather inaccurate) Heun-Euler method increased the number of time steps in order to satisfy the tolerance. On the other hand, the other embedded methods used a lot less time steps than what was prescribed. [1.x.112] [1.x.113]  [2.x.122]  
+
+ [2.x.123] 

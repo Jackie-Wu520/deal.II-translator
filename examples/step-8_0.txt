@@ -1,0 +1,379 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] . 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5][1.x.6][1.x.7][1.x.8][1.x.9][1.x.10][1.x.11][1.x.12][1.x.13][1.x.14][1.x.15][1.x.16][1.x.17] 
+
+[1.x.18] [1.x.19][1.x.20] 
+
+
+
+
+In real life, most partial differential equations are really systems of equations. Accordingly, the solutions are usually vector-valued. The deal.II library supports such problems (see the extensive documentation in the  [2.x.3]  module), and we will show that that is mostly rather simple. The only more complicated problems are in assembling matrix and right hand side, but these are easily understood as well. 
+
+ [2.x.4]  
+
+In this tutorial program we will want to solve the [1.x.21]. They are an extension to Laplace's equation with a vector-valued solution that describes the displacement in each space direction of a rigid body which is subject to a force. Of course, the force is also vector-valued, meaning that in each point it has a direction and an absolute value. 
+
+One can write the elasticity equations in a number of ways. The one that shows the symmetry with the Laplace equation in the most obvious way is to write it as [1.x.22] where  [2.x.5]  is the vector-valued displacement at each point,  [2.x.6]  the force, and  [2.x.7]  is a rank-4 tensor (i.e., it has four indices) that encodes the stress-strain relationship -- in essence, it represents the [1.x.23] in Hookes law that relates the displacement to the forces.  [2.x.8]  will, in many cases, depend on  [2.x.9]  if the body whose deformation we want to simulate is composed of different materials. 
+
+While the form of the equations above is correct, it is not the way they are usually derived. In truth, the gradient of the displacement  [2.x.10]  (a matrix) has no physical meaning whereas its symmetrized version, [1.x.24] does and is typically called the "strain". (Here and in the following,  [2.x.11] . We will also use the [1.x.25] that whenever the same index appears twice in an equation, summation over this index is implied; we will, however, not distinguish between upper and lower indices.) With this definition of the strain, the elasticity equations then read as [1.x.26] which you can think of as the more natural generalization of the Laplace equation to vector-valued problems. (The form shown first is equivalent to this form because the tensor  [2.x.12]  has certain symmetries, namely that  [2.x.13] , and consequently  [2.x.14] .) 
+
+One can of course alternatively write these equations in component form: [1.x.27] 
+
+In many cases, one knows that the material under consideration is isotropic, in which case by introduction of the two coefficients  [2.x.15]  and  [2.x.16]  the coefficient tensor reduces to [1.x.28] 
+
+The elastic equations can then be rewritten in much simpler a form: [1.x.29] and the respective bilinear form is then [1.x.30] or also writing the first term a sum over components: [1.x.31] 
+
+ [2.x.17]  As written, the equations above are generally considered to be the right description for the displacement of three-dimensional objects if the displacement is small and we can assume that [1.x.32] is valid. In that case, the indices  [2.x.18]  above all run over the set  [2.x.19]  (or, in the C++ source, over  [2.x.20] ). However, as is, the program runs in 2d, and while the equations above also make mathematical sense in that case, they would only describe a truly two-dimensional solid. In particular, they are not the appropriate description of an  [2.x.21]  cross-section of a body infinite in the  [2.x.22]  direction; this is in contrast to many other two-dimensional equations that can be obtained by assuming that the body has infinite extent in  [2.x.23] -direction and that the solution function does not depend on the  [2.x.24]  coordinate. On the other hand, there are equations for two-dimensional models of elasticity; see for example the Wikipedia article on [1.x.33], [1.x.34] and [1.x.35]. 
+
+But let's get back to the original problem. How do we assemble the matrix for such an equation? A very long answer with a number of different alternatives is given in the documentation of the  [2.x.25]  module. Historically, the solution shown below was the only one available in the early years of the library. It turns out to also be the fastest. On the other hand, if a few per cent of compute time do not matter, there are simpler and probably more intuitive ways to assemble the linear system than the one discussed below but that weren't available until several years after this tutorial program was first written; if you are interested in them, take a look at the  [2.x.26]  module. 
+
+Let us go back to the question of how to assemble the linear system. The first thing we need is some knowledge about how the shape functions work in the case of vector-valued finite elements. Basically, this comes down to the following: let  [2.x.27]  be the number of shape functions for the scalar finite element of which we build the vector element (for example, we will use bilinear functions for each component of the vector-valued finite element, so the scalar finite element is the  [2.x.28]  element which we have used in previous examples already, and  [2.x.29]  in two space dimensions). Further, let  [2.x.30]  be the number of shape functions for the vector element; in two space dimensions, we need  [2.x.31]  shape functions for each component of the vector, so  [2.x.32] . Then, the  [2.x.33] th shape function of the vector element has the form [1.x.36] where  [2.x.34]  is the  [2.x.35] th unit vector,  [2.x.36]  is the function that tells us which component of  [2.x.37]  is the one that is nonzero (for each vector shape function, only one component is nonzero, and all others are zero).  [2.x.38]  describes the space dependence of the shape function, which is taken to be the  [2.x.39] -th shape function of the scalar element. Of course, while  [2.x.40]  is in the range  [2.x.41] , the functions  [2.x.42]  and  [2.x.43]  have the ranges  [2.x.44]  (in 2D) and  [2.x.45] , respectively. 
+
+For example (though this sequence of shape functions is not guaranteed, and you should not rely on it), the following layout could be used by the library: [1.x.37] 
+
+where here [1.x.38] [1.x.39] 
+
+In all but very rare cases, you will not need to know which shape function  [2.x.46]  of the scalar element belongs to a shape function  [2.x.47]  of the vector element. Let us therefore define [1.x.40] by which we can write the vector shape function as [1.x.41] You can now safely forget about the function  [2.x.48] , at least for the rest of this example program. 
+
+Now using this vector shape functions, we can write the discrete finite element solution as [1.x.42] with scalar coefficients  [2.x.49] . If we define an analog function  [2.x.50]  as test function, we can write the discrete problem as follows: Find coefficients  [2.x.51]  such that [1.x.43] 
+
+If we insert the definition of the bilinear form and the representation of  [2.x.52]  and  [2.x.53]  into this formula: [1.x.44] 
+
+We note that here and in the following, the indices  [2.x.54]  run over spatial directions, i.e.  [2.x.55] , and that indices  [2.x.56]  run over degrees of freedom. 
+
+The local stiffness matrix on cell  [2.x.57]  therefore has the following entries: [1.x.45] where  [2.x.58]  now are local degrees of freedom and therefore  [2.x.59] . In these formulas, we always take some component of the vector shape functions  [2.x.60] , which are of course given as follows (see their definition): [1.x.46] with the Kronecker symbol  [2.x.61] . Due to this, we can delete some of the sums over  [2.x.62]  and  [2.x.63] : [1.x.47] 
+
+
+
+Likewise, the contribution of cell  [2.x.64]  to the right hand side vector is [1.x.48] 
+
+
+
+This is the form in which we will implement the local stiffness matrix and right hand side vectors. 
+
+As a final note: in the  [2.x.65]  example program, we will revisit the elastic problem laid out here, and will show how to solve it in %parallel on a cluster of computers. The resulting program will thus be able to solve this problem to significantly higher accuracy, and more efficiently if this is required. In addition, in  [2.x.66] ,  [2.x.67]  " [2.x.68] ", as well as a few other of the later tutorial programs, we will revisit some vector-valued problems and show a few techniques that may make it simpler to actually go through all the stuff shown above, with  [2.x.69]  etc. [1.x.49] [1.x.50] 
+
+
+[1.x.51]  [1.x.52] 
+
+
+
+
+As usual, the first few include files are already known, so we will not comment on them further. 
+
+[1.x.53] 
+
+
+
+In this example, we need vector-valued finite elements. The support for these can be found in the following include file: 
+
+[1.x.54] 
+
+
+
+We will compose the vector-valued finite elements from regular Q1 elements which can be found here, as usual: 
+
+[1.x.55] 
+
+
+
+This again is C++: 
+
+[1.x.56] 
+
+
+
+The last step is as in previous programs. In particular, just like in  [2.x.70] , we pack everything that's specific to this program into a namespace of its own. 
+
+[1.x.57] 
+
+
+
+
+[1.x.58]  [1.x.59] 
+
+
+
+
+The main class is, except for its name, almost unchanged with respect to the  [2.x.71]  example.    
+
+
+The only change is the use of a different class for the  [2.x.72]  variable: Instead of a concrete finite element class such as FE_Q, we now use a more generic one, FESystem. In fact, FESystem is not really a finite element itself in that it does not implement shape functions of its own. Rather, it is a class that can be used to stack several other elements together to form one vector-valued finite element. In our case, we will compose the vector-valued element of  [2.x.73]  objects, as shown below in the constructor of this class. 
+
+[1.x.60] 
+
+
+
+
+[1.x.61]  [1.x.62] 
+
+
+
+
+Before going over to the implementation of the main class, we declare and define the function which describes the right hand side. This time, the right hand side is vector-valued, as is the solution, so we will describe the changes required for this in some more detail.    
+
+
+To prevent cases where the return vector has not previously been set to the right size we test for this case and otherwise throw an exception at the beginning of the function. Note that enforcing that output arguments already have the correct size is a convention in deal.II, and enforced almost everywhere. The reason is that we would otherwise have to check at the beginning of the function and possibly change the size of the output vector. This is expensive, and would almost always be unnecessary (the first call to the function would set the vector to the right size, and subsequent calls would only have to do redundant checks). In addition, checking and possibly resizing the vector is an operation that can not be removed if we can't rely on the assumption that the vector already has the correct size; this is in contract to the Assert call that is completely removed if the program is compiled in optimized mode.    
+
+
+Likewise, if by some accident someone tried to compile and run the program in only one space dimension (in which the elastic equations do not make much sense since they reduce to the ordinary Laplace equation), we terminate the program in the second assertion. The program will work just fine in 3d, however. 
+
+[1.x.63] 
+
+
+
+The rest of the function implements computing force values. We will use a constant (unit) force in x-direction located in two little circles (or spheres, in 3d) around points (0.5,0) and (-0.5,0), and y-force in an area around the origin; in 3d, the z-component of these centers is zero as well.      
+
+
+For this, let us first define two objects that denote the centers of these areas. Note that upon construction of the Point objects, all components are set to zero. 
+
+[1.x.64] 
+
+
+
+If  [2.x.74]  is in a circle (sphere) of radius 0.2 around one of these points, then set the force in x-direction to one, otherwise to zero: 
+
+[1.x.65] 
+
+
+
+Likewise, if  [2.x.75]  is in the vicinity of the origin, then set the y-force to one, otherwise to zero: 
+
+[1.x.66] 
+
+
+
+
+[1.x.67]  [1.x.68] 
+
+
+
+
+
+[1.x.69]  [1.x.70] 
+
+
+
+
+Following is the constructor of the main class. As said before, we would like to construct a vector-valued finite element that is composed of several scalar finite elements (i.e., we want to build the vector-valued element so that each of its vector components consists of the shape functions of a scalar element). Of course, the number of scalar finite elements we would like to stack together equals the number of components the solution function has, which is  [2.x.76]  since we consider displacement in each space direction. The FESystem class can handle this: we pass it the finite element of which we would like to compose the system of, and how often it shall be repeated: 
+
+
+
+
+
+
+
+[1.x.71] 
+
+
+
+In fact, the FESystem class has several more constructors which can perform more complex operations than just stacking together several scalar finite elements of the same type into one; we will get to know these possibilities in later examples. 
+
+
+
+
+
+
+
+
+
+
+[1.x.72]  [1.x.73] 
+
+
+
+
+Setting up the system of equations is identical to the function used in the  [2.x.77]  example. The DoFHandler class and all other classes used here are fully aware that the finite element we want to use is vector-valued, and take care of the vector-valuedness of the finite element themselves. (In fact, they do not, but this does not need to bother you: since they only need to know how many degrees of freedom there are per vertex, line and cell, and they do not ask what they represent, i.e. whether the finite element under consideration is vector-valued or whether it is, for example, a scalar Hermite element with several degrees of freedom on each vertex). 
+
+[1.x.74] 
+
+
+
+
+[1.x.75]  [1.x.76] 
+
+
+
+
+The big changes in this program are in the creation of matrix and right hand side, since they are problem-dependent. We will go through that process  [2.x.78] by-step, since it is a bit more complicated than in previous examples.    
+
+
+The first parts of this function are the same as before, however: setting up a suitable quadrature formula, initializing an FEValues object for the (vector-valued) finite element we use as well as the quadrature object, and declaring a number of auxiliary arrays. In addition, we declare the ever same two abbreviations:  [2.x.79]  and  [2.x.80] . The number of degrees of freedom per cell we now obviously ask from the composed finite element rather than from the underlying scalar Q1 element. Here, it is  [2.x.81]  times the number of degrees of freedom per cell of the Q1 element, though this is not explicit knowledge we need to care about: 
+
+[1.x.77] 
+
+
+
+As was shown in previous examples as well, we need a place where to store the values of the coefficients at all the quadrature points on a cell. In the present situation, we have two coefficients, lambda and mu. 
+
+[1.x.78] 
+
+
+
+Well, we could as well have omitted the above two arrays since we will use constant coefficients for both lambda and mu, which can be declared like this. They both represent functions always returning the constant value 1.0. Although we could omit the respective factors in the assemblage of the matrix, we use them here for purpose of demonstration. 
+
+[1.x.79] 
+
+
+
+Like the two constant functions above, we will call the function right_hand_side just once per cell to make things simpler. 
+
+[1.x.80] 
+
+
+
+Now we can begin with the loop over all cells: 
+
+[1.x.81] 
+
+
+
+Next we get the values of the coefficients at the quadrature points. Likewise for the right hand side: 
+
+[1.x.82] 
+
+
+
+Then assemble the entries of the local stiffness matrix and right hand side vector. This follows almost one-to-one the pattern described in the introduction of this example.  One of the few comments in place is that we can compute the number  [2.x.82] , i.e. the index of the only nonzero vector component of shape function  [2.x.83]  using the  [2.x.84]  function call below.          
+
+
+(By accessing the  [2.x.85]  variable of the return value of the  [2.x.86]  function, you might already have guessed that there is more in it. In fact, the function returns a  [2.x.87]  int, unsigned int@></code>, of which the first element is  [2.x.88]  and the second is the value  [2.x.89]  also noted in the introduction, i.e.  the index of this shape function within all the shape functions that are nonzero in this component, i.e.  [2.x.90]  in the diction of the introduction. This is not a number that we are usually interested in, however.)          
+
+
+With this knowledge, we can assemble the local matrix contributions: 
+
+[1.x.83] 
+
+
+
+The first term is  [2.x.91] . Note that  [2.x.92]  returns the gradient of the only nonzero component of the i-th shape function at quadrature point q_point. The component  [2.x.93]  of the gradient, which is the derivative of this only nonzero vector component of the i-th shape function with respect to the comp(i)th coordinate is accessed by the appended brackets. 
+
+[1.x.84] 
+
+
+
+The second term is  [2.x.94] . We need not access a specific component of the gradient, since we only have to compute the scalar product of the two gradients, of which an overloaded version of <tt>operator*</tt> takes care, as in previous examples.                          
+
+
+Note that by using the <tt>?:</tt> operator, we only do this if <tt>component_i</tt> equals <tt>component_j</tt>, otherwise a zero is added (which will be optimized away by the compiler). 
+
+[1.x.85] 
+
+
+
+Assembling the right hand side is also just as discussed in the introduction: 
+
+[1.x.86] 
+
+
+
+The transfer from local degrees of freedom into the global matrix and right hand side vector does not depend on the equation under consideration, and is thus the same as in all previous examples. 
+
+[1.x.87] 
+
+
+
+
+[1.x.88]  [1.x.89] 
+
+
+
+
+The solver does not care about where the system of equations comes, as long as it stays positive definite and symmetric (which are the requirements for the use of the CG solver), which the system indeed is. Therefore, we need not change anything. 
+
+[1.x.90] 
+
+
+
+
+[1.x.91]  [1.x.92] 
+
+
+
+
+The function that does the refinement of the grid is the same as in the  [2.x.95]  example. The quadrature formula is adapted to the linear elements again. Note that the error estimator by default adds up the estimated obtained from all components of the finite element solution, i.e., it uses the displacement in all directions with the same weight. If we would like the grid to be adapted to the x-displacement only, we could pass the function an additional parameter which tells it to do so and do not consider the displacements in all other directions for the error indicators. However, for the current problem, it seems appropriate to consider all displacement components with equal weight. 
+
+[1.x.93] 
+
+
+
+
+[1.x.94]  [1.x.95] 
+
+
+
+
+The output happens mostly as has been shown in previous examples already. The only difference is that the solution function is vector valued. The DataOut class takes care of this automatically, but we have to give each component of the solution vector a different name.    
+
+
+To do this, the  [2.x.96]  function wants a vector of strings. Since the number of components is the same as the number of dimensions we are working in, we use the  [2.x.97]  statement below.    
+
+
+We note that some graphics programs have restriction on what characters are allowed in the names of variables. deal.II therefore supports only the minimal subset of these characters that is supported by all programs. Basically, these are letters, numbers, underscores, and some other characters, but in particular no whitespace and minus/hyphen. The library will throw an exception otherwise, at least if in debug mode.    
+
+
+After listing the 1d, 2d, and 3d case, it is good style to let the program die if we run upon a case which we did not consider. Remember that the Assert macro generates an exception if the condition in the first parameter is not satisfied. Of course, the condition  [2.x.98]  can never be satisfied, so the program will always abort whenever it gets to the default statement: 
+
+[1.x.96] 
+
+
+
+After setting up the names for the different components of the solution vector, we can add the solution vector to the list of data vectors scheduled for output. Note that the following function takes a vector of strings as second argument, whereas the one which we have used in all previous examples accepted a string there. (In fact, the function we had used before would convert the single string into a vector with only one element and forwards that to the other function.) 
+
+[1.x.97] 
+
+
+
+
+[1.x.98]  [1.x.99] 
+
+
+
+
+The  [2.x.99]  function does the same things as in  [2.x.100] , for example. This time, we use the square [-1,1]^d as domain, and we refine it globally four times before starting the first iteration.    
+
+
+The reason for refining is a bit accidental: we use the QGauss quadrature formula with two points in each direction for integration of the right hand side; that means that there are four quadrature points on each cell (in 2D). If we only refine the initial grid once globally, then there will be only four quadrature points in each direction on the domain. However, the right hand side function was chosen to be rather localized and in that case, by pure chance, it happens that all quadrature points lie at points where the right hand side function is zero (in mathematical terms, the quadrature points happen to be at points outside the [1.x.100] of the right hand side function). The right hand side vector computed with quadrature will then contain only zeroes (even though it would of course be nonzero if we had computed the right hand side vector exactly using the integral) and the solution of the system of equations is the zero vector, i.e., a finite element function that is zero everywhere. In a sense, we should not be surprised that this is happening since we have chosen an initial grid that is totally unsuitable for the problem at hand.    
+
+
+The unfortunate thing is that if the discrete solution is constant, then the error indicators computed by the KellyErrorEstimator class are zero for each cell as well, and the call to  [2.x.101]  will not flag any cells for refinement (why should it if the indicated error is zero for each cell?). The grid in the next iteration will therefore consist of four cells only as well, and the same problem occurs again.    
+
+
+The conclusion needs to be: while of course we will not choose the initial grid to be well-suited for the accurate solution of the problem, we must at least choose it such that it has the chance to capture the important features of the solution. In this case, it needs to be able to see the right hand side. Thus, we refine globally four times. (Any larger number of global refinement steps would of course also work.) 
+
+[1.x.101] 
+
+
+
+
+[1.x.102]  [1.x.103] 
+
+
+
+
+After closing the  [2.x.102]  namespace in the last line above, the following is the main function of the program and is again exactly like in  [2.x.103]  (apart from the changed class names, of course). 
+
+[1.x.104] 
+
+[1.x.105][1.x.106] 
+
+
+
+
+There is not much to be said about the results of this program, other than that they look nice. All images were made using VisIt from the output files that the program wrote to disk. The first two pictures show the  [2.x.104] - and  [2.x.105] -displacements as scalar components: 
+
+ [2.x.106]  
+
+
+You can clearly see the sources of  [2.x.107] -displacement around  [2.x.108]  and  [2.x.109] , and of  [2.x.110] -displacement at the origin. 
+
+What one frequently would like to do is to show the displacement as a vector field, i.e., vectors that for each point illustrate the direction and magnitude of displacement. Unfortunately, that's a bit more involved. To understand why this is so, remember that we have just defined our finite element as a collection of two  components (in  [2.x.111]  dimensions). Nowhere have we said that this is not just a pressure and a concentration (two scalar quantities) but that the two components actually are the parts of a vector-valued quantity, namely the displacement. Absent this knowledge, the DataOut class assumes that all individual variables we print are separate scalars, and VisIt and Paraview then faithfully assume that this is indeed what it is. In other words, once we have written the data as scalars, there is nothing in these programs that allows us to paste these two scalar fields back together as a vector field. Where we would have to attack this problem is at the root, namely in  [2.x.112] . We won't do so here but instead refer the reader to the  [2.x.113]  program where we show how to do this for a more general situation. That said, we couldn't help generating the data anyway that would show how this would look if implemented as discussed in  [2.x.114] . The vector field then looks like this (VisIt and Paraview randomly select a few hundred vertices from which to draw the vectors; drawing them from each individual vertex would make the picture unreadable): 
+
+ [2.x.115]  
+
+
+We note that one may have intuitively expected the solution to be symmetric about the  [2.x.116] - and  [2.x.117] -axes since the  [2.x.118] - and  [2.x.119] -forces are symmetric with respect to these axes. However, the force considered as a vector is not symmetric and consequently neither is the solution. [1.x.107] [1.x.108]  [2.x.120]  
+
+ [2.x.121] 

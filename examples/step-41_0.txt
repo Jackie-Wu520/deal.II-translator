@@ -1,0 +1,432 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] . 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5][1.x.6][1.x.7][1.x.8][1.x.9][1.x.10][1.x.11][1.x.12][1.x.13][1.x.14][1.x.15][1.x.16][1.x.17][1.x.18][1.x.19][1.x.20][1.x.21][1.x.22][1.x.23][1.x.24][1.x.25][1.x.26][1.x.27] 
+
+ [2.x.3]  
+
+[1.x.28] 
+
+
+[1.x.29] [1.x.30][1.x.31] 
+
+
+This example is based on the Laplace equation in 2d and deals with the question what happens if a membrane is deflected by some external force but is also constrained by an obstacle. In other words, think of a elastic membrane clamped at the boundary to a rectangular frame (we choose  [2.x.4] ) and that sags through due to gravity acting on it. What happens now if there is an obstacle under the membrane that prevents it from reaching its equilibrium position if gravity was the only existing force? In the current example program, we will consider that under the membrane is a stair step obstacle against which gravity pushes the membrane. 
+
+This problem is typically called the "obstacle problem" (see also [1.x.32]), and it results in a variational inequality, rather than a variational equation when put into the weak form. We will below derive it from the classical formulation, but before we go on to discuss the mathematics let us show how the solution of the problem we will consider in this tutorial program looks to gain some intuition of what we should expect: 
+
+ [2.x.5]  
+
+Here, at the left, we see the displacement of the membrane. The shape of the obstacle underneath is clearly visible. On the right, we overlay which parts of the membrane are in contact with the obstacle. We will later call this set of points the "active set" to indicate that an inequality constraint is active there. 
+
+
+[1.x.33][1.x.34] 
+
+
+The classical formulation of the problem possesses the following form: 
+
+[1.x.35] 
+
+with  [2.x.6] .   [2.x.7]  is a scalar valued function that denotes the vertical displacement of the membrane. The first equation is called equilibrium condition with a force of areal density  [2.x.8] . Here, we will consider this force to be gravity. The second one is known as Hooke's Law that says that the stresses  [2.x.9]  are proportional to the gradient of the displacements  [2.x.10]  (the proportionality constant, often denoted by  [2.x.11] , has been set to one here, without loss of generality; if it is constant, it can be put into the right hand side function). At the boundary we have zero Dirichlet conditions. Obviously, the first two equations can be combined to yield  [2.x.12] . 
+
+Intuitively, gravity acts downward and so  [2.x.13]  is a negative function (we choose  [2.x.14]  in this program). The first condition then means that the total force acting on the membrane is gravity plus something positive: namely the upward force that the obstacle exerts on the membrane at those places where the two of them are in contact. How big is this additional force? We don't know yet (and neither do we know "where" it actually acts) but it must be so that the membrane doesn't penetrate the obstacle. 
+
+The fourth equality above together with the last inequality forms the obstacle condition which has to hold at every point of the whole domain. The latter of these two means that the membrane must be above the obstacle  [2.x.15]  everywhere. The second to last equation, often called the "complementarity condition" says that where the membrane is not in contact with the obstacle (i.e., those  [2.x.16]  where  [2.x.17] ), then  [2.x.18]  at these locations; in other words, no additional forces act there, as expected. On the other hand, where  [2.x.19]  we can have  [2.x.20] , i.e., there can be additional forces (though there don't have to be: it is possible for the membrane to just touch, not press against, the obstacle). 
+
+
+[1.x.36][1.x.37] 
+
+
+An obvious way to obtain the variational formulation of the obstacle problem is to consider the total potential energy: [1.x.38] 
+
+We have to find a solution  [2.x.21]  of the following minimization problem: [1.x.39] 
+
+with the convex set of admissible displacements: [1.x.40] 
+
+This set takes care of the third and fifth conditions above (the boundary values and the complementarity condition). 
+
+Consider now the minimizer  [2.x.22]  of  [2.x.23]  and any other function  [2.x.24] . Then the function [1.x.41] 
+
+takes its minimum at  [2.x.25]  (because  [2.x.26]  is a minimizer of the energy functional  [2.x.27] ), so that  [2.x.28]  for any choice of  [2.x.29] . Note that  [2.x.30]  because of the convexity of  [2.x.31] . If we compute  [2.x.32]  it yields the variational formulation we are searching for: 
+
+[1.x.42] [1.x.43] 
+
+
+
+This is the typical form of variational inequalities, where not just  [2.x.33]  appears in the bilinear form but in fact  [2.x.34] . The reason is this: if  [2.x.35]  is not constrained, then we can find test functions  [2.x.36]  in  [2.x.37]  so that  [2.x.38]  can have any sign. By choosing test functions  [2.x.39]  so that  [2.x.40]  it follows that the inequality can only hold for both  [2.x.41]  and  [2.x.42]  if the two sides are in fact equal, i.e., we obtain a variational equality. 
+
+On the other hand, if  [2.x.43]  then  [2.x.44]  only allows test functions  [2.x.45]  so that in fact  [2.x.46] . This means that we can't test the equation with both  [2.x.47]  and  [2.x.48]  as above, and so we can no longer conclude that the two sides are in fact equal. Thus, this mimics the way we have discussed the complementarity condition above. 
+
+
+
+
+[1.x.44][1.x.45] 
+
+
+The variational inequality above is awkward to work with. We would therefore like to reformulate it as an equivalent saddle point problem. We introduce a Lagrange multiplier  [2.x.49]  and the convex cone  [2.x.50] ,  [2.x.51]  dual space of  [2.x.52] ,  [2.x.53]  of Lagrange multipliers, where  [2.x.54]  denotes the duality pairing between  [2.x.55]  and  [2.x.56] . Intuitively,  [2.x.57]  is the cone of all "non-positive functions", except that  [2.x.58]  and so contains other objects besides regular functions as well. This yields: 
+
+[1.x.46] 
+
+[1.x.47] 
+
+[1.x.48] 
+
+[1.x.49] 
+
+In other words, we can consider  [2.x.59]  as the negative of the additional, positive force that the obstacle exerts on the membrane. The inequality in the second line of the statement above only appears to have the wrong sign because we have  [2.x.60]  at points where  [2.x.61] , given the definition of  [2.x.62] . 
+
+The existence and uniqueness of  [2.x.63]  of this saddle point problem has been stated in Glowinski, Lions and Tr&eacute;moli&egrave;res: Numerical Analysis of Variational Inequalities, North-Holland, 1981. 
+
+
+
+
+[1.x.50][1.x.51] 
+
+
+There are different methods to solve the variational inequality. As one possibility you can understand the saddle point problem as a convex quadratic program (QP) with inequality constraints. 
+
+To get there, let us assume that we discretize both  [2.x.64]  and  [2.x.65]  with the same finite element space, for example the usual  [2.x.66]  spaces. We would then get the equations [1.x.52] 
+
+where  [2.x.67]  is the mass matrix on the chosen finite element space and the indices  [2.x.68]  above are for all degrees of freedom in the set  [2.x.69]  of degrees of freedom located in the interior of the domain (we have Dirichlet conditions on the perimeter). However, we can make our life simpler if we use a particular quadrature rule when assembling all terms that yield this mass matrix, namely a quadrature formula where quadrature points are only located at the interpolation points at which shape functions are defined; since all but one shape function are zero at these locations, we get a diagonal mass matrix with 
+
+[1.x.53] 
+
+To define  [2.x.70]  we use the same technique as for  [2.x.71] . In other words, we define 
+
+[1.x.54] 
+
+where  [2.x.72]  is a suitable approximation of  [2.x.73] . The integral in the definition of  [2.x.74]  and  [2.x.75]  are then approximated by the trapezoidal rule. With this, the equations above can be restated as [1.x.55] 
+
+
+
+Now we define for each degree of freedom  [2.x.76]  the function [1.x.56] 
+
+with some  [2.x.77] . (In this program we choose  [2.x.78] . It is a kind of a penalty parameter which depends on the problem itself and needs to be chosen large enough; for example there is no convergence for  [2.x.79]  using the current program if we use 7 global refinements.) 
+
+After some head-scratching one can then convince oneself that the inequalities above can equivalently be rewritten as [1.x.57] 
+
+The primal-dual active set strategy we will use here is an iterative scheme which is based on this condition to predict the next active and inactive sets  [2.x.80]  and  [2.x.81]  (that is, those complementary sets of indices  [2.x.82]  for which  [2.x.83]  is either equal to or not equal to the value of the obstacle  [2.x.84] ). For a more in depth treatment of this approach, see Hintermueller, Ito, Kunisch: The primal-dual active set strategy as a semismooth newton method, SIAM J. OPTIM., 2003, Vol. 13, No. 3, pp. 865-888. 
+
+[1.x.58][1.x.59] 
+
+
+The algorithm for the primal-dual active set method works as follows (NOTE:  [2.x.85] ): 
+
+1. Initialize  [2.x.86]  and  [2.x.87] , such that   [2.x.88]  and   [2.x.89]  and set  [2.x.90] . 2. Find the primal-dual pair  [2.x.91]  that satisfies  [1.x.60] 
+
+ Note that the second and third conditions imply that exactly  [2.x.92]  unknowns  are fixed, with the first condition yielding the remaining  [2.x.93]  equations  necessary to determine both  [2.x.94]  and  [2.x.95] . 3. Define the new active and inactive sets by  [1.x.61] 
+
+4. If  [2.x.96]  (and then, obviously, also   [2.x.97] ) then stop, else set  [2.x.98]  and go to step  (2). 
+
+The method is called "primal-dual" because it uses both primal (the displacement  [2.x.99] ) as well as dual variables (the Lagrange multiplier  [2.x.100] ) to determine the next active set. 
+
+At the end of this section, let us add two observations. First, for any primal-dual pair  [2.x.101]  that satisfies these condition, we can distinguish the following cases: 
+
+1.  [2.x.102]  (i active):    [2.x.103]    Then either  [2.x.104]  and  [2.x.105]  (penetration) or  [2.x.106]  and  [2.x.107]  (pressing load). 2.  [2.x.108]  (i inactive):    [2.x.109]    Then either  [2.x.110]  and  [2.x.111]  (no contact) or  [2.x.112]  and  [2.x.113]  (unpressing load). 
+
+Second, the method above appears intuitively correct and useful but a bit ad hoc. However, it can be derived in a concisely in the following way. To this end, note that we'd like to solve the nonlinear system [1.x.62] 
+
+We can iteratively solve this by always linearizing around the previous iterate (i.e., applying a Newton method), but for this we need to linearize the function  [2.x.114]  that is not differentiable. That said, it is slantly differentiable, and in fact we have [1.x.63] 
+
+[1.x.64] 
+
+This suggest a semismooth Newton step of the form [1.x.65] 
+
+where we have split matrices  [2.x.115]  as well as vectors in the natural way into rows and columns whose indices belong to either the active set  [2.x.116]  or the inactive set  [2.x.117] . 
+
+Rather than solving for updates  [2.x.118] , we can also solve for the variables we are interested in right away by setting  [2.x.119]  and  [2.x.120]  and bringing all known terms to the right hand side. This yields [1.x.66] 
+
+These are the equations outlined above in the description of the basic algorithm. 
+
+We could even drive this a bit further. It's easy to see that we can eliminate the third row and the third column because it implies  [2.x.121] : [1.x.67] 
+
+This shows that one in fact only needs to solve for the Lagrange multipliers located on the active set. By considering the second row one would then recover the full Lagrange multiplier vector through [1.x.68] 
+
+Because of the third row and the fact that  [2.x.122]  is a diagonal matrix we are able to calculate  [2.x.123]  directly. We can therefore also write the linear system as follows: [1.x.69] 
+
+Fortunately, this form is easy to arrive at: we simply build the usual Laplace linear system [1.x.70] 
+
+and then let the AffineConstraints class eliminate all constrained degrees of freedom, namely  [2.x.124] , in the same way as if the dofs in  [2.x.125]  were Dirichlet data. The result linear system (the second to last one above) is symmetric and positive definite and we solve it with a CG-method and the AMG preconditioner from Trilinos. 
+
+
+[1.x.71][1.x.72] 
+
+
+This tutorial is quite similar to  [2.x.126] . The general structure of the program follows  [2.x.127]  with minor differences: 
+
+- We need two new methods,  [2.x.128]  and    [2.x.129] . 
+
+- We need new member variables that denote the constraints we have here. 
+
+- We change the preconditioner for the solver. 
+
+
+You may want to read up on  [2.x.130]  if you want to understand the current program. [1.x.73] [1.x.74] 
+
+
+[1.x.75]  [1.x.76] 
+
+
+
+
+As usual, at the beginning we include all the header files we need in here. With the exception of the various files that provide interfaces to the Trilinos library, there are no surprises: 
+
+[1.x.77] 
+
+
+
+
+[1.x.78]  [1.x.79] 
+
+
+
+
+This class supplies all function and variables needed to describe the obstacle problem. It is close to what we had to do in  [2.x.131] , and so relatively simple. The only real new components are the update_solution_and_constraints function that computes the active set and a number of variables that are necessary to describe the original (unconstrained) form of the linear system ( [2.x.132]  and  [2.x.133] ) as well as the active set itself and the diagonal of the mass matrix  [2.x.134]  used in scaling Lagrange multipliers in the active set formulation. The rest is as in  [2.x.135] : 
+
+[1.x.80] 
+
+
+
+
+[1.x.81]  [1.x.82] 
+
+
+
+
+In the following, we define classes that describe the right hand side function, the Dirichlet boundary values, and the height of the obstacle as a function of  [2.x.136] . In all three cases, we derive these classes from Function@<dim@>, although in the case of  [2.x.137]  and  [2.x.138]  this is more out of convention than necessity since we never pass such objects to the library. In any case, the definition of the right hand side and boundary values classes is obvious given our choice of  [2.x.139] ,  [2.x.140] : 
+
+[1.x.83] 
+
+
+
+We describe the obstacle function by a cascaded barrier (think: stair steps): 
+
+[1.x.84] 
+
+
+
+
+[1.x.85]  [1.x.86] 
+
+
+
+
+
+
+
+
+
+
+[1.x.87]  [1.x.88] 
+
+
+
+
+To everyone who has taken a look at the first few tutorial programs, the constructor is completely obvious: 
+
+[1.x.89] 
+
+
+
+
+[1.x.90]  [1.x.91] 
+
+
+
+
+We solve our obstacle problem on the square  [2.x.141]  in 2D. This function therefore just sets up one of the simplest possible meshes. 
+
+[1.x.92] 
+
+
+
+
+[1.x.93]  [1.x.94] 
+
+
+
+
+In this first function of note, we set up the degrees of freedom handler, resize vectors and matrices, and deal with the constraints. Initially, the constraints are, of course, only given by boundary values, so we interpolate them towards the top of the function. 
+
+[1.x.95] 
+
+
+
+The only other thing to do here is to compute the factors in the  [2.x.142]  matrix which is used to scale the residual. As discussed in the introduction, we'll use a little trick to make this mass matrix diagonal, and in the following then first compute all of this as a matrix and then extract the diagonal elements for later use: 
+
+[1.x.96] 
+
+
+
+
+[1.x.97]  [1.x.98] 
+
+
+
+
+This function at once assembles the system matrix and right-hand-side and applied the constraints (both due to the active set as well as from boundary values) to our system. Otherwise, it is functionally equivalent to the corresponding function in, for example,  [2.x.143] . 
+
+[1.x.99] 
+
+
+
+
+[1.x.100]  [1.x.101] 
+
+
+
+
+The next function is used in the computation of the diagonal mass matrix  [2.x.144]  used to scale variables in the active set method. As discussed in the introduction, we get the mass matrix to be diagonal by choosing the trapezoidal rule for quadrature. Doing so we don't really need the triple loop over quadrature points, indices  [2.x.145]  and indices  [2.x.146]  any more and can, instead, just use a double loop. The rest of the function is obvious given what we have discussed in many of the previous tutorial programs.    
+
+
+Note that at the time this function is called, the constraints object only contains boundary value constraints; we therefore do not have to pay attention in the last copy-local-to-global step to preserve the values of matrix entries that may later on be constrained by the active set.    
+
+
+Note also that the trick with the trapezoidal rule only works if we have in fact  [2.x.147]  elements. For higher order elements, one would need to use a quadrature formula that has quadrature points at all the support points of the finite element. Constructing such a quadrature formula isn't really difficult, but not the point here, and so we simply assert at the top of the function that our implicit assumption about the finite element is in fact satisfied. 
+
+[1.x.102] 
+
+
+
+
+[1.x.103]  [1.x.104] 
+
+
+
+
+In a sense, this is the central function of this program.  It updates the active set of constrained degrees of freedom as discussed in the introduction and computes an AffineConstraints object from it that can then be used to eliminate constrained degrees of freedom from the solution of the next iteration. At the same time we set the constrained degrees of freedom of the solution to the correct value, namely the height of the obstacle.    
+
+
+Fundamentally, the function is rather simple: We have to loop over all degrees of freedom and check the sign of the function  [2.x.148]  because in our case  [2.x.149] . To this end, we use the formula given in the introduction by which we can compute the Lagrange multiplier as the residual of the original linear system (given via the variables  [2.x.150] . At the top of this function, we compute this residual using a function that is part of the matrix classes. 
+
+[1.x.105] 
+
+
+
+compute contact_force[i] = - lambda[i] * diagonal_of_mass_matrix[i] 
+
+[1.x.106] 
+
+
+
+The next step is to reset the active set and constraints objects and to start the loop over all degrees of freedom. This is made slightly more complicated by the fact that we can't just loop over all elements of the solution vector since there is no way for us then to find out what location a DoF is associated with; however, we need this location to test whether the displacement of a DoF is larger or smaller than the height of the obstacle at this location.      
+
+
+We work around this by looping over all cells and DoFs defined on each of these cells. We use here that the displacement is described using a  [2.x.151]  function for which degrees of freedom are always located on the vertices of the cell; thus, we can get the index of each degree of freedom and its location by asking the vertex for this information. On the other hand, this clearly wouldn't work for higher order elements, and so we add an assertion that makes sure that we only deal with elements for which all degrees of freedom are located in vertices to avoid tripping ourselves with non-functional code in case someone wants to play with increasing the polynomial degree of the solution.      
+
+
+The price to pay for having to loop over cells rather than DoFs is that we may encounter some degrees of freedom more than once, namely each time we visit one of the cells adjacent to a given vertex. We will therefore have to keep track which vertices we have already touched and which we haven't so far. We do so by using an array of flags  [2.x.152] : 
+
+[1.x.107] 
+
+
+
+Now that we know that we haven't touched this DoF yet, let's get the value of the displacement function there as well as the value of the obstacle function and use this to decide whether the current DoF belongs to the active set. For that we use the function given above and in the introduction.            
+
+
+If we decide that the DoF should be part of the active set, we add its index to the active set, introduce an inhomogeneous equality constraint in the AffineConstraints object, and reset the solution value to the height of the obstacle. Finally, the residual of the non-contact part of the system serves as an additional control (the residual equals the remaining, unaccounted forces, and should be zero outside the contact zone), so we zero out the components of the residual vector (i.e., the Lagrange multiplier lambda) that correspond to the area where the body is in contact; at the end of the loop over all cells, the residual will therefore only consist of the residual in the non-contact zone. We output the norm of this residual along with the size of the active set after the loop. 
+
+[1.x.108] 
+
+
+
+In a final step, we add to the set of constraints on DoFs we have so far from the active set those that result from Dirichlet boundary values, and close the constraints object: 
+
+[1.x.109] 
+
+
+
+
+[1.x.110]  [1.x.111] 
+
+
+
+
+There is nothing to say really about the solve function. In the context of a Newton method, we are not typically interested in very high accuracy (why ask for a highly accurate solution of a linear problem that we know only gives us an approximation of the solution of the nonlinear problem), and so we use the ReductionControl class that stops iterations when either an absolute tolerance is reached (for which we choose  [2.x.153] ) or when the residual is reduced by a certain factor (here,  [2.x.154] ). 
+
+[1.x.112] 
+
+
+
+
+[1.x.113]  [1.x.114] 
+
+
+
+
+We use the vtk-format for the output.  The file contains the displacement and a numerical representation of the active set. 
+
+[1.x.115] 
+
+
+
+
+[1.x.116]  [1.x.117] 
+
+
+
+
+This is the function which has the top-level control over everything.  It is not very long, and in fact rather straightforward: in every iteration of the active set method, we assemble the linear system, solve it, update the active set and project the solution back to the feasible set, and then output the results. The iteration is terminated whenever the active set has not changed in the previous iteration.    
+
+
+The only trickier part is that we have to save the linear system (i.e., the matrix and right hand side) after assembling it in the first iteration. The reason is that this is the only step where we can access the linear system as built without any of the contact constraints active. We need this to compute the residual of the solution at other iterations, but in other iterations that linear system we form has the rows and columns that correspond to constrained degrees of freedom eliminated, and so we can no longer access the full residual of the original equation. 
+
+[1.x.118] 
+
+
+
+
+[1.x.119]  [1.x.120] 
+
+
+
+
+And this is the main function. It follows the pattern of all other main functions. The call to initialize MPI exists because the Trilinos library upon which we build our linear solvers in this program requires it. 
+
+[1.x.121] 
+
+
+
+This program can only be run in serial. Otherwise, throw an exception. 
+
+[1.x.122] 
+
+[1.x.123][1.x.124] 
+
+
+Running the program produces output like this: 
+
+[1.x.125] 
+
+
+
+The iterations end once the active set doesn't change any more (it has 5,399 constrained degrees of freedom at that point). The algebraic precondition is apparently working nicely since we only need 4-6 CG iterations to solve the linear system (although this also has a lot to do with the fact that we are not asking for very high accuracy of the linear solver). 
+
+More revealing is to look at a sequence of graphical output files (every third step is shown, with the number of the iteration in the leftmost column): 
+
+ [2.x.155]  
+
+The pictures show that in the first step, the solution (which has been computed without any of the constraints active) bends through so much that pretty much every interior point has to be bounced back to the stairstep function, producing a discontinuous solution. Over the course of the active set iterations, this unphysical membrane shape is smoothed out, the contact with the lower-most stair step disappears, and the solution stabilizes. 
+
+In addition to this, the program also outputs the values of the Lagrange multipliers. Remember that these are the contact forces and so should only be positive on the contact set, and zero outside. If, on the other hand, a Lagrange multiplier is negative in the active set, then this degree of freedom must be removed from the active set. The following pictures show the multipliers in iterations 1, 9 and 18, where we use red and browns to indicate positive values, and blue for negative values. 
+
+ [2.x.156]  
+
+It is easy to see that the positive values converge nicely to moderate values in the interior of the contact set and large upward forces at the edges of the steps, as one would expect (to support the large curvature of the membrane there); at the fringes of the active set, multipliers are initially negative, causing the set to shrink until, in iteration 18, there are no more negative multipliers and the algorithm has converged. 
+
+
+
+
+[1.x.126] [1.x.127][1.x.128] 
+
+
+As with any of the programs of this tutorial, there are a number of obvious possibilities for extensions and experiments. The first one is clear: introduce adaptivity. Contact problems are prime candidates for adaptive meshes because the solution has lines along which it is less regular (the places where contact is established between membrane and obstacle) and other areas where the solution is very smooth (or, in the present context, constant wherever it is in contact with the obstacle). Adding this to the current program should not pose too many difficulties, but it is not trivial to find a good error estimator for that purpose. 
+
+A more challenging task would be an extension to 3d. The problem here is not so much to simply make everything run in 3d. Rather, it is that when a 3d body is deformed and gets into contact with an obstacle, then the obstacle does not act as a constraining body force within the domain as is the case here. Rather, the contact force only acts on the boundary of the object. The inequality then is not in the differential equation but in fact in the (Neumann-type) boundary conditions, though this leads to a similar kind of variational inequality. Mathematically, this means that the Lagrange multiplier only lives on the surface, though it can of course be extended by zero into the domain if that is convenient. As in the current program, one does not need to form and store this Lagrange multiplier explicitly. 
+
+A further interesting problem for the 3d case is to consider contact problems with friction. In almost every mechanical process friction has a big influence. For the modelling we have to take into account tangential stresses at the contact surface. Also we have to observe that friction adds another nonlinearity to our problem. 
+
+Another nontrivial modification is to implement a more complex constitutive law like nonlinear elasticity or elasto-plastic  material behavior. The difficulty here is to handle the additional nonlinearity arising through the nonlinear constitutive law. [1.x.129] [1.x.130]  [2.x.157]  
+
+ [2.x.158] 

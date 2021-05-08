@@ -1,0 +1,518 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] . 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5][1.x.6][1.x.7][1.x.8][1.x.9][1.x.10][1.x.11][1.x.12][1.x.13][1.x.14][1.x.15][1.x.16][1.x.17][1.x.18][1.x.19][1.x.20][1.x.21][1.x.22][1.x.23][1.x.24][1.x.25][1.x.26][1.x.27][1.x.28][1.x.29][1.x.30][1.x.31][1.x.32][1.x.33][1.x.34] 
+
+ [2.x.3]  
+
+[1.x.35] 
+
+[1.x.36] [1.x.37][1.x.38] 
+
+
+This program deals with the [1.x.39], 
+
+[1.x.40] 
+
+This equation appears in the modeling of thin structures such as roofs of stadiums. These objects are of course in reality three-dimensional with a large aspect ratio of lateral extent to perpendicular thickness, but one can often very accurately model these structures as two dimensional by making assumptions about how internal forces vary in the perpendicular direction. These assumptions lead to the equation above. 
+
+The model typically comes in two different kinds, depending on what kinds of boundary conditions are imposed. The first case, 
+
+[1.x.41] 
+
+corresponds to the edges of the thin structure attached to the top of a wall of height  [2.x.4]  in such a way that the bending forces that act on the structure are  [2.x.5] ; in most physical situations, one will have  [2.x.6] , corresponding to the structure simply sitting atop the wall. 
+
+In the second possible case of boundary values, one would have 
+
+[1.x.42] 
+
+This corresponds to a "clamped" structure for which a nonzero  [2.x.7]  implies a certain angle against the horizontal. 
+
+As with Dirichlet and Neumann boundary conditions for the Laplace equation, it is of course possible to have one kind of boundary conditions on one part of the boundary, and the other on the remainder. 
+
+
+[1.x.43][1.x.44] 
+
+
+The fundamental issue with the equation is that it takes four derivatives of the solution. In the case of the Laplace equation we treated in  [2.x.8] ,  [2.x.9] , and several other tutorial programs, one multiplies by a test function, integrates, integrates by parts, and ends up with only one derivative on both the test function and trial function -- something one can do with functions that are continuous globally, but may have kinks at the interfaces between cells: The derivative may not be defined at the interfaces, but that is on a lower-dimensional manifold (and so doesn't show up in the integrated value). 
+
+But for the biharmonic equation, if one followed the same procedure using integrals over the entire domain (i.e., the union of all cells), one would end up with two derivatives on the test functions and trial functions each. If one were to use the usual piecewise polynomial functions with their kinks on cell interfaces, the first derivative would yield a discontinuous gradient, and the second derivative with delta functions on the interfaces -- but because both the second derivatives of the test functions and of the trial functions yield a delta function, we would try to integrate the product of two delta functions. For example, in 1d, where  [2.x.10]  are the usual piecewise linear "hat functions", we would get integrals of the sort 
+
+[1.x.45] 
+
+where  [2.x.11]  is the node location at which the shape function  [2.x.12]  is defined, and  [2.x.13]  is the mesh size (assumed uniform). The problem is that delta functions in integrals are defined using the relationship 
+
+[1.x.46] 
+
+But that only works if (i)  [2.x.14]  is actually well defined at  [2.x.15] , and (ii) if it is finite. On the other hand, an integral of the form 
+
+[1.x.47] 
+
+does not make sense. Similar reasoning can be applied for 2d and 3d situations. 
+
+In other words: This approach of trying to integrate over the entire domain and then integrating by parts can't work. 
+
+Historically, numerical analysts have tried to address this by inventing finite elements that are "C<sup>1</sup> continuous", i.e., that use shape functions that are not just continuous but also have continuous first derivatives. This is the realm of elements such as the Argyris element, the Clough-Tocher element and others, all developed in the late 1960s. From a twenty-first century perspective, they can only be described as bizarre in their construction. They are also exceedingly cumbersome to implement if one wants to use general meshes. As a consequence, they have largely fallen out of favor and deal.II currently does not contain implementations of these shape functions. 
+
+
+[1.x.48][1.x.49] 
+
+
+So how does one approach solving such problems then? That depends a bit on the boundary conditions. If one has the first set of boundary conditions, i.e., if the equation is 
+
+[1.x.50] 
+
+then the following trick works (at least if the domain is convex, see below): In the same way as we obtained the mixed Laplace equation of  [2.x.16]  from the regular Laplace equation by introducing a second variable, we can here introduce a variable  [2.x.17]  and can then replace the equations above by the following, "mixed" system: 
+
+[1.x.51] 
+
+In other words, we end up with what is in essence a system of two coupled Laplace equations for  [2.x.18] , each with Dirichlet-type boundary conditions. We know how to solve such problems, and it should not be very difficult to construct good solvers and preconditioners for this system either using the techniques of  [2.x.19]  or  [2.x.20] . So this case is pretty simple to deal with. 
+
+ [2.x.21]  It is worth pointing out that this only works for domains whose   boundary has corners if the domain is also convex -- in other words,   if there are no re-entrant corners.   This sounds like a rather random condition, but it makes   sense in view of the following two facts: The solution of the   original biharmonic equation must satisfy  [2.x.22] . On the   other hand, the mixed system reformulation above suggests that both    [2.x.23]  and  [2.x.24]  satisfy  [2.x.25]  because both variables only   solve a Poisson equation. In other words, if we want to ensure that   the solution  [2.x.26]  of the mixed problem is also a solution of the   original biharmonic equation, then we need to be able to somehow   guarantee that the solution of  [2.x.27]  is in fact more smooth   than just  [2.x.28] . This can be argued as follows: For convex   domains,   [1.x.52] implies that if the right hand side  [2.x.29] , then    [2.x.30]  if the domain is convex and the boundary is smooth   enough. (This could also be guaranteed if the domain boundary is   sufficiently smooth -- but domains whose boundaries have no corners   are not very practical in real life.)   We know that  [2.x.31]  because it solves the equation    [2.x.32] , but we are still left with the condition on convexity   of the boundary; one can show that polygonal, convex domains are   good enough to guarantee that  [2.x.33]  in this case (smoothly   bounded, convex domains would result in  [2.x.34] , but we don't   need this much regularity). On the other hand, if the domain is not   convex, we can not guarantee that the solution of the mixed system   is in  [2.x.35] , and consequently may obtain a solution that can't be   equal to the solution of the original biharmonic equation. 
+
+The more complicated situation is if we have the "clamped" boundary conditions, i.e., if the equation looks like this: 
+
+[1.x.53] 
+
+The same trick with the mixed system does not work here, because we would end up with [1.x.54] Dirichlet and Neumann boundary conditions for  [2.x.36] , but none for  [2.x.37] . 
+
+
+The solution to this conundrum arrived with the Discontinuous Galerkin method wave in the 1990s and early 2000s: In much the same way as one can use [1.x.55] shape functions for the Laplace equation by penalizing the size of the discontinuity to obtain a scheme for an equation that has one derivative on each shape function, we can use a scheme that uses [1.x.56] (but not  [2.x.38]  continuous) shape functions and penalize the jump in the derivative to obtain a scheme for an equation that has two derivatives on each shape function. In analogy to the Interior Penalty (IP) method for the Laplace equation, this scheme for the biharmonic equation is typically called the  [2.x.39]  IP (or C0IP) method, since it uses  [2.x.40]  (continuous but not continuously differentiable) shape functions with an interior penalty formulation. 
+
+
+[1.x.57][1.x.58] 
+
+
+We base this program on the  [2.x.41]  IP method presented by Susanne Brenner and Li-Yeng Sung in the paper "C [2.x.42]  Interior Penalty Method for Linear Fourth Order Boundary Value Problems on polygonal domains''  [2.x.43]  , where the method is derived for the biharmonic equation with "clamped" boundary conditions. 
+
+As mentioned, this method relies on the use of  [2.x.44]  Lagrange finite elements where the  [2.x.45]  continuity requirement is relaxed and has been replaced with interior penalty techniques. To derive this method, we consider a  [2.x.46]  shape function  [2.x.47]  which vanishes on  [2.x.48] . We introduce notation  [2.x.49]  as the set of all faces of  [2.x.50] ,  [2.x.51]  as the set of boundary faces, and  [2.x.52]  as the set of interior faces for use further down below. Since the higher order derivatives of  [2.x.53]  have two values on each interface  [2.x.54]  (shared by the two cells  [2.x.55] ), we cope with this discontinuity by defining the following single-valued functions on  [2.x.56] : 
+
+[1.x.59] 
+
+for  [2.x.57]  (i.e., for the gradient and the matrix of second derivatives), and where  [2.x.58]  denotes a unit vector normal to  [2.x.59]  pointing from  [2.x.60]  to  [2.x.61] . In the literature, these functions are referred to as the "jump" and "average" operations, respectively. 
+
+To obtain the  [2.x.62]  IP approximation  [2.x.63] , we left multiply the biharmonic equation by  [2.x.64] , and then integrate over  [2.x.65] . As explained above, we can't do the integration by parts on all of  [2.x.66]  with these shape functions, but we can do it on each cell individually since the shape functions are just polynomials on each cell. Consequently, we start by using the following integration-by-parts formula on each mesh cell  [2.x.67] : 
+
+[1.x.60] 
+
+At this point, we have two options: We can integrate the domain term's  [2.x.68]  one more time to obtain 
+
+[1.x.61] 
+
+For a variety of reasons, this turns out to be a variation that is not useful for our purposes. 
+
+Instead, what we do is recognize that  [2.x.69] , and we can re-sort these operations as  [2.x.70]  where we typically write  [2.x.71]  to indicate that this is the "Hessian" matrix of second derivatives. With this re-ordering, we can now integrate the divergence, rather than the gradient operator, and we get the following instead: 
+
+[1.x.62] 
+
+Here, the colon indicates a double-contraction over the indices of the matrices to its left and right, i.e., the scalar product between two tensors. The outer product of two vectors  [2.x.72]  yields the matrix  [2.x.73] . 
+
+Then, we sum over all cells  [2.x.74] , and take into account that this means that every interior face appears twice in the sum. If we therefore split everything into a sum of integrals over cell interiors and a separate sum over cell interfaces, we can use the jump and average operators defined above. There are two steps left: First, because our shape functions are continuous, the gradients of the shape functions may be discontinuous, but the continuity guarantees that really only the normal component of the gradient is discontinuous across faces whereas the tangential component(s) are continuous. Second, the discrete formulation that results is not stable as the mesh size goes to zero, and to obtain a stable formulation that converges to the correct solution, we need to add the following terms: 
+
+[1.x.63] 
+
+Then, after making cancellations that arise, we arrive at the following C0IP formulation of the biharmonic equation: find  [2.x.75]  such that  [2.x.76]  on  [2.x.77]  and 
+
+[1.x.64] 
+
+where 
+
+[1.x.65] 
+
+and 
+
+[1.x.66] 
+
+Here,  [2.x.78]  is the penalty parameter which both weakly enforces the boundary condition 
+
+[1.x.67] 
+
+on the boundary interfaces  [2.x.79] , and also ensures that in the limit  [2.x.80] ,  [2.x.81]  converges to a  [2.x.82]  continuous function.  [2.x.83]  is chosen to be large enough to guarantee the stability of the method. We will discuss our choice in the program below. 
+
+
+[1.x.68][1.x.69] 
+
+On polygonal domains, the weak solution  [2.x.84]  to the biharmonic equation lives in  [2.x.85]  where  [2.x.86]  is determined by the interior angles at the corners of  [2.x.87] . For instance, whenever  [2.x.88]  is convex,  [2.x.89] ;  [2.x.90]  may be less than one if the domain has re-entrant corners but  [2.x.91]  is close to  [2.x.92]  if one of all interior angles is close to  [2.x.93] . 
+
+Now suppose that the  [2.x.94]  IP solution  [2.x.95]  is approximated by  [2.x.96]  shape functions with polynomial degree  [2.x.97] . Then the discretization outlined above yields the convergence rates as discussed below. 
+
+
+[1.x.70] 
+
+Ideally, we would like to measure convergence in the "energy norm"  [2.x.98] . However, this does not work because, again, the discrete solution  [2.x.99]  does not have two (weak) derivatives. Instead, one can define a discrete ( [2.x.100]  IP) seminorm that is "equivalent" to the energy norm, as follows: 
+
+[1.x.71] 
+
+
+
+In this seminorm, the theory in the paper mentioned above yields that we can expect 
+
+[1.x.72] 
+
+much as one would expect given the convergence rates we know are true for the usual discretizations of the Laplace equation. 
+
+Of course, this is true only if the exact solution is sufficiently smooth. Indeed, if  [2.x.101]  with  [2.x.102] ,  [2.x.103]  where  [2.x.104] , then the convergence rate of the  [2.x.105]  IP method is  [2.x.106] . In other words, the optimal convergence rate can only be expected if the solution is so smooth that  [2.x.107] ; this can only happen if (i) the domain is convex with a sufficiently smooth boundary, and (ii)  [2.x.108] . In practice, of course, the solution is what it is (independent of the polynomial degree we choose), and the last condition can then equivalently be read as saying that there is definitely no point in choosing  [2.x.109]  large if  [2.x.110]  is not also large. In other words, the only reasonably choices for  [2.x.111]  are  [2.x.112]  because larger polynomial degrees do not result in higher convergence orders. 
+
+For the purposes of this program, we're a bit too lazy to actually implement this equivalent seminorm -- though it's not very difficult and would make for a good exercise. Instead, we'll simply check in the program what the "broken"  [2.x.113]  seminorm 
+
+[1.x.73] 
+
+yields. The convergence rate in this norm can, from a theoretical perspective, of course not be [1.x.74] than the one for  [2.x.114]  because it contains only a subset of the necessary terms, but it could at least conceivably be better. It could also be the case that we get the optimal convergence rate even though there is a bug in the program, and that that bug would only show up in sub-optimal rates for the additional terms present in  [2.x.115] . But, one might hope that if we get the optimal rate in the broken norm and the norms discussed below, then the program is indeed correct. The results section will demonstrate that we obtain optimal rates in all norms shown. 
+
+
+[1.x.75] 
+
+The optimal convergence rate in the  [2.x.116] -norm is  [2.x.117]  provided  [2.x.118] . More details can be found in Theorem 4.6 of  [2.x.119]  . 
+
+The default in the program below is to choose  [2.x.120] . In that case, the theorem does not apply, and indeed one only gets  [2.x.121]  instead of  [2.x.122]  as we will show in the results section. 
+
+
+[1.x.76] 
+
+Given that we expect  [2.x.123]  in the best of cases for a norm equivalent to the  [2.x.124]  seminorm, and  [2.x.125]  for the  [2.x.126]  norm, one may ask about what happens in the  [2.x.127]  seminorm that is intermediate to the two others. A reasonable guess is that one should expect  [2.x.128] . There is probably a paper somewhere that proves this, but we also verify that this conjecture is experimentally true below. 
+
+
+
+
+[1.x.77][1.x.78] 
+
+
+We remark that the derivation of the  [2.x.129]  IP method for the biharmonic equation with other boundary conditions -- for instance, for the first set of boundary conditions namely  [2.x.130]  and  [2.x.131]  on  [2.x.132]  -- can be obtained with suitable modifications to  [2.x.133]  and  [2.x.134]  described in the book chapter  [2.x.135]  . 
+
+
+[1.x.79][1.x.80] 
+
+
+The last step that remains to describe is what this program solves for. As always, a trigonometric function is both a good and a bad choice because it does not lie in any polynomial space in which we may seek the solution while at the same time being smoother than real solutions typically are (here, it is in  [2.x.136]  while real solutions are typically only in  [2.x.137]  or so on convex polygonal domains, or somewhere between  [2.x.138]  and  [2.x.139]  if the domain is not convex). But, since we don't have the means to describe solutions of realistic problems in terms of relatively simple formulas, we just go with the following, on the unit square for the domain  [2.x.140] : 
+
+[1.x.81] 
+
+As a consequence, we then need choose as boundary conditions the following: 
+
+[1.x.82] 
+
+The right hand side is easily computed as 
+
+[1.x.83] 
+
+The program has classes  [2.x.141]  and  [2.x.142]  that encode this information. [1.x.84] [1.x.85] 
+
+
+[1.x.86]  [1.x.87] 
+
+
+
+
+The first few include files have already been used in the previous example, so we will not explain their meaning here again. The principal structure of the program is very similar to that of, for example,  [2.x.143]  and so we include many of the same header files. 
+
+
+
+
+
+
+
+[1.x.88] 
+
+
+
+The two most interesting header files will be these two: 
+
+[1.x.89] 
+
+
+
+The first of these is responsible for providing the class FEInterfaceValues that can be used to evaluate quantities such as the jump or average of shape functions (or their gradients) across interfaces between cells. This class will be quite useful in evaluating the penalty terms that appear in the C0IP formulation. 
+
+
+
+
+
+
+
+
+
+
+[1.x.90] 
+
+
+
+In the following namespace, let us define the exact solution against which we will compare the numerically computed one. It has the form  [2.x.144]  (only the 2d case is implemented), and the namespace also contains a class that corresponds to the right hand side that produces this solution. 
+
+[1.x.91] 
+
+
+
+
+[1.x.92]  [1.x.93]    
+
+
+The following is the principal class of this tutorial program. It has the structure of many of the other tutorial programs and there should really be nothing particularly surprising about its contents or the constructor that follows it. 
+
+[1.x.94] 
+
+
+
+Next up are the functions that create the initial mesh (a once refined unit square) and set up the constraints, vectors, and matrices on each mesh. Again, both of these are essentially unchanged from many previous tutorial programs. 
+
+[1.x.95] 
+
+
+
+
+[1.x.96]  [1.x.97]    
+
+
+The following pieces of code are more interesting. They all relate to the assembly of the linear system. While assembling the cell-interior terms is not of great difficulty -- that works in essence like the assembly of the corresponding terms of the Laplace equation, and you have seen how this works in  [2.x.145]  or  [2.x.146] , for example -- the difficulty is with the penalty terms in the formulation. These require the evaluation of gradients of shape functions at interfaces of cells. At the least, one would therefore need to use two FEFaceValues objects, but if one of the two sides is adaptively refined, then one actually needs an FEFaceValues and one FESubfaceValues objects; one also needs to keep track which shape functions live where, and finally we need to ensure that every face is visited only once. All of this is a substantial overhead to the logic we really want to implement (namely the penalty terms in the bilinear form). As a consequence, we will make use of the FEInterfaceValues class -- a helper class in deal.II that allows us to abstract away the two FEFaceValues or FESubfaceValues objects and directly access what we really care about: jumps, averages, etc.    
+
+
+But this doesn't yet solve our problem of having to keep track of which faces we have already visited when we loop over all cells and all of their faces. To make this process simpler, we use the  [2.x.147]  function that provides a simple interface for this task: Based on the ideas outlined in the WorkStream namespace documentation,  [2.x.148]  requires three functions that do work on cells, interior faces, and boundary faces. These functions work on scratch objects for intermediate results, and then copy the result of their computations into copy data objects from where a copier function copies them into the global matrix and right hand side objects.    
+
+
+The following structures then provide the scratch and copy objects that are necessary for this approach. You may look up the WorkStream namespace as well as the  [2.x.149]  "Parallel computing with multiple processors" module for more information on how they typically work. 
+
+[1.x.98] 
+
+
+
+The more interesting part is where we actually assemble the linear system. Fundamentally, this function has five parts: 
+
+- The definition of the `cell_worker` lambda function, a small function that is defined within the `assemble_system()` function and that will be responsible for computing the local integrals on an individual cell. It will work on a copy of the `ScratchData` class and put its results into the corresponding `CopyData` object. 
+
+- The definition of the `face_worker` lambda function that does the integration of all terms that live on the interfaces between cells. 
+
+- The definition of the `boundary_worker` function that does the same but for cell faces located on the boundary of the domain. 
+
+- The definition of the `copier` function that is responsible for copying all of the data the previous three functions have put into copy objects for a single cell, into the global matrix and right hand side.    
+
+
+The fifth part is the one where we bring all of this together.    
+
+
+Let us go through each of these pieces necessary for the assembly in turns. 
+
+[1.x.99] 
+
+
+
+The first piece is the `cell_worker` that does the assembly on the cell interiors. It is a (lambda) function that takes a cell (input), a scratch object, and a copy object (output) as arguments. It looks like the assembly functions of many other of the tutorial programs, or at least the body of the loop over all cells.      
+
+
+The terms we integrate here are the cell contribution 
+
+[1.x.100] 
+
+to the global matrix, and 
+
+[1.x.101] 
+
+to the right hand side vector.      
+
+
+We use the same technique as used in the assembly of  [2.x.150]  to accelerate the function: Instead of calling `fe_values.shape_hessian(i, qpoint)` in the innermost loop, we create a variable `hessian_i` that evaluates this value once in the loop over `i` and re-use the so-evaluated value in the loop over `j`. For symmetry, we do the same with a variable `hessian_j`, although it is indeed only used once and we could have left the call to `fe_values.shape_hessian(j,qpoint)` in the instruction that computes the scalar product between the two terms. 
+
+[1.x.102] 
+
+
+
+The next building block is the one that assembles penalty terms on each of the interior faces of the mesh. As described in the documentation of  [2.x.151]  this function receives arguments that denote a cell and its neighboring cell, as well as (for each of the two cells) the face (and potentially sub-face) we have to integrate over. Again, we also get a scratch object, and a copy object for putting the results in.      
+
+
+The function has three parts itself. At the top, we initialize the FEInterfaceValues object and create a new  [2.x.152]  object to store our input in. This gets pushed to the end of the `copy_data.face_data` variable. We need to do this because the number of faces (or subfaces) over which we integrate for a given cell differs from cell to cell, and the sizes of these matrices also differ, depending on what degrees of freedom are adjacent to the face or subface. As discussed in the documentation of  [2.x.153]  the copy object is reset every time a new cell is visited, so that what we push to the end of `copy_data.face_data()` is really all that the later `copier` function gets to see when it copies the contributions of each cell to the global matrix and right hand side objects. 
+
+[1.x.103] 
+
+
+
+The second part deals with determining what the penalty parameter should be. By looking at the units of the various terms in the bilinear form, it is clear that the penalty has to have the form  [2.x.154]  (i.e., one over length scale), but it is not a priori obvious how one should choose the dimension-less number  [2.x.155] . From the discontinuous Galerkin theory for the Laplace equation, one might conjecture that the right choice is  [2.x.156]  is the right choice, where  [2.x.157]  is the polynomial degree of the finite element used. We will discuss this choice in a bit more detail in the results section of this program.        
+
+
+In the formula above,  [2.x.158]  is the size of cell  [2.x.159] . But this is not quite so straightforward either: If one uses highly stretched cells, then a more involved theory says that  [2.x.160]  should be replaced by the diameter of cell  [2.x.161]  normal to the direction of the edge in question.  It turns out that there is a function in deal.II for that. Secondly,  [2.x.162]  may be different when viewed from the two different sides of a face.        
+
+
+To stay on the safe side, we take the maximum of the two values. We will note that it is possible that this computation has to be further adjusted if one were to use hanging nodes resulting from adaptive mesh refinement. 
+
+[1.x.104] 
+
+
+
+Finally, and as usual, we loop over the quadrature points and indices `i` and `j` to add up the contributions of this face or sub-face. These are then stored in the `copy_data.face_data` object created above. As for the cell worker, we pull the evaluation of averages and jumps out of the loops if possible, introducing local variables that store these results. The assembly then only needs to use these local variables in the innermost loop. Regarding the concrete formula this code implements, recall that the interface terms of the bilinear form were as follows: 
+
+[1.x.105] 
+
+
+
+[1.x.106] 
+
+
+
+The third piece is to do the same kind of assembly for faces that are at the boundary. The idea is the same as above, of course, with only the difference that there are now penalty terms that also go into the right hand side.      
+
+
+As before, the first part of the function simply sets up some helper objects: 
+
+[1.x.107] 
+
+
+
+Positively, because we now only deal with one cell adjacent to the face (as we are on the boundary), the computation of the penalty factor  [2.x.163]  is substantially simpler: 
+
+[1.x.108] 
+
+
+
+The third piece is the assembly of terms. This is now slightly more involved since these contains both terms for the matrix and for the right hand side. The former is exactly the same as for the interior faces stated above if one just defines the jump and average appropriately (which is what the FEInterfaceValues class does). The latter requires us to evaluate the boundary conditions  [2.x.164] , which in the current case (where we know the exact solution) we compute from  [2.x.165] . The term to be added to the right hand side vector is then  [2.x.166] . 
+
+[1.x.109] 
+
+
+
+Part 4 is a small function that copies the data produced by the cell, interior, and boundary face assemblers above into the global matrix and right hand side vector. There really is not very much to do here: We distribute the cell matrix and right hand side contributions as we have done in almost all of the other tutorial programs using the constraints objects. We then also have to do the same for the face matrix contributions that have gained content for the faces (interior and boundary) and that the `face_worker` and `boundary_worker` have added to the `copy_data.face_data` array. 
+
+[1.x.110] 
+
+
+
+Having set all of this up, what remains is to just create a scratch and copy data object and call the  [2.x.167]  function that then goes over all cells and faces, calls the respective workers on them, and then the copier function that puts things into the global matrix and right hand side. As an additional benefit,  [2.x.168]  does all of this in parallel, using as many processor cores as your machine happens to have. 
+
+[1.x.111] 
+
+
+
+
+[1.x.112]  [1.x.113]    
+
+
+The show is essentially over at this point: The remaining functions are not overly interesting or novel. The first one simply uses a direct solver to solve the linear system (see also  [2.x.169] ): 
+
+[1.x.114] 
+
+
+
+The next function evaluates the error between the computed solution and the exact solution (which is known here because we have chosen the right hand side and boundary values in a way so that we know the corresponding solution). In the first two code blocks below, we compute the error in the  [2.x.170]  norm and the  [2.x.171]  semi-norm. 
+
+[1.x.115] 
+
+
+
+Now also compute an approximation to the  [2.x.172]  seminorm error. The actual  [2.x.173]  seminorm would require us to integrate second derivatives of the solution  [2.x.174] , but given the Lagrange shape functions we use,  [2.x.175]  of course has kinks at the interfaces between cells, and consequently second derivatives are singular at interfaces. As a consequence, we really only integrate over the interior of cells and ignore the interface contributions. This is *not* an equivalent norm to the energy norm for the problem, but still gives us an idea of how fast the error converges.      
+
+
+We note that one could address this issue by defining a norm that is equivalent to the energy norm. This would involve adding up not only the integrals over cell interiors as we do below, but also adding penalty terms for the jump of the derivative of  [2.x.176]  across interfaces, with an appropriate scaling of the two kinds of terms. We will leave this for later work. 
+
+[1.x.116] 
+
+
+
+Equally uninteresting is the function that generates graphical output. It looks exactly like the one in  [2.x.177] , for example. 
+
+[1.x.117] 
+
+
+
+The same is true for the `run()` function: Just like in previous programs. 
+
+[1.x.118] 
+
+
+
+
+[1.x.119]  [1.x.120] 
+
+
+
+
+Finally for the `main()` function. There is, again, not very much to see here: It looks like the ones in previous tutorial programs. There is a variable that allows selecting the polynomial degree of the element we want to use for solving the equation. Because the C0IP formulation we use requires the element degree to be at least two, we check with an assertion that whatever one sets for the polynomial degree actually makes sense. 
+
+[1.x.121] 
+
+[1.x.122][1.x.123] 
+
+
+We run the program with right hand side and boundary values as discussed in the introduction. These will produce the solution  [2.x.178]  on the domain  [2.x.179] . We test this setup using  [2.x.180] ,  [2.x.181] , and  [2.x.182]  elements, which one can change via the `fe_degree` variable in the `main()` function. With mesh refinement, the  [2.x.183]  convergence rates,  [2.x.184] -seminorm rate, and  [2.x.185] -seminorm convergence of  [2.x.186]  should then be around 2, 2, 1 for  [2.x.187]  (with the  [2.x.188]  norm sub-optimal as discussed in the introduction); 4, 3, 2 for  [2.x.189] ; and 5, 4, 3 for  [2.x.190] , respectively. 
+
+From the literature, it is not immediately clear what the penalty parameter  [2.x.191]  should be. For example,  [2.x.192]  state that it needs to be larger than one, and choose  [2.x.193] . The FEniCS/Dolphin tutorial chooses it as  [2.x.194] , see https://fenicsproject.org/docs/dolfin/1.6.0/python/demo/documented/biharmonic/python/documentation.html .  [2.x.195]  uses a value for  [2.x.196]  larger than the number of edges belonging to an element for Kirchhoff plates (see their Section 4.2). This suggests that maybe  [2.x.197] ,  [2.x.198] , are too small; on the other hand, a value  [2.x.199]  would be reasonable, where  [2.x.200]  is the degree of polynomials. The last of these choices is the one one would expect to work by comparing to the discontinuous Galerkin formulations for the Laplace equation (see, for example, the discussions in  [2.x.201]  and  [2.x.202] ), and it will turn out to also work here. But we should check what value of  [2.x.203]  is right, and we will do so below; changing  [2.x.204]  is easy in the two `face_worker` and `boundary_worker` functions defined in `assemble_system()`. 
+
+
+[1.x.124][1.x.125][1.x.126][1.x.127] 
+
+
+We run the code with differently refined meshes and get the following convergence rates. 
+
+ [2.x.205]  We can see that the  [2.x.206]  convergence rates are around 2,  [2.x.207] -seminorm convergence rates are around 2, and  [2.x.208] -seminorm convergence rates are around 1. The latter two match the theoretically expected rates; for the former, we have no theorem but are not surprised that it is sub-optimal given the remark in the introduction. 
+
+
+[1.x.128][1.x.129][1.x.130][1.x.131] 
+
+
+
+
+ [2.x.209]  We can see that the  [2.x.210]  convergence rates are around 4,  [2.x.211] -seminorm convergence rates are around 3, and  [2.x.212] -seminorm convergence rates are around 2. This, of course, matches our theoretical expectations. 
+
+
+[1.x.132][1.x.133][1.x.134][1.x.135] 
+
+
+ [2.x.213]  We can see that the  [2.x.214]  norm convergence rates are around 5,  [2.x.215] -seminorm convergence rates are around 4, and  [2.x.216] -seminorm convergence rates are around 3. On the finest mesh, the  [2.x.217]  norm convergence rate is much smaller than our theoretical expectations because the linear solver becomes the limiting factor due to round-off. Of course the  [2.x.218]  error is also very small already in that case. 
+
+
+[1.x.136][1.x.137][1.x.138][1.x.139] 
+
+
+For comparison with the results above, let us now also consider the case where we simply choose  [2.x.219] : 
+
+ [2.x.220]  Although  [2.x.221]  norm convergence rates of  [2.x.222]  more or less follows the theoretical expectations, the  [2.x.223] -seminorm and  [2.x.224] -seminorm do not seem to converge as expected. Comparing results from  [2.x.225]  and  [2.x.226] , it is clear that  [2.x.227]  is a better penalty. Given that  [2.x.228]  is already too small for  [2.x.229]  elements, it may not be surprising that if one repeated the experiment with a  [2.x.230]  element, the results are even more disappointing: One again only obtains convergence rates of 2, 1, zero -- i.e., no better than for the  [2.x.231]  element (although the errors are smaller in magnitude). Maybe surprisingly, however, one obtains more or less the expected convergence orders when using  [2.x.232]  elements. Regardless, this uncertainty suggests that  [2.x.233]  is at best a risky choice, and at worst an unreliable one and that we should choose  [2.x.234]  larger. 
+
+
+[1.x.140][1.x.141][1.x.142][1.x.143] 
+
+
+Since  [2.x.235]  is clearly too small, one might conjecture that  [2.x.236]  might actually work better. Here is what one obtains in that case: 
+
+ [2.x.237]  In this case, the convergence rates more or less follow the theoretical expectations, but, compared to the results from  [2.x.238] , are more variable. Again, we could repeat this kind of experiment for  [2.x.239]  and  [2.x.240]  elements. In both cases, we will find that we obtain roughly the expected convergence rates. Of more interest may then be to compare the absolute size of the errors. While in the table above, for the  [2.x.241]  case, the errors on the finest grid are comparable between the  [2.x.242]  and  [2.x.243]  case, for  [2.x.244]  the errors are substantially larger for  [2.x.245]  than for  [2.x.246] . The same is true for the  [2.x.247]  case. 
+
+
+[1.x.144][1.x.145] 
+
+
+The conclusions for which of the "reasonable" choices one should use for the penalty parameter is that  [2.x.248]  yields the expected results. It is, consequently, what the code uses as currently written. 
+
+
+[1.x.146][1.x.147] 
+
+
+There are a number of obvious extensions to this program that would make sense: 
+
+- The program uses a square domain and a uniform mesh. Real problems   don't come this way, and one should verify convergence also on   domains with other shapes and, in particular, curved boundaries. One   may also be interested in resolving areas of less regularity by   using adaptive mesh refinement. 
+
+- From a more theoretical perspective, the convergence results above   only used the "broken"  [2.x.249]  seminorm  [2.x.250]  instead   of the "equivalent" norm  [2.x.251] . This is good enough to   convince ourselves that the program isn't fundamentally   broken. However, it might be interesting to measure the error in the   actual norm for which we have theoretical results. Implementing this   addition should not be overly difficult using, for example, the   FEInterfaceValues class combined with  [2.x.252]  in the   same spirit as we used for the assembly of the linear system. 
+
+
+[1.x.148]  [1.x.149] 
+
+
+  Similar to the "clamped" boundary condition addressed in the implementation,   we will derive the  [2.x.253]  IP finite element scheme for simply supported plates:   [1.x.150] 
+
+  We multiply the biharmonic equation by the test function  [2.x.254]  and integrate over  [2.x.255]  and get:   [1.x.151] 
+
+
+
+  Summing up over all cells  [2.x.256] ,since normal directions of  [2.x.257]  are pointing at   opposite directions on each interior edge shared by two cells and  [2.x.258]  on  [2.x.259] ,   [1.x.152] 
+
+  and by the definition of jump over cell interfaces,   [1.x.153] 
+
+  We separate interior faces and boundary faces of the domain,   [1.x.154] 
+
+  where  [2.x.260]  is the set of interior faces.   This leads us to   [1.x.155] 
+
+
+
+  In order to symmetrize and stabilize the discrete problem,   we add symmetrization and stabilization term.   We finally get the  [2.x.261]  IP finite element scheme for the biharmonic equation:   find  [2.x.262]  such that  [2.x.263]  on  [2.x.264]  and   [1.x.156] 
+
+  where   [1.x.157] 
+
+  and   [1.x.158] 
+
+  The implementation of this boundary case is similar to the "clamped" version   except that `boundary_worker` is no longer needed for system assembling   and the right hand side is changed according to the formulation. [1.x.159] [1.x.160]  [2.x.265]  
+
+ [2.x.266] 

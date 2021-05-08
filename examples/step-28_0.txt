@@ -1,0 +1,780 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] . 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5][1.x.6][1.x.7][1.x.8][1.x.9][1.x.10][1.x.11][1.x.12][1.x.13][1.x.14][1.x.15][1.x.16][1.x.17][1.x.18][1.x.19][1.x.20][1.x.21][1.x.22][1.x.23][1.x.24][1.x.25][1.x.26][1.x.27][1.x.28][1.x.29][1.x.30][1.x.31][1.x.32][1.x.33][1.x.34][1.x.35][1.x.36][1.x.37][1.x.38][1.x.39] 
+
+ [2.x.3]  
+
+[1.x.40][1.x.41][1.x.42] 
+
+ [2.x.4]  
+
+
+[1.x.43][1.x.44] [1.x.45] 
+
+In this example, we intend to solve the multigroup diffusion approximation of the neutron transport equation. Essentially, the way to view this is as follows: In a nuclear reactor, neutrons are speeding around at different energies, get absorbed or scattered, or start a new fission event. If viewed at long enough length scales, the movement of neutrons can be considered a diffusion process. 
+
+A mathematical description of this would group neutrons into energy bins, and consider the balance equations for the neutron fluxes in each of these bins, or energy groups. The scattering, absorption, and fission events would then be operators within the diffusion equation describing the neutron fluxes. Assume we have energy groups  [2.x.5] , where by convention we assume that the neutrons with the highest energy are in group 1 and those with the lowest energy in group  [2.x.6] . Then the neutron flux of each group satisfies the following equations: [1.x.46] 
+
+augmented by appropriate boundary conditions. Here,  [2.x.7]  is the velocity of neutrons within group  [2.x.8] . In other words, the change in time in flux of neutrons in group  [2.x.9]  is governed by the following processes:  [2.x.10]   [2.x.11]  Diffusion  [2.x.12] . Here,  [2.x.13]  is the   (spatially variable) diffusion coefficient.  [2.x.14]  Absorption  [2.x.15]  (note the   negative sign). The coefficient  [2.x.16]  is called the [1.x.47].  [2.x.17]  Nuclear fission  [2.x.18] .   The production of neutrons of energy  [2.x.19]  is   proportional to the flux of neutrons of energy  [2.x.20]  times the   probability  [2.x.21]  that neutrons of energy  [2.x.22]  cause a fission   event times the number  [2.x.23]  of neutrons produced in each fission event   times the probability that a neutron produced in this event has energy    [2.x.24] .  [2.x.25]  is called the [1.x.48] and    [2.x.26]  the [1.x.49]. We will denote the term    [2.x.27]  as the [1.x.50] in the program.  [2.x.28]  Scattering  [2.x.29]    of neutrons of energy  [2.x.30]  producing neutrons   of energy  [2.x.31] .  [2.x.32]  is called the [1.x.51]. The case of elastic, in-group scattering  [2.x.33]  exists, too, but   we subsume this into the removal cross section. The case  [2.x.34]  is called   down-scattering, since a neutron loses energy in such an event. On the   other hand,  [2.x.35]  corresponds to up-scattering: a neutron gains energy in   a scattering event from the thermal motion of the atoms surrounding it;   up-scattering is therefore only an important process for neutrons with   kinetic energies that are already on the same order as the thermal kinetic   energy (i.e. in the sub  [2.x.36]  range).  [2.x.37]  An extraneous source  [2.x.38] .  [2.x.39]  
+
+For realistic simulations in reactor analysis, one may want to split the continuous spectrum of neutron energies into many energy groups, often up to 100. However, if neutron energy spectra are known well enough for some type of reactor (for example Pressurized Water Reactors, PWR), it is possible to obtain satisfactory results with only 2 energy groups. 
+
+In the program shown in this tutorial program, we provide the structure to compute with as many energy groups as desired. However, to keep computing times moderate and in order to avoid tabulating hundreds of coefficients, we only provide the coefficients for above equations for a two-group simulation, i.e.  [2.x.40] . We do, however, consider a realistic situation by assuming that the coefficients are not constant, but rather depend on the materials that are assembled into reactor fuel assemblies in rather complicated ways (see below). 
+
+
+[1.x.52][1.x.53] 
+
+
+If we consider all energy groups at once, we may write above equations in the following operator form: [1.x.54] 
+
+where  [2.x.41]  are sinking, fission, and scattering operators, respectively.  [2.x.42]  here includes both the diffusion and removal terms. Note that  [2.x.43]  is symmetric, whereas  [2.x.44]  and  [2.x.45]  are not. 
+
+It is well known that this equation admits a stable solution if all eigenvalues of the operator  [2.x.46]  are negative. This can be readily seen by multiplying the equation by  [2.x.47]  and integrating over the domain, leading to [1.x.55] 
+
+Stability means that the solution does not grow, i.e. we want the left hand side to be less than zero, which is the case if the eigenvalues of the operator on the right are all negative. For obvious reasons, it is not very desirable if a nuclear reactor produces neutron fluxes that grow exponentially, so eigenvalue analyses are the bread-and-butter of nuclear engineers. The main point of the program is therefore to consider the eigenvalue problem [1.x.56] 
+
+where we want to make sure that all eigenvalues are positive. Note that  [2.x.48] , being the diffusion operator plus the absorption (removal), is positive definite; the condition that all eigenvalues are positive therefore means that we want to make sure that fission and inter-group scattering are weak enough to not shift the spectrum into the negative. 
+
+In nuclear engineering, one typically looks at a slightly different formulation of the eigenvalue problem. To this end, we do not just multiply with  [2.x.49]  and integrate, but rather multiply with  [2.x.50] . We then get the following evolution equation: [1.x.57] 
+
+Stability is then guaranteed if the eigenvalues of the following problem are all negative: [1.x.58] 
+
+which is equivalent to the eigenvalue problem [1.x.59] 
+
+The typical formulation in nuclear engineering is to write this as [1.x.60] 
+
+where  [2.x.51] . Intuitively,  [2.x.52]  is something like the multiplication factor for neutrons per typical time scale and should be less than or equal to one for stable operation of a reactor: if it is less than one, the chain reaction will die down, whereas nuclear bombs for example have a  [2.x.53] -eigenvalue larger than one. A stable reactor should have  [2.x.54] . 
+
+For those who wonder how this can be achieved in practice without inadvertently getting slightly larger than one and triggering a nuclear bomb: first, fission processes happen on different time scales. While most neutrons are released very quickly after a fission event, a small number of neutrons are only released by daughter nuclei after several further decays, up to 10-60 seconds after the fission was initiated. If one is therefore slightly beyond  [2.x.55] , one therefore has many seconds to react until all the neutrons created in fission re-enter the fission cycle. Nevertheless, control rods in nuclear reactors absorbing neutrons -- and therefore reducing  [2.x.56]  -- are designed in such a way that they are all the way in the reactor in at most 2 seconds. 
+
+One therefore has on the order of 10-60 seconds to regulate the nuclear reaction if  [2.x.57]  should be larger than one for some time, as indicated by a growing neutron flux. Regulation can be achieved by continuously monitoring the neutron flux, and if necessary increase or reduce neutron flux by moving neutron-absorbing control rods a few millimeters into or out of the reactor. On a longer scale, the water cooling the reactor contains boron, a good neutron absorber. Every few hours, boron concentrations are adjusted by adding boron or diluting the coolant. 
+
+Finally, some of the absorption and scattering reactions have some stability built in; for example, higher neutron fluxes result in locally higher temperatures, which lowers the density of water and therefore reduces the number of scatterers that are necessary to moderate neutrons from high to low energies before they can start fission events themselves. 
+
+In this tutorial program, we solve above  [2.x.58] -eigenvalue problem for two energy groups, and we are looking for the largest multiplication factor  [2.x.59] , which is proportional to the inverse of the minimum eigenvalue plus one. To solve the eigenvalue problem, we generally use a modified version of the [1.x.61]. The algorithm looks like this: 
+
+ [2.x.60]   [2.x.61]  Initialize  [2.x.62]  and  [2.x.63]  with  [2.x.64]    and  [2.x.65]  and let  [2.x.66] . 
+
+ [2.x.67]  Define the so-called [1.x.62] by   [1.x.63] 
+
+
+
+ [2.x.68]  Solve for all group fluxes  [2.x.69]  using   [1.x.64] 
+
+
+
+ [2.x.70]  Update   [1.x.65] 
+
+
+
+ [2.x.71]  Compare  [2.x.72]  with  [2.x.73] .   If the change greater than a prescribed tolerance then set  [2.x.74]  repeat   the iteration starting at step 2, otherwise end the iteration.  [2.x.75]  
+
+Note that in this scheme, we do not solve group fluxes exactly in each power iteration, but rather consider previously compute  [2.x.76]  only for down-scattering events  [2.x.77] . Up-scattering is only treated by using old iterators  [2.x.78] , in essence assuming that the scattering operator is triangular. This is physically motivated since up-scattering does not play a too important role in neutron scattering. In addition, practices shows that the inverse power iteration is stable even using this simplification. 
+
+Note also that one can use lots of extrapolation techniques to accelerate the power iteration laid out above. However, none of these are implemented in this example. 
+
+
+[1.x.66][1.x.67] 
+
+
+One may wonder whether it is appropriate to solve for the solutions of the individual energy group equations on the same meshes. The question boils down to this: will  [2.x.79]  and  [2.x.80]  have similar smoothness properties? If this is the case, then it is appropriate to use the same mesh for the two; a typical application could be chemical combustion, where typically the concentrations of all or most chemical species change rapidly within the flame front. As it turns out, and as will be apparent by looking at the graphs shown in the results section of this tutorial program, this isn't the case here, however: since the diffusion coefficient is different for different energy groups, fast neutrons (in bins with a small group number  [2.x.81] ) have a very smooth flux function, whereas slow neutrons (in bins with a large group number) are much more affected by the local material properties and have a correspondingly rough solution if the coefficient are rough as in the case we compute here. Consequently, we will want to use different meshes to compute each energy group. 
+
+This has two implications that we will have to consider: First, we need to find a way to refine the meshes individually. Second, assembling the source terms for the inverse power iteration, where we have to integrate solution  [2.x.82]  defined on mesh  [2.x.83]  against the shape functions defined on mesh  [2.x.84] , becomes a much more complicated task. 
+
+
+[1.x.68][1.x.69] 
+
+
+We use the usual paradigm: solve on a given mesh, then evaluate an error indicator for each cell of each mesh we have. Because it is so convenient, we again use the a posteriori error estimator by Kelly, Gago, Zienkiewicz and Babuska which approximates the error per cell by integrating the jump of the gradient of the solution along the faces of each cell. Using this, we obtain indicators [1.x.70] 
+
+where  [2.x.85]  is the triangulation used in the solution of  [2.x.86] . The question is what to do with this. For one, it is clear that refining only those cells with the highest error indicators might lead to bad results. To understand this, it is important to realize that  [2.x.87]  scales with the second derivative of  [2.x.88] . In other words, if we have two energy groups  [2.x.89]  whose solutions are equally smooth but where one is larger by a factor of 10,000, for example, then only the cells of that mesh will be refined, whereas the mesh for the solution of small magnitude will remain coarse. This is probably not what one wants, since we can consider both components of the solution equally important. 
+
+In essence, we would therefore have to scale  [2.x.90]  by an importance factor  [2.x.91]  that says how important it is to resolve  [2.x.92]  to any given accuracy. Such important factors can be computed using duality techniques (see, for example, the  [2.x.93]  tutorial program, and the reference to the book by Bangerth and Rannacher cited there). We won't go there, however, and simply assume that all energy groups are equally important, and will therefore normalize the error indicators  [2.x.94]  for group  [2.x.95]  by the maximum of the solution  [2.x.96] . We then refine the cells whose errors satisfy [1.x.71] 
+
+and coarsen the cells where [1.x.72] 
+
+We chose  [2.x.97]  and  [2.x.98]  in the code. Note that this will, of course, lead to different meshes for the different energy groups. 
+
+The strategy above essentially means the following: If for energy group  [2.x.99]  there are many cells  [2.x.100]  on which the error is large, for example because the solution is globally very rough, then many cells will be above the threshold. On the other hand, if there are a few cells with large and many with small errors, for example because the solution is overall rather smooth except at a few places, then only the few cells with large errors will be refined. Consequently, the strategy allows for meshes that track the global smoothness properties of the corresponding solutions rather well. 
+
+
+[1.x.73][1.x.74] 
+
+
+As pointed out above, the multigroup refinement strategy results in different meshes for the different solutions  [2.x.101] . So what's the problem? In essence it goes like this: in step 3 of the eigenvalue iteration, we have form the weak form for the equation to compute  [2.x.102]  as usual by multiplication with test functions  [2.x.103]  defined on the mesh for energy group  [2.x.104] ; in the process, we have to compute the right hand side vector that contains terms of the following form: [1.x.75] 
+
+where  [2.x.105]  is one of the coefficient functions  [2.x.106]  or  [2.x.107]  used in the right hand side of eigenvalue equation. The difficulty now is that  [2.x.108]  is defined on the mesh for energy group  [2.x.109] , i.e. it can be expanded as  [2.x.110] , with basis functions  [2.x.111]  defined on mesh  [2.x.112] . The contribution to the right hand side can therefore be written as [1.x.76] 
+
+On the other hand, the test functions  [2.x.113]  are defined on mesh  [2.x.114] . This means that we can't just split the integral  [2.x.115]  into integrals over the cells of either mesh  [2.x.116]  or  [2.x.117] , since the respectively other basis functions may not be defined on these cells. 
+
+The solution to this problem lies in the fact that both the meshes for  [2.x.118]  and  [2.x.119]  are derived by adaptive refinement from a common coarse mesh. We can therefore always find a set of cells, which we denote by  [2.x.120] , that satisfy the following conditions:  [2.x.121]   [2.x.122]  the union of the cells covers the entire domain, and  [2.x.123]  a cell  [2.x.124]  is active on at least   one of the two meshes.  [2.x.125]  A way to construct this set is to take each cell of coarse mesh and do the following steps: (i) if the cell is active on either  [2.x.126]  or  [2.x.127] , then add this cell to the set; (ii) otherwise, i.e. if this cell has children on both meshes, then do step (i) for each of the children of this cell. In fact, deal.II has a function  [2.x.128]  that computes exactly this set of cells that are active on at least one of two meshes. 
+
+With this, we can write above integral as follows: [1.x.77] 
+
+ In the code, we compute the right hand side in the function  [2.x.129] , where (among other things) we loop over the set of common most refined cells, calling the function  [2.x.130]  on each pair of these cells. 
+
+By construction, there are now three cases to be considered:  [2.x.131]   [2.x.132]  The cell  [2.x.133]  is active on both meshes, i.e. both the basis   functions  [2.x.134]  as well as  [2.x.135]  are defined on  [2.x.136] .  [2.x.137]  The cell  [2.x.138]  is active on mesh  [2.x.139] , but not  [2.x.140] , i.e. the    [2.x.141]   are defined on  [2.x.142] , whereas the  [2.x.143]  are defined   on children of  [2.x.144] .  [2.x.145]  The cell  [2.x.146]  is active on mesh  [2.x.147] , but not  [2.x.148] , with opposite   conclusions than in (ii).  [2.x.149]  
+
+To compute the right hand side above, we then need to have different code for these three cases, as follows:  [2.x.150]   [2.x.151]  If the cell  [2.x.152]  is active on both meshes, then we can directly   evaluate the integral. In fact, we don't even have to bother with the basis   functions  [2.x.153] , since all we need is the values of  [2.x.154]  at   the quadrature points. We can do this using the    [2.x.155]  function. This is done directly in   the  [2.x.156]  function. 
+
+ [2.x.157]  If the cell  [2.x.158]  is active on mesh  [2.x.159] , but not  [2.x.160] , then the   basis functions  [2.x.161]  are only defined either on the children    [2.x.162] , or on children of these children if cell  [2.x.163]    is refined more than once on mesh  [2.x.164] . 
+
+  Let us assume for a second that  [2.x.165]  is only once more refined on mesh  [2.x.166]    than on mesh  [2.x.167] . Using the fact that we use embedded finite element spaces   where each basis function on one mesh can be written as a linear combination   of basis functions on the next refined mesh, we can expand the restriction   of  [2.x.168]  to child cell  [2.x.169]  into the basis functions defined on that   child cell (i.e. on cells on which the basis functions  [2.x.170]  are   defined):   [1.x.78] 
+
+  Here, and in the following, summation over indices appearing twice is   implied. The matrix  [2.x.171]  is the matrix that interpolated data from a cell   to its  [2.x.172] -th child. 
+
+  Then we can write the contribution of cell  [2.x.173]  to the right hand side   component  [2.x.174]  as   [1.x.79] 
+
+  In matrix notation, this can be written as   [1.x.80] 
+
+  where  [2.x.175]  is   the weighted mass matrix on child  [2.x.176]  of cell  [2.x.177] . 
+
+  The next question is what happens if a child  [2.x.178]  of  [2.x.179]  is not   active. Then, we have to apply the process recursively, i.e. we have to   interpolate the basis functions  [2.x.180]  onto child  [2.x.181]  of  [2.x.182] , then   onto child  [2.x.183]  of that cell, onto child  [2.x.184]  of that one, etc,   until we find an active cell. We then have to sum up all the contributions   from all the children, grandchildren, etc, of cell  [2.x.185] , with contributions   of the form   [1.x.81] 
+
+  or   [1.x.82] 
+
+  etc. We do this process recursively, i.e. if we sit on cell  [2.x.186]  and see that   it has children on grid  [2.x.187] , then we call a function    [2.x.188]  with an identity matrix; the function will   multiply it's argument from the left with the prolongation matrix; if the   cell has further children, it will call itself with this new matrix,   otherwise it will perform the integration. 
+
+ [2.x.189]  The last case is where  [2.x.190]  is active on mesh  [2.x.191]  but not mesh    [2.x.192] . In that case, we have to express basis function  [2.x.193]  in   terms of the basis functions defined on the children of cell  [2.x.194] , rather   than  [2.x.195]  as before. This of course works in exactly the same   way. If the children of  [2.x.196]  are active on mesh  [2.x.197] , then   leading to the expression   [1.x.83] 
+
+  In matrix notation, this expression now reads as   [1.x.84] 
+
+  and correspondingly for cases where cell  [2.x.198]  is refined more than once on   mesh  [2.x.199] :   [1.x.85] 
+
+  or   [1.x.86] 
+
+  etc. In other words, the process works in exactly the same way as before,   except that we have to take the transpose of the prolongation matrices and   need to multiply it to the mass matrix from the other side.  [2.x.200]  
+
+
+The expressions for cases (ii) and (iii) can be understood as repeatedly interpolating either the left or right basis functions in the scalar product  [2.x.201]  onto child cells, and then finally forming the inner product (the mass matrix) on the final cell. To make the symmetry in these cases more obvious, we can write them like this: for case (ii), we have [1.x.87] 
+
+whereas for case (iii) we get [1.x.88] 
+
+
+
+
+
+
+[1.x.89][1.x.90] 
+
+
+A nuclear reactor core is composed of different types of assemblies. An assembly is essentially the smallest unit that can be moved in and out of a reactor, and is usually rectangular or square. However, assemblies are not fixed units, as they are assembled from a complex lattice of different fuel rods, control rods, and instrumentation elements that are held in place relative to each other by spacers that are permanently attached to the rods. To make things more complicated, there are different kinds of assemblies that are used at the same time in a reactor, where assemblies differ in the type and arrangement of rods they are made up of. 
+
+Obviously, the arrangement of assemblies as well as the arrangement of rods inside them affect the distribution of neutron fluxes in the reactor (a fact that will be obvious by looking at the solution shown below in the results sections of this program). Fuel rods, for example, differ from each other in the enrichment of U-235 or Pu-239. Control rods, on the other hand, have zero fission, but nonzero scattering and absorption cross sections. 
+
+This whole arrangement would make the description or spatially dependent material parameters very complicated. It will not become much simpler, but we will make one approximation: we merge the volume inhabited by each cylindrical rod and the surrounding water into volumes of quadratic cross section into so-called `pin cells' for which homogenized material data are obtained with nuclear database and knowledge of neutron spectrum. The homogenization makes all material data piecewise constant on the solution domain for a reactor with fresh fuel. Spatially dependent material parameters are then looked up for the quadratic assembly in which a point is located, and then for the quadratic pin cell within this assembly. 
+
+In this tutorial program, we simulate a quarter of a reactor consisting of  [2.x.202]  assemblies. We use symmetry (Neumann) boundary conditions to reduce the problem to one quarter of the domain, and consequently only simulate a  [2.x.203]  set of assemblies. Two of them will be UO [2.x.204]  fuel, the other two of them MOX fuel. Each of these assemblies consists of  [2.x.205]  rods of different compositions. In total, we therefore create a  [2.x.206]  lattice of rods. To make things simpler later on, we reflect this fact by creating a coarse mesh of  [2.x.207]  cells (even though the domain is a square, for which we would usually use a single cell). In deal.II, each cell has a  [2.x.208]  which one may use to associated each cell with a particular number identifying the material from which this cell's volume is made of; we will use this material ID to identify which of the 8 different kinds of rods that are used in this testcase make up a particular cell. Note that upon mesh refinement, the children of a cell inherit the material ID, making it simple to track the material even after mesh refinement. 
+
+The arrangement of the rods will be clearly visible in the images shown in the results section. The cross sections for materials and for both energy groups are taken from a OECD/NEA benchmark problem. The detailed configuration and material data is given in the code. 
+
+
+[1.x.91][1.x.92] 
+
+
+As a coarse overview of what exactly the program does, here is the basic layout: starting on a coarse mesh that is the same for each energy group, we compute inverse eigenvalue iterations to compute the  [2.x.209] -eigenvalue on a given set of meshes. We stop these iterations when the change in the eigenvalue drops below a certain tolerance, and then write out the meshes and solutions for each energy group for inspection by a graphics program. Because the meshes for the solutions are different, we have to generate a separate output file for each energy group, rather than being able to add all energy group solutions into the same file. 
+
+After this, we evaluate the error indicators as explained in one of the sections above for each of the meshes, and refine and coarsen the cells of each mesh independently. Since the eigenvalue iterations are fairly expensive, we don't want to start all over on the new mesh; rather, we use the SolutionTransfer class to interpolate the solution on the previous mesh to the next one upon mesh refinement. A simple experiment will convince you that this is a lot cheaper than if we omitted this step. After doing so, we resume our eigenvalue iterations on the next set of meshes. 
+
+The program is controlled by a parameter file, using the ParameterHandler class. We will show a parameter file in the results section of this tutorial. For the moment suffice it to say that it controls the polynomial degree of the finite elements used, the number of energy groups (even though all that is presently implemented are the coefficients for a 2-group problem), the tolerance where to stop the inverse eigenvalue iteration, and the number of refinement cycles we will do. [1.x.93] [1.x.94] 
+
+
+[1.x.95]  [1.x.96] 
+
+
+
+
+We start with a bunch of include files that have already been explained in previous tutorial programs. One new one is  [2.x.210] : This is the first example program that uses the Timer class. The Timer keeps track of both the elapsed wall clock time (that is, the amount of time that a clock mounted on the wall would measure) and CPU clock time (the amount of time that the current process uses on the CPUs). We will use a Timer below to measure how much CPU time each grid refinement cycle takes. 
+
+[1.x.97] 
+
+
+
+We use the next include file to access block vectors which provide us a convenient way to manage solution and right hand side vectors of all energy groups: 
+
+[1.x.98] 
+
+
+
+This include file is for transferring solutions from one mesh to another different mesh. We use it when we are initializing solutions after each mesh iteration: 
+
+[1.x.99] 
+
+
+
+When integrating functions defined on one mesh against shape functions defined on a different mesh, we need a function  [2.x.211]  (as discussed in the introduction) which is defined in the following header file: 
+
+[1.x.100] 
+
+
+
+We use a little utility class from boost to save the state of an output stream (see the  [2.x.212]  function below): 
+
+[1.x.101] 
+
+
+
+Here are two more C++ standard headers that we use to define list data types as well as to fine-tune the output we generate: 
+
+[1.x.102] 
+
+
+
+The last step is as in all previous programs: 
+
+[1.x.103] 
+
+
+
+
+[1.x.104]  [1.x.105] 
+
+
+
+
+First up, we need to define a class that provides material data (including diffusion coefficients, removal cross sections, scattering cross sections, fission cross sections and fission spectra) to the main class.    
+
+
+The parameter to the constructor determines for how many energy groups we set up the relevant tables. At present, this program only includes data for 2 energy groups, but a more sophisticated program may be able to initialize the data structures for more groups as well, depending on how many energy groups are selected in the parameter file.    
+
+
+For each of the different coefficient types, there is one function that returns the value of this coefficient for a particular energy group (or combination of energy groups, as for the distribution cross section  [2.x.213]  or scattering cross section  [2.x.214] ). In addition to the energy group or groups, these coefficients depend on the type of fuel or control rod, as explained in the introduction. The functions therefore take an additional parameter, @p material_id, that identifies the particular kind of rod. Within this program, we use  [2.x.215]  different kinds of rods.    
+
+
+Except for the scattering cross section, each of the coefficients therefore can be represented as an entry in a two-dimensional array of floating point values indexed by the energy group number as well as the material ID. The Table class template is the ideal way to store such data. Finally, the scattering coefficient depends on both two energy group indices and therefore needs to be stored in a three-dimensional array, for which we again use the Table class, where this time the first template argument (denoting the dimensionality of the array) of course needs to be three: 
+
+[1.x.106] 
+
+
+
+The constructor of the class is used to initialize all the material data arrays. It takes the number of energy groups as an argument (an throws an error if that value is not equal to two, since at presently only data for two energy groups is implemented; however, using this, the function remains flexible and extendable into the future). In the member initialization part at the beginning, it also resizes the arrays to their correct sizes.    
+
+
+At present, material data is stored for 8 different types of material. This, as well, may easily be extended in the future. 
+
+[1.x.107] 
+
+
+
+Next are the functions that return the coefficient values for given materials and energy groups. All they do is to make sure that the given arguments are within the allowed ranges, and then look the respective value up in the corresponding tables: 
+
+[1.x.108] 
+
+
+
+The function computing the fission distribution cross section is slightly different, since it computes its value as the product of two other coefficients. We don't need to check arguments here, since this already happens when we call the two other functions involved, even though it would probably not hurt either: 
+
+[1.x.109] 
+
+
+
+
+[1.x.110]  [1.x.111] 
+
+
+
+
+The first interesting class is the one that contains everything that is specific to a single energy group. To group things that belong together into individual objects, we declare a structure that holds the Triangulation and DoFHandler objects for the mesh used for a single energy group, and a number of other objects and member functions that we will discuss in the following sections.    
+
+
+The main reason for this class is as follows: for both the forward problem (with a specified right hand side) as well as for the eigenvalue problem, one typically solves a sequence of problems for a single energy group each, rather than the fully coupled problem. This becomes understandable once one realizes that the system matrix for a single energy group is symmetric and positive definite (it is simply a diffusion operator), whereas the matrix for the fully coupled problem is generally nonsymmetric and not definite. It is also very large and quite full if more than a few energy groups are involved.    
+
+
+Let us first look at the equation to solve in the case of an external right hand side (for the time independent case): [1.x.112] 
+
+   
+
+
+We would typically solve this equation by moving all the terms on the right hand side with  [2.x.216]  to the left hand side, and solving for  [2.x.217] . Of course, we don't know  [2.x.218]  yet, since the equations for those variables include right hand side terms involving  [2.x.219] . What one typically does in such situations is to iterate: compute [1.x.113] 
+
+   
+
+
+In other words, we solve the equation one by one, using values for  [2.x.220]  from the previous iteration  [2.x.221]  if  [2.x.222]  and already computed values for  [2.x.223]  from the present iteration if  [2.x.224] .    
+
+
+When computing the eigenvalue, we do a very similar iteration, except that we have no external right hand side and that the solution is scaled after each iteration as explained in the introduction.    
+
+
+In either case, these two cases can be treated jointly if all we do is to equip the following class with these abilities: (i) form the left hand side matrix, (ii) form the in-group right hand side contribution, i.e. involving the extraneous source, and (iii) form that contribution to the right hand side that stems from group  [2.x.225] . This class does exactly these tasks (as well as some book-keeping, such as mesh refinement, setting up matrices and vectors, etc). On the other hand, the class itself has no idea how many energy groups there are, and in particular how they interact, i.e. the decision of how the outer iteration looks (and consequently whether we solve an eigenvalue or a direct problem) is left to the NeutronDiffusionProblem class further down below in this program.    
+
+
+So let us go through the class and its interface: 
+
+[1.x.114] 
+
+
+
+
+[1.x.115]  [1.x.116]      
+
+
+The class has a good number of public member functions, since its the way it operates is controlled from the outside, and therefore all functions that do something significant need to be called from another class. Let's start off with book-keeping: the class obviously needs to know which energy group it represents, which material data to use, and from what coarse grid to start. The constructor takes this information and initializes the relevant member variables with that (see below).      
+
+
+Then we also need functions that set up the linear system, i.e. correctly size the matrix and its sparsity pattern, etc, given a finite element object to use. The  [2.x.226]  function does that. Finally, for this initial block, there are two functions that return the number of active cells and degrees of freedom used in this object -- using this, we can make the triangulation and DoF handler member variables private, and do not have to grant external use to it, enhancing encapsulation: 
+
+[1.x.117] 
+
+
+
+Then there are functions that assemble the linear system for each iteration and the present energy group. Note that the matrix is independent of the iteration number, so only has to be computed once for each refinement cycle. The situation is a bit more involved for the right hand side that has to be updated in each inverse power iteration, and that is further complicated by the fact that computing it may involve several different meshes as explained in the introduction. To make things more flexible with regard to solving the forward or the eigenvalue problem, we split the computation of the right hand side into a function that assembles the extraneous source and in-group contributions (which we will call with a zero function as source terms for the eigenvalue problem) and one that computes contributions to the right hand side from another energy group: 
+
+[1.x.118] 
+
+
+
+Next we need a set of functions that actually compute the solution of a linear system, and do something with it (such as computing the fission source contribution mentioned in the introduction, writing graphical information to an output file, computing error indicators, or actually refining the grid based on these criteria and thresholds for refinement and coarsening). All these functions will later be called from the driver class  [2.x.227] , or any other class you may want to implement to solve a problem involving the neutron flux equations: 
+
+[1.x.119] 
+
+
+
+
+[1.x.120]  [1.x.121]      
+
+
+As is good practice in object oriented programming, we hide most data members by making them private. However, we have to grant the class that drives the process access to the solution vector as well as the solution of the previous iteration, since in the power iteration, the solution vector is scaled in every iteration by the present guess of the eigenvalue we are looking for: 
+
+[1.x.122] 
+
+
+
+
+[1.x.123]  [1.x.124]      
+
+
+The rest of the data members are private. Compared to all the previous tutorial programs, the only new data members are an integer storing which energy group this object represents, and a reference to the material data object that this object's constructor gets passed from the driver class. Likewise, the constructor gets a reference to the finite element object we are to use.      
+
+
+Finally, we have to apply boundary values to the linear system in each iteration, i.e. quite frequently. Rather than interpolating them every time, we interpolate them once on each new mesh and then store them along with all the other data of this class: 
+
+[1.x.125] 
+
+
+
+
+[1.x.126]  [1.x.127]      
+
+
+There is one private member function in this class. It recursively walks over cells of two meshes to compute the cross-group right hand side terms. The algorithm for this is explained in the introduction to this program. The arguments to this function are a reference to an object representing the energy group against which we want to integrate a right hand side term, an iterator to a cell of the mesh used for the present energy group, an iterator to a corresponding cell on the other mesh, and the matrix that interpolates the degrees of freedom from the coarser of the two cells to the finer one: 
+
+[1.x.128] 
+
+
+
+
+[1.x.129]  [1.x.130] 
+
+
+
+
+The first few functions of this class are mostly self-explanatory. The constructor only sets a few data members and creates a copy of the given triangulation as the base for the triangulation used for this energy group. The next two functions simply return data from private data members, thereby enabling us to make these data members private. 
+
+[1.x.131] 
+
+
+
+
+[1.x.132]  [1.x.133]    
+
+
+The first "real" function is the one that sets up the mesh, matrices, etc, on the new mesh or after mesh refinement. We use this function to initialize sparse system matrices, and the right hand side vector. If the solution vector has never been set before (as indicated by a zero size), we also initialize it and set it to a default value. We don't do that if it already has a non-zero size (i.e. this function is called after mesh refinement) since in that case we want to preserve the solution across mesh refinement (something we do in the  [2.x.228]  function). 
+
+[1.x.134] 
+
+
+
+At the end of this function, we update the list of boundary nodes and their values, by first clearing this list and the re-interpolating boundary values (remember that this function is called after first setting up the mesh, and each time after mesh refinement).      
+
+
+To understand the code, it is necessary to realize that we create the mesh using the  [2.x.229]  function (in  [2.x.230] ) where we set the last parameter to  [2.x.231] . This means that boundaries of the domain are "colored", i.e. the four (or six, in 3d) sides of the domain are assigned different boundary indicators. As it turns out, the bottom boundary gets indicator zero, the top one boundary indicator one, and left and right boundaries get indicators two and three, respectively.      
+
+
+In this program, we simulate only one, namely the top right, quarter of a reactor. That is, we want to interpolate boundary conditions only on the top and right boundaries, while do nothing on the bottom and left boundaries (i.e. impose natural, no-flux Neumann boundary conditions). This is most easily generalized to arbitrary dimension by saying that we want to interpolate on those boundaries with indicators 1, 3, ..., which we do in the following loop (note that calls to  [2.x.232]  are additive, i.e. they do not first clear the boundary value map): 
+
+[1.x.135] 
+
+
+
+
+[1.x.136]  [1.x.137]    
+
+
+Next we need functions assembling the system matrix and right hand sides. Assembling the matrix is straightforward given the equations outlined in the introduction as well as what we've seen in previous example programs. Note the use of  [2.x.233]  to get at the kind of material from which a cell is made up of. Note also how we set the order of the quadrature formula so that it is always appropriate for the finite element in use.    
+
+
+Finally, note that since we only assemble the system matrix here, we can't yet eliminate boundary values (we need the right hand side vector for this). We defer this to the  [2.x.234]  function, at which point all the information is available. 
+
+[1.x.138] 
+
+
+
+
+[1.x.139]  [1.x.140]    
+
+
+As explained in the documentation of the  [2.x.235]  class, we split assembling the right hand side into two parts: the ingroup and the cross-group couplings. First, we need a function to assemble the right hand side of one specific group here, i.e. including an extraneous source (that we will set to zero for the eigenvalue problem) as well as the ingroup fission contributions.  (In-group scattering has already been accounted for with the definition of removal cross section.) The function's workings are pretty standard as far as assembling right hand sides go, and therefore does not require more comments except that we mention that the right hand side vector is set to zero at the beginning of the function -- something we are not going to do for the cross-group terms that simply add to the right hand side vector. 
+
+[1.x.141] 
+
+
+
+
+[1.x.142]  [1.x.143]    
+
+
+The more interesting function for assembling the right hand side vector for the equation of a single energy group is the one that couples energy group  [2.x.236]  and  [2.x.237] . As explained in the introduction, we first have to find the set of cells common to the meshes of the two energy groups. First we call  [2.x.238]  to obtain this list of pairs of common cells from both meshes. Both cells in a pair may not be active but at least one of them is. We then hand each of these cell pairs off to a function that computes the right hand side terms recursively.    
+
+
+Note that ingroup coupling is handled already before, so we exit the function early if  [2.x.239] . 
+
+[1.x.144] 
+
+
+
+
+[1.x.145]  [1.x.146]    
+
+
+This is finally the function that handles assembling right hand side terms on potentially different meshes recursively, using the algorithm described in the introduction. The function takes a reference to the object representing energy group  [2.x.240] , as well as iterators to corresponding cells in the meshes for energy groups  [2.x.241]  and  [2.x.242] . At first, i.e. when this function is called from the one above, these two cells will be matching cells on two meshes; however, one of the two may be further refined, and we will call the function recursively with one of the two iterators replaced by one of the children of the original cell.    
+
+
+The last argument is the matrix product matrix  [2.x.243]  from the introduction that interpolates from the coarser of the two cells to the finer one. If the two cells match, then this is the identity matrix -- exactly what we pass to this function initially.    
+
+
+The function has to consider two cases: that both of the two cells are not further refined, i.e. have no children, in which case we can finally assemble the right hand side contributions of this pair of cells; and that one of the two cells is further refined, in which case we have to keep recursing by looping over the children of the one cell that is not active. These two cases will be discussed below: 
+
+[1.x.147] 
+
+
+
+The first case is that both cells are no further refined. In that case, we can assemble the relevant terms (see the introduction). This involves assembling the mass matrix on the finer of the two cells (in fact there are two mass matrices with different coefficients, one for the fission distribution cross section  [2.x.244]  and one for the scattering cross section  [2.x.245] ). This is straight forward, but note how we determine which of the two cells is the finer one by looking at the refinement level of the two cells: 
+
+[1.x.148] 
+
+
+
+Now we have all the interpolation (prolongation) matrices as well as local mass matrices, so we only have to form the product [1.x.149] or [1.x.150] depending on which of the two cells is the finer. We do this using either the matrix-vector product provided by the  [2.x.246]  function, or the product with the transpose matrix using  [2.x.247] . After doing so, we transfer the result into the global right hand side vector of energy group  [2.x.248] . 
+
+[1.x.151] 
+
+
+
+The alternative is that one of the two cells is further refined. In that case, we have to loop over all the children, multiply the existing interpolation (prolongation) product of matrices from the left with the interpolation from the present cell to its child (using the matrix-matrix multiplication function  [2.x.249] ), and then hand the result off to this very same function again, but with the cell that has children replaced by one of its children: 
+
+[1.x.152] 
+
+
+
+
+[1.x.153]  [1.x.154]    
+
+
+In the (inverse) power iteration, we use the integrated fission source to update the  [2.x.250] -eigenvalue. Given its definition, the following function is essentially self-explanatory: 
+
+[1.x.155] 
+
+
+
+
+[1.x.156]  [1.x.157]    
+
+
+Next a function that solves the linear system assembled before. Things are pretty much standard, except that we delayed applying boundary values until we get here, since in all the previous functions we were still adding up contributions the right hand side vector. 
+
+[1.x.158] 
+
+
+
+
+[1.x.159]  [1.x.160]    
+
+
+Mesh refinement is split into two functions. The first estimates the error for each cell, normalizes it by the magnitude of the solution, and returns it in the vector given as an argument. The calling function collects all error indicators from all energy groups, and computes thresholds for refining and coarsening cells. 
+
+[1.x.161] 
+
+
+
+
+[1.x.162]  [1.x.163]    
+
+
+The second part is to refine the grid given the error indicators compute in the previous function and error thresholds above which cells shall be refined or below which cells shall be coarsened. Note that we do not use any of the functions in  [2.x.251]  here, but rather set refinement flags ourselves.    
+
+
+After setting these flags, we use the SolutionTransfer class to move the solution vector from the old to the new mesh. The procedure used here is described in detail in the documentation of that class: 
+
+[1.x.164] 
+
+
+
+enforce constraints to make the interpolated solution conforming on the new mesh: 
+
+[1.x.165] 
+
+
+
+
+[1.x.166]  [1.x.167]    
+
+
+The last function of this class outputs meshes and solutions after each mesh iteration. This has been shown many times before. The only thing worth pointing out is the use of the  [2.x.252]  function to convert an integer into its string representation. The second argument of that function denotes how many digits we shall use -- if this value was larger than one, then the number would be padded by leading zeros. 
+
+[1.x.168] 
+
+
+
+
+[1.x.169]  [1.x.170] 
+
+
+
+
+This is the main class of the program, not because it implements all the functionality (in fact, most of it is implemented in the  [2.x.253]  class) but because it contains the driving algorithm that determines what to compute and when. It is mostly as shown in many of the other tutorial programs in that it has a public  [2.x.254]  function and private functions doing all the rest. In several places, we have to do something for all energy groups, in which case we will start tasks for each group to let these things run in parallel if deal.II was configured for multithreading.  For strategies of parallelization, take a look at the  [2.x.255]  module.    
+
+
+The biggest difference to previous example programs is that we also declare a nested class that has member variables for all the run-time parameters that can be passed to the program in an input file. Right now, these are the number of energy groups, the number of refinement cycles, the polynomial degree of the finite element to be used, and the tolerance used to determine when convergence of the inverse power iteration has occurred. In addition, we have a constructor of this class that sets all these values to their default values, a function  [2.x.256]  that describes to the ParameterHandler class what parameters are accepted in the input file, and a function  [2.x.257]  that can extract the values of these parameters from a ParameterHandler object. See also  [2.x.258]  for another example of using ParameterHandler. 
+
+[1.x.171] 
+
+
+
+
+[1.x.172]  [1.x.173] 
+
+
+
+
+There are not that many member functions in this class since most of the functionality has been moved into the  [2.x.259]  class and is simply called from the  [2.x.260]  member function of this class. The ones that remain have self-explanatory names: 
+
+[1.x.174] 
+
+
+
+
+[1.x.175]  [1.x.176] 
+
+
+
+
+Next, we have a few member variables. In particular, these are (i) a reference to the parameter object (owned by the main function of this program, and passed to the constructor of this class), (ii) an object describing the material parameters for the number of energy groups requested in the input file, and (iii) the finite element to be used by all energy groups: 
+
+[1.x.177] 
+
+
+
+Furthermore, we have (iv) the value of the computed eigenvalue at the present iteration. This is, in fact, the only part of the solution that is shared between all energy groups -- all other parts of the solution, such as neutron fluxes are particular to one or the other energy group, and are therefore stored in objects that describe a single energy group: 
+
+[1.x.178] 
+
+
+
+The last computational object (v) is an array of pointers to the energy group objects. The length of this array is, of course, equal to the number of energy groups specified in the parameter file. 
+
+[1.x.179] 
+
+
+
+Finally (vi) we have a file stream to which we will save summarized output. 
+
+[1.x.180] 
+
+
+
+
+[1.x.181]  [1.x.182] 
+
+
+
+
+Before going on to the implementation of the outer class, we have to implement the functions of the parameters structure. This is pretty straightforward and, in fact, looks pretty much the same for all such parameters classes using the ParameterHandler capabilities. We will therefore not comment further on this: 
+
+[1.x.183] 
+
+
+
+
+[1.x.184]  [1.x.185] 
+
+
+
+
+Now for the  [2.x.261]  class. The constructor and destructor have nothing of much interest: 
+
+[1.x.186] 
+
+
+
+
+[1.x.187]  [1.x.188]    
+
+
+The first function of interest is the one that sets up the geometry of the reactor core. This is described in more detail in the introduction.    
+
+
+The first part of the function defines geometry data, and then creates a coarse mesh that has as many cells as there are fuel rods (or pin cells, for that matter) in that part of the reactor core that we simulate. As mentioned when interpolating boundary values above, the last parameter to the  [2.x.262]  function specifies that sides of the domain shall have unique boundary indicators that will later allow us to determine in a simple way which of the boundaries have Neumann and which have Dirichlet conditions attached to them. 
+
+[1.x.189] 
+
+
+
+The second part of the function deals with material numbers of pin cells of each type of assembly. Here, we define four different types of assembly, for which we describe the arrangement of fuel rods in the following tables.      
+
+
+The assemblies described here are taken from the benchmark mentioned in the introduction and are (in this order):  [2.x.263]   [2.x.264] 'UX' Assembly: UO2 fuel assembly with 24 guide tubes and a central Moveable Fission Chamber  [2.x.265] 'UA' Assembly: UO2 fuel assembly with 24 AIC and a central Moveable Fission Chamber  [2.x.266] 'PX' Assembly: MOX fuel assembly with 24 guide tubes and a central Moveable Fission Chamber  [2.x.267] 'R' Assembly: a reflector.   [2.x.268]       
+
+
+Note that the numbers listed here and taken from the benchmark description are, in good old Fortran fashion, one-based. We will later subtract one from each number when assigning materials to individual cells to convert things into the C-style zero-based indexing. 
+
+[1.x.190] 
+
+
+
+After the description of the materials that make up an assembly, we have to specify the arrangement of assemblies within the core. We use a symmetric pattern that in fact only uses the 'UX' and 'PX' assemblies: 
+
+[1.x.191] 
+
+
+
+We are now in a position to actually set material IDs for each cell. To this end, we loop over all cells, look at the location of the cell's center, and determine which assembly and fuel rod this would be in. (We add a few checks to see that the locations we compute are within the bounds of the arrays in which we have to look up materials.) At the end of the loop, we set material identifiers accordingly: 
+
+[1.x.192] 
+
+
+
+With the coarse mesh so initialized, we create the appropriate number of energy group objects and let them initialize their individual meshes with the coarse mesh generated above: 
+
+[1.x.193] 
+
+
+
+
+[1.x.194]  [1.x.195]    
+
+
+In the eigenvalue computation, we need to calculate total fission neutron source after each power iteration. The total power then is used to renew k-effective.    
+
+
+Since the total fission source is a sum over all the energy groups, and since each of these sums can be computed independently, we actually do this in parallel. One of the problems is that the function in the  [2.x.269]  class that computes the fission source returns a value. We would like to add these values together in the loop itself: ideally, each task would compute its value and then immediately add it to the total. Concurrently summing values in this way requires two features:  [2.x.270]   [2.x.271] We need a way of storing a value such that multiple threads can read and write into concurrently in a way that prevents data races (i.e., thread-safe reading and writing). [2.x.272]   [2.x.273] We need a way to increment such a value that is also thread-safe. [2.x.274]   [2.x.275]     
+
+
+The first feature is available through the template class  [2.x.276] . However, the second feature, implemented by  [2.x.277] , is only available in C++20 and later: since deal.II supports older versions of the C++ language standard we cannot use this feature yet. Hence, instead, we simply write each group's value out to an entry in a vector and sum the values at the end of the function. 
+
+[1.x.196] 
+
+
+
+
+[1.x.197]  [1.x.198]    
+
+
+The next function lets the individual energy group objects refine their meshes. Much of this, again, is a task that can be done independently in parallel: first, let all the energy group objects calculate their error indicators in parallel, then compute the maximum error indicator over all energy groups and determine thresholds for refinement and coarsening of cells, and then ask all the energy groups to refine their meshes accordingly, again in parallel. 
+
+[1.x.199] 
+
+
+
+The destructor of  [2.x.278]  joins all threads so we know that the computation is done by the time we exit the scope. 
+
+
+
+
+
+
+
+[1.x.200] 
+
+
+
+
+[1.x.201]  [1.x.202]    
+
+
+Finally, this is the function where the meat is: iterate on a sequence of meshes, and on each of them do a power iteration to compute the eigenvalue.    
+
+
+Given the description of the algorithm in the introduction, there is actually not much to comment on: 
+
+[1.x.203] 
+
+
+
+We would like to change the output precision for just this function and restore the state of  [2.x.279]  when this function returns. Hence, we need a way to undo the output format change. Boost provides a convenient way to save the state of an output stream and restore it at the end of the current block (when the destructor of  [2.x.280]  is called) with the  [2.x.281]  class, which we use here. 
+
+[1.x.204] 
+
+
+
+We calculate the error below by the change in k_eff (i.e., the difference between k_eff_old, 
+
+[1.x.205] 
+
+
+
+We will measure the CPU time that each cycle takes below. The constructor for Timer calls  [2.x.282]  so once we create a timer we can query it for information. Since many parts of this loop are parallelized with tasks, the CPU time we measure (if we run with more than one thread) will be larger than the wall time. 
+
+[1.x.206] 
+
+
+
+Print out information about the simulation as well as the elapsed CPU time. We can call  [2.x.283]  without first calling  [2.x.284]  to get the elapsed CPU time at the point of calling the function. 
+
+[1.x.207] 
+
+
+
+
+[1.x.208]  [1.x.209] 
+
+
+
+
+The last thing in the program in the  [2.x.285]  function. The structure is as in most other tutorial programs, with the only exception that we here handle a parameter file.  To this end, we first look at the command line arguments passed to this function: if no input file is specified on the command line, then use "project.prm", otherwise take the filename given as the first argument on the command line. 
+
+
+
+
+With this, we create a ParameterHandler object, let the  [2.x.286]  class declare all the parameters it wants to see in the input file (or, take the default values, if nothing is listed in the parameter file), then read the input file, ask the parameters object to extract the values, and finally hand everything off to an object of type  [2.x.287]  for computation of the eigenvalue: 
+
+[1.x.210] 
+
+[1.x.211][1.x.212] 
+
+
+We can run the program with the following input file: 
+
+[1.x.213] 
+
+The output of this program then consists of the console output, a file named `convergence_table' to record main results of mesh iteration, and the graphical output in vtu format. 
+
+The console output looks like this: 
+
+[1.x.214] 
+
+
+
+We see that power iteration does converge faster after cycle 0 due to the initialization with solution from last mesh iteration. The contents of `convergence_table' are, 
+
+[1.x.215] 
+
+The meanings of columns are: number of mesh iteration, numbers of degrees of  freedom of fast energy group, numbers of DoFs of thermal group, converged k-effective and the ratio between maximum of fast flux and maximum of thermal one. 
+
+The grids of fast and thermal energy groups at mesh iteration #9 look as follows: 
+
+ [2.x.288]  &nbsp;  [2.x.289]  
+
+We see that the grid of thermal group is much finer than the one of fast group. The solutions on these grids are, (Note: flux are normalized with total fission source equal to 1) 
+
+ [2.x.290]  &nbsp;  [2.x.291]  
+
+Then we plot the convergence data with polynomial order being equal to 1,2 and 3. 
+
+ [2.x.292]  
+
+The estimated `exact' k-effective = 0.906834721253 which is simply from last mesh iteration of polynomial order 3 minus 2e-10. We see that h-adaptive calculations deliver an algebraic convergence. And the higher polynomial order is, the faster mesh iteration converges. In our problem, we need smaller number of DoFs to achieve same accuracy with higher polynomial order. [1.x.216] [1.x.217]  [2.x.293]  
+
+ [2.x.294] 

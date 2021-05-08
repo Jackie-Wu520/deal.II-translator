@@ -1,0 +1,361 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] . 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5][1.x.6][1.x.7][1.x.8][1.x.9][1.x.10][1.x.11][1.x.12][1.x.13][1.x.14][1.x.15] 
+
+ [2.x.3]  
+
+[1.x.16] 
+
+[1.x.17] [1.x.18][1.x.19] 
+
+
+[1.x.20][1.x.21] 
+
+
+This example is devoted to the  [2.x.4] discontinuous Galerkin method [2.x.5] , or in short, the DG method. It includes the following topics.  [2.x.6]     [2.x.7]  Discretization of the linear advection equation with the DG method.    [2.x.8]  Assembling of jump terms and other expressions on the interface between cells using FEInterfaceValues.    [2.x.9]  Assembling of the system matrix using the  [2.x.10]   [2.x.11]  
+
+The particular concern of this program are the loops of DG methods. These turn out to be especially complex, primarily because for the face terms, we have to distinguish the cases of boundary, regular interior faces and interior faces with hanging nodes, respectively. The  [2.x.12]  handles the complexity on iterating over cells and faces and allows specifying "workers" for the different cell and face terms. The integration of face terms itself, including on adaptively refined faces, is done using the FEInterfaceValues class. 
+
+[1.x.22][1.x.23] 
+
+
+The model problem solved in this example is the linear advection equation [1.x.24] subject to the boundary conditions [1.x.25] on the inflow part  [2.x.13]  of the boundary  [2.x.14]  of the domain.  Here,  [2.x.15]  denotes a vector field,  [2.x.16]  the (scalar) solution function,  [2.x.17]  a boundary value function, [1.x.26] the inflow part of the boundary of the domain and  [2.x.18]  denotes the unit outward normal to the boundary  [2.x.19] . This equation is the conservative version of the advection equation already considered in  [2.x.20]  of this tutorial. 
+
+
+On each cell  [2.x.21] , we multiply by a test function  [2.x.22]  from the left and integrate by parts to get: [1.x.27] When summing this expression over all cells  [2.x.23] , the boundary integral is done over all internal and external faces and as such there are three cases:  [2.x.24]   [2.x.25]  outer boundary on the inflow (we replace  [2.x.26]  by given  [2.x.27] ):    [2.x.28]   [2.x.29]  outer boundary on the outflow:    [2.x.30]   [2.x.31]  inner faces (integral from two sides turns into jump, we use the upwind velocity):    [2.x.32]   [2.x.33]  
+
+Here, the jump is defined as  [2.x.34] , where the superscripts refer to the left ('+') and right ('-') values at the face. The upwind value  [2.x.35]  is defined to be  [2.x.36]  if  [2.x.37]  and  [2.x.38]  otherwise. 
+
+As a result, the mesh-dependent weak form reads: [1.x.28] Here,  [2.x.39]  is the set of all active cells of the triangulation and  [2.x.40]  is the set of all active interior faces. This formulation is known as the upwind discontinuous Galerkin method. 
+
+In order to implement this bilinear form, we need to compute the cell terms (first sum) using the usual way to achieve integration on a cell, the interface terms (second sum) using FEInterfaceValues, and the boundary terms (the other two terms). The summation of all those is done by  [2.x.41]  
+
+
+
+
+[1.x.29][1.x.30] 
+
+
+We solve the advection equation on  [2.x.42]  with  [2.x.43]  representing a circular counterclockwise flow field, and  [2.x.44]  on  [2.x.45]  and  [2.x.46]  on  [2.x.47] . 
+
+We solve on a sequence of meshes by refining the mesh adaptively by estimating the norm of the gradient on each cell. After solving on each mesh, we output the solution in vtk format and compute the  [2.x.48]  norm of the solution. As the exact solution is either 0 or 1, we can measure the magnitude of the overshoot of the numerical solution with this. [1.x.31] [1.x.32] 
+
+The first few files have already been covered in previous examples and will thus not be further commented on: 
+
+[1.x.33] 
+
+
+
+Here the discontinuous finite elements are defined. They are used in the same way as all other finite elements, though -- as you have seen in previous tutorial programs -- there isn't much user interaction with finite element classes at all: they are passed to  [2.x.49]  and  [2.x.50]  objects, and that is about it. 
+
+[1.x.34] 
+
+
+
+This header is needed for FEInterfaceValues to compute integrals on interfaces: 
+
+[1.x.35] 
+
+
+
+We are going to use the simplest possible solver, called Richardson iteration, that represents a simple defect correction. This, in combination with a block SSOR preconditioner (defined in precondition_block.h), that uses the special block matrix structure of system matrices arising from DG discretizations. 
+
+[1.x.36] 
+
+
+
+We are going to use gradients as refinement indicator. 
+
+[1.x.37] 
+
+
+
+Finally, the new include file for using the mesh_loop from the MeshWorker framework 
+
+[1.x.38] 
+
+
+
+Like in all programs, we finish this section by including the needed C++ headers and declaring we want to use objects in the dealii namespace without prefix. 
+
+[1.x.39] 
+
+
+
+
+[1.x.40]  [1.x.41]    
+
+
+First, we define a class describing the inhomogeneous boundary data. Since only its values are used, we implement value_list(), but leave all other functions of Function undefined. 
+
+[1.x.42] 
+
+
+
+Given the flow direction, the inflow boundary of the unit square  [2.x.51]  are the right and the lower boundaries. We prescribe discontinuous boundary values 1 and 0 on the x-axis and value 0 on the right boundary. The values of this function on the outflow boundaries will not be used within the DG scheme. 
+
+[1.x.43] 
+
+
+
+Finally, a function that computes and returns the wind field  [2.x.52] . As explained in the introduction, we will use a rotational field around the origin in 2d. In 3d, we simply leave the  [2.x.53] -component unset (i.e., at zero), whereas the function can not be used in 1d in its current implementation: 
+
+[1.x.44] 
+
+
+
+
+[1.x.45]  [1.x.46]    
+
+
+The following objects are the scratch and copy objects we use in the call to  [2.x.54]  The new object is the FEInterfaceValues object, that works similar to FEValues or FEFacesValues, except that it acts on an interface between two cells and allows us to assemble the interface terms in our weak form. 
+
+
+
+
+
+
+
+[1.x.47] 
+
+
+
+
+[1.x.48]  [1.x.49]    
+
+
+After this preparations, we proceed with the main class of this program, called AdvectionProblem.    
+
+
+This should all be pretty familiar to you. Interesting details will only come up in the implementation of the assemble function. 
+
+[1.x.50] 
+
+
+
+Furthermore we want to use DG elements. 
+
+[1.x.51] 
+
+
+
+The next four members represent the linear system to be solved.  [2.x.55]  are generated by  [2.x.56]  is computed in  [2.x.57]  is used to determine the location of nonzero elements in  [2.x.58] . 
+
+[1.x.52] 
+
+
+
+We start with the constructor. The 1 in the constructor call of  [2.x.59]  is the polynomial degree. 
+
+[1.x.53] 
+
+
+
+In the function that sets up the usual finite element data structures, we first need to distribute the DoFs. 
+
+[1.x.54] 
+
+
+
+We start by generating the sparsity pattern. To this end, we first fill an intermediate object of type DynamicSparsityPattern with the couplings appearing in the system. After building the pattern, this object is copied to  [2.x.60]  and can be discarded. 
+
+
+
+
+To build the sparsity pattern for DG discretizations, we can call the function analogue to  [2.x.61]  which is called  [2.x.62]  
+
+[1.x.55] 
+
+
+
+Finally, we set up the structure of all components of the linear system. 
+
+[1.x.56] 
+
+
+
+
+[1.x.57]  [1.x.58] 
+
+
+
+
+Here we see the major difference to assembling by hand. Instead of writing loops over cells and faces, the logic is contained in the call to  [2.x.63]  and we only need to specify what should happen on each cell, each boundary face, and each interior face. These three tasks are handled by the lambda functions inside the function below. 
+
+
+
+
+
+
+
+[1.x.59] 
+
+
+
+This is the function that will be executed for each cell. 
+
+[1.x.60] 
+
+
+
+We solve a homogeneous equation, thus no right hand side shows up in the cell term.  What's left is integrating the matrix entries. 
+
+[1.x.61] 
+
+
+
+This is the function called for boundary faces and consists of a normal integration using FEFaceValues. New is the logic to decide if the term goes into the system matrix (outflow) or the right-hand side (inflow). 
+
+[1.x.62] 
+
+
+
+This is the function called on interior faces. The arguments specify cells, face and subface indices (for adaptive refinement). We just pass them along to the reinit() function of FEInterfaceValues. 
+
+[1.x.63] 
+
+
+
+The following lambda function will handle copying the data from the cell and face assembly into the global matrix and right-hand side.      
+
+
+While we would not need an AffineConstraints object, because there are no hanging node constraints in DG discretizations, we use an empty object here as this allows us to use its `copy_local_to_global` functionality. 
+
+[1.x.64] 
+
+
+
+Here, we finally handle the assembly. We pass in ScratchData and CopyData objects, the lambda functions from above, an specify that we want to assemble interior faces once. 
+
+[1.x.65] 
+
+
+
+
+[1.x.66]  [1.x.67]    
+
+
+For this simple problem we use the simplest possible solver, called Richardson iteration, that represents a simple defect correction. This, in combination with a block SSOR preconditioner, that uses the special block matrix structure of system matrices arising from DG discretizations. The size of these blocks are the number of DoFs per cell. Here, we use a SSOR preconditioning as we have not renumbered the DoFs according to the flow field. If the DoFs are renumbered in the downstream direction of the flow, then a block Gauss-Seidel preconditioner (see the PreconditionBlockSOR class with relaxation=1) does a much better job. 
+
+[1.x.68] 
+
+
+
+Here we create the preconditioner, 
+
+[1.x.69] 
+
+
+
+then assign the matrix to it and set the right block size: 
+
+[1.x.70] 
+
+
+
+After these preparations we are ready to start the linear solver. 
+
+[1.x.71] 
+
+
+
+We refine the grid according to a very simple refinement criterion, namely an approximation to the gradient of the solution. As here we consider the DG(1) method (i.e. we use piecewise bilinear shape functions) we could simply compute the gradients on each cell. But we do not want to base our refinement indicator on the gradients on each cell only, but want to base them also on jumps of the discontinuous solution function over faces between neighboring cells. The simplest way of doing that is to compute approximative gradients by difference quotients including the cell under consideration and its neighbors. This is done by the  [2.x.64]  class that computes the approximate gradients in a way similar to the  [2.x.65]  described in  [2.x.66]  of this tutorial. In fact, the  [2.x.67]  class was developed following the  [2.x.68]  class of  [2.x.69] . Relating to the discussion in  [2.x.70] , here we consider  [2.x.71] . Furthermore we note that we do not consider approximate second derivatives because solutions to the linear advection equation are in general not in  [2.x.72]  but only in  [2.x.73]  (or, to be more precise: in  [2.x.74] , i.e., the space of functions whose derivatives in direction  [2.x.75]  are square integrable). 
+
+[1.x.72] 
+
+
+
+The  [2.x.76]  class computes the gradients to float precision. This is sufficient as they are approximate and serve as refinement indicators only. 
+
+[1.x.73] 
+
+
+
+Now the approximate gradients are computed 
+
+[1.x.74] 
+
+
+
+and they are cell-wise scaled by the factor  [2.x.77]  
+
+[1.x.75] 
+
+
+
+Finally they serve as refinement indicator. 
+
+[1.x.76] 
+
+
+
+The output of this program consists of a vtk file of the adaptively refined grids and the numerical solutions. Finally, we also compute the L-infinity norm of the solution using  [2.x.78]  
+
+[1.x.77] 
+
+
+
+The following  [2.x.79]  function is similar to previous examples. 
+
+[1.x.78] 
+
+
+
+The following  [2.x.80]  function is similar to previous examples as well, and need not be commented on. 
+
+[1.x.79] 
+
+[1.x.80][1.x.81] 
+
+
+
+
+The output of this program consist of the console output and solutions in vtk format: 
+
+[1.x.82] 
+
+
+
+We show the solutions on the initial mesh, the mesh after two and after five adaptive refinement steps. 
+
+ [2.x.81]   [2.x.82]   [2.x.83]  
+
+And finally we show a plot of a 3d computation. 
+
+ [2.x.84]  
+
+
+[1.x.83] [1.x.84][1.x.85] 
+
+
+In this program we have used discontinuous elements. It is a legitimate question to ask why not simply use the normal, continuous ones. Of course, to everyone with a background in numerical methods, the answer is obvious: the continuous Galerkin (cG) method is not stable for the transport equation, unless one specifically adds stabilization terms. The DG method, however, [1.x.86] stable. Illustrating this with the current program is not very difficult; in fact, only the following minor modifications are necessary: 
+
+- Change the element to FE_Q instead of FE_DGQ. 
+
+- Add handling of hanging node constraints in exactly the same way as  [2.x.85] . 
+
+- We need a different solver; the direct solver in  [2.x.86]  is a convenient   choice. An experienced deal.II user will be able to do this in less than 10 minutes. 
+
+While the 2d solution has been shown above, containing a number of small spikes at the interface that are, however, stable in height under mesh refinement, results look much different when using a continuous element: 
+
+ [2.x.87]  
+
+In refinement iteration 5, the image can't be plotted in a reasonable way any more as a 3d plot. We thus show a color plot with a range of  [2.x.88]  (the solution values of the exact solution lie in  [2.x.89] , of course). In any case, it is clear that the continuous Galerkin solution exhibits oscillatory behavior that gets worse and worse as the mesh is refined more and more. 
+
+There are a number of strategies to stabilize the cG method, if one wants to use continuous elements for some reason. Discussing these methods is beyond the scope of this tutorial program; an interested reader could, for example, take a look at  [2.x.90] . 
+
+
+
+
+[1.x.87] [1.x.88][1.x.89] 
+
+
+Given that the exact solution is known in this case, one interesting avenue for further extensions would be to confirm the order of convergence for this program. In the current case, the solution is non-smooth, and so we can not expect to get a particularly high order of convergence, even if we used higher order elements. But even if the solution [1.x.90] smooth, the equation is not elliptic and so it is not immediately clear that we should obtain a convergence order that equals that of the optimal interpolation estimates (i.e. for example that we would get  [2.x.91]  convergence in the  [2.x.92]  norm by using quadratic elements). 
+
+In fact, for hyperbolic equations, theoretical predictions often indicate that the best one can hope for is an order one half below the interpolation estimate. For example, for the streamline diffusion method (an alternative method to the DG method used here to stabilize the solution of the transport equation), one can prove that for elements of degree  [2.x.93] , the order of convergence is  [2.x.94]  on arbitrary meshes. While the observed order is frequently  [2.x.95]  on uniformly refined meshes, one can construct so-called Peterson meshes on which the worse theoretical bound is actually attained. This should be relatively simple to verify, for example using the  [2.x.96]  function. 
+
+A different direction is to observe that the solution of transport problems often has discontinuities and that therefore a mesh in which we [1.x.91] every cell in every coordinate direction may not be optimal. Rather, a better strategy would be to only cut cells in the direction parallel to the discontinuity. This is called [1.x.92] and is the subject of  [2.x.97] . [1.x.93] [1.x.94]  [2.x.98]  
+
+ [2.x.99] 

@@ -1,0 +1,25 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ [2.x.0]  @defgroup Vectors Vector classes Here, we list all the classes that satisfy the  [2.x.1]  concept and may be used in linear solvers (see  [2.x.2] ) and for matrix-vector operations. @ingroup LAC   [2.x.3] 

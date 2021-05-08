@@ -1,0 +1,537 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] b. 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5][1.x.6][1.x.7][1.x.8][1.x.9] 
+
+[1.x.10] 
+
+In this program, we use the interior penalty method and Nitsche's weak boundary conditions to solve Poisson's equation. We use multigrid methods on locally refined meshes, which are generated using a bulk criterion and a standard error estimator based on cell and face residuals. All operators are implemented using the MeshWorker interface. 
+
+Like in  [2.x.3] , the discretization relies on finite element spaces, which are polynomial inside the mesh cells  [2.x.4] , but have no continuity between cells. Since such functions have two values on each interior face  [2.x.5] , one from each side, we define mean value and jump operators as follows: let [1.x.11]<sub>1</sub> and [1.x.12]<sub>2</sub> be the two cells sharing a face, and let the traces of functions [1.x.13] and the outer normal vectors [1.x.14][1.x.15] be labeled accordingly. Then, on the face, we let [1.x.16] 
+
+Note, that if such an expression contains a normal vector, the averaging operator turns into a jump. The interior penalty method for the problem [1.x.17] becomes [1.x.18] 
+
+
+
+Here,  [2.x.6]  is the penalty parameter, which is chosen as follows: for a face [1.x.19] of a cell [1.x.20], compute the value [1.x.21] where [1.x.22] is the polynomial degree of the finite element functions and  [2.x.7]  and  [2.x.8]  denote the  [2.x.9]  and  [2.x.10]  dimensional Hausdorff measure of the corresponding object. If the face is at the boundary, choose  [2.x.11] . For an interior face, we take the average of the two values at this face. 
+
+In our finite element program, we distinguish three different integrals, corresponding to the sums over cells, interior faces and boundary faces above. Since the  [2.x.12]  organizes the sums for us, we only need to implement the integrals over each mesh element. The class MatrixIntegrator below has these three functions for the left hand side of the formula, the class RHSIntegrator for the right. 
+
+As we will see below, even the error estimate is of the same structure, since it can be written as 
+
+[1.x.23] 
+
+
+
+Thus, the functions for assembling matrices, right hand side and error estimates below exhibit that these loops are all generic and can be programmed in the same way. 
+
+This program is related to  [2.x.13] b, in that it uses MeshWorker and discontinuous Galerkin methods. While there, we solved an advection problem, here it is a diffusion problem. Here, we also use multigrid preconditioning and a theoretically justified error estimator, see Karakashian and Pascal (2003). The multilevel scheme was discussed in detail in Kanschat (2004). The adaptive iteration and its convergence have been discussed (for triangular meshes) in Hoppe, Kanschat, and Warburton (2009). [1.x.24] [1.x.25] 
+
+The include files for the linear algebra: A regular SparseMatrix, which in turn will include the necessary files for SparsityPattern and Vector classes. 
+
+[1.x.26] 
+
+
+
+Include files for setting up the mesh 
+
+[1.x.27] 
+
+
+
+Include files for FiniteElement classes and DoFHandler. 
+
+[1.x.28] 
+
+
+
+The include files for using the MeshWorker framework 
+
+[1.x.29] 
+
+
+
+The include file for local integrators associated with the Laplacian 
+
+[1.x.30] 
+
+
+
+Support for multigrid methods 
+
+[1.x.31] 
+
+
+
+Finally, we take our exact solution from the library as well as quadrature and additional tools. 
+
+[1.x.32] 
+
+
+
+All classes of the deal.II library are in the namespace dealii. In order to save typing, we tell the compiler to search names in there as well. 
+
+[1.x.33] 
+
+
+
+This is the function we use to set the boundary values and also the exact solution we compare to. 
+
+[1.x.34] 
+
+
+
+
+[1.x.35]  [1.x.36] 
+
+
+
+
+MeshWorker separates local integration from the loops over cells and faces. Thus, we have to write local integration classes for generating matrices, the right hand side and the error estimator. 
+
+
+
+
+All these classes have the same three functions for integrating over cells, boundary faces and interior faces, respectively. All the information needed for the local integration is provided by  [2.x.14]  Note that the signature of the functions cannot be changed, because it is expected by  [2.x.15]  
+
+
+
+
+The first class defining local integrators is responsible for computing cell and face matrices. It is used to assemble the global matrix as well as the level matrices. 
+
+[1.x.37] 
+
+
+
+On each cell, we integrate the Dirichlet form. We use the library of ready made integrals in LocalIntegrators to avoid writing these loops ourselves. Similarly, we implement Nitsche boundary conditions and the interior penalty fluxes between cells.    
+
+
+The boundary and flux terms need a penalty parameter, which should be adjusted to the cell size and the polynomial degree. A safe choice of this parameter for constant coefficients can be found in  [2.x.16]  and we use this below. 
+
+[1.x.38] 
+
+
+
+Interior faces use the interior penalty method 
+
+[1.x.39] 
+
+
+
+The second local integrator builds the right hand side. In our example, the right hand side function is zero, such that only the boundary condition is set here in weak form. 
+
+[1.x.40] 
+
+
+
+The third local integrator is responsible for the contributions to the error estimate. This is the standard energy estimator due to Karakashian and Pascal (2003). 
+
+[1.x.41] 
+
+
+
+The cell contribution is the Laplacian of the discrete solution, since the right hand side is zero. 
+
+[1.x.42] 
+
+
+
+At the boundary, we use simply a weighted form of the boundary residual, namely the norm of the difference between the finite element solution and the correct boundary condition. 
+
+[1.x.43] 
+
+
+
+Finally, on interior faces, the estimator consists of the jumps of the solution and its normal derivative, weighted appropriately. 
+
+[1.x.44] 
+
+
+
+Finally we have an integrator for the error. Since the energy norm for discontinuous Galerkin problems not only involves the difference of the gradient inside the cells, but also the jump terms across faces and at the boundary, we cannot just use  [2.x.17]  Instead, we use the MeshWorker interface to compute the error ourselves. 
+
+
+
+
+There are several different ways to define this energy norm, but all of them are equivalent to each other uniformly with mesh size (some not uniformly with polynomial degree). Here, we choose [1.x.45] 
+
+
+
+
+
+
+
+[1.x.46] 
+
+
+
+Here we have the integration on cells. There is currently no good interface in MeshWorker that would allow us to access values of regular functions in the quadrature points. Thus, we have to create the vectors for the exact function's values and gradients inside the cell integrator. After that, everything is as before and we just add up the squares of the differences. 
+
+
+
+
+Additionally to computing the error in the energy norm, we use the capability of the mesh worker to compute two functionals at the same time and compute the [1.x.47]-error in the same loop. Obviously, this one does not have any jump terms and only appears in the integration on cells. 
+
+[1.x.48] 
+
+
+
+
+[1.x.49]  [1.x.50] 
+
+
+
+
+This class does the main job, like in previous examples. For a description of the functions declared here, please refer to the implementation below. 
+
+[1.x.51] 
+
+
+
+The member objects related to the discretization are here. 
+
+[1.x.52] 
+
+
+
+Then, we have the matrices and vectors related to the global discrete system. 
+
+[1.x.53] 
+
+
+
+Finally, we have a group of sparsity patterns and sparse matrices related to the multilevel preconditioner.  First, we have a level matrix and its sparsity pattern. 
+
+[1.x.54] 
+
+
+
+When we perform multigrid with local smoothing on locally refined meshes, additional matrices are required; see Kanschat (2004). Here is the sparsity pattern for these edge matrices. We only need one, because the pattern of the up matrix is the transpose of that of the down matrix. Actually, we do not care too much about these details, since the MeshWorker is filling these matrices. 
+
+[1.x.55] 
+
+
+
+The flux matrix at the refinement edge, coupling fine level degrees of freedom to coarse level. 
+
+[1.x.56] 
+
+
+
+The transpose of the flux matrix at the refinement edge, coupling coarse level degrees of freedom to fine level. 
+
+[1.x.57] 
+
+
+
+The constructor simply sets up the coarse grid and the DoFHandler. The FiniteElement is provided as a parameter to allow flexibility. 
+
+[1.x.58] 
+
+
+
+In this function, we set up the dimension of the linear system and the sparsity patterns for the global matrix as well as the level matrices. 
+
+[1.x.59] 
+
+
+
+First, we use the finite element to distribute degrees of freedom over the mesh and number them. 
+
+[1.x.60] 
+
+
+
+Then, we already know the size of the vectors representing finite element functions. 
+
+[1.x.61] 
+
+
+
+Next, we set up the sparsity pattern for the global matrix. Since we do not know the row sizes in advance, we first fill a temporary DynamicSparsityPattern object and copy it to the regular SparsityPattern once it is complete. 
+
+[1.x.62] 
+
+
+
+The global system is set up, now we attend to the level matrices. We resize all matrix objects to hold one matrix per level. 
+
+[1.x.63] 
+
+
+
+It is important to update the sparsity patterns after <tt>clear()</tt> was called for the level matrices, since the matrices lock the sparsity pattern through the SmartPointer and Subscriptor mechanism. 
+
+[1.x.64] 
+
+
+
+Now all objects are prepared to hold one sparsity pattern or matrix per level. What's left is setting up the sparsity patterns on each level. 
+
+[1.x.65] 
+
+
+
+These are roughly the same lines as above for the global matrix, now for each level. 
+
+[1.x.66] 
+
+
+
+Additionally, we need to initialize the transfer matrices at the refinement edge between levels. They are stored at the index referring to the finer of the two indices, thus there is no such object on level 0. 
+
+[1.x.67] 
+
+
+
+In this function, we assemble the global system matrix, where by global we indicate that this is the matrix of the discrete system we solve and it is covering the whole mesh. 
+
+[1.x.68] 
+
+
+
+First, we need t set up the object providing the values we integrate. This object contains all FEValues and FEFaceValues objects needed and also maintains them automatically such that they always point to the current cell. To this end, we need to tell it first, where and what to compute. Since we are not doing anything fancy, we can rely on their standard choice for quadrature rules.      
+
+
+Since their default update flags are minimal, we add what we need additionally, namely the values and gradients of shape functions on all objects (cells, boundary and interior faces). Afterwards, we are ready to initialize the container, which will create all necessary FEValuesBase objects for integration. 
+
+[1.x.69] 
+
+
+
+This is the object into which we integrate local data. It is filled by the local integration routines in MatrixIntegrator and then used by the assembler to distribute the information into the global matrix. 
+
+[1.x.70] 
+
+
+
+Furthermore, we need an object that assembles the local matrix into the global matrix. These assembler objects have all the knowledge of the structures of the target object, in this case a SparseMatrix, possible constraints and the mesh structure. 
+
+[1.x.71] 
+
+
+
+Now comes the part we coded ourselves, the local integrator. This is the only part which is problem dependent. 
+
+[1.x.72] 
+
+
+
+Now, we throw everything into a  [2.x.18]  which here traverses all active cells of the mesh, computes cell and face matrices and assembles them into the global matrix. We use the variable <tt>dof_handler</tt> here in order to use the global numbering of degrees of freedom. 
+
+[1.x.73] 
+
+
+
+Now, we do the same for the level matrices. Not too surprisingly, this function looks like a twin of the previous one. Indeed, there are only two minor differences. 
+
+[1.x.74] 
+
+
+
+Obviously, the assembler needs to be replaced by one filling level matrices. Note that it automatically fills the edge matrices as well. 
+
+[1.x.75] 
+
+
+
+Here is the other difference to the previous function: we run over all cells, not only the active ones. And we use functions ending on  [2.x.19]  since we need the degrees of freedom on each level, not the global numbering. 
+
+[1.x.76] 
+
+
+
+Here we have another clone of the assemble function. The difference to assembling the system matrix consists in that we assemble a vector here. 
+
+[1.x.77] 
+
+
+
+Since this assembler allows us to fill several vectors, the interface is a little more complicated as above. The pointers to the vectors have to be stored in an AnyData object. While this seems to cause two extra lines of code here, it actually comes handy in more complex applications. 
+
+[1.x.78] 
+
+
+
+Now that we have coded all functions building the discrete linear system, it is about time that we actually solve it. 
+
+[1.x.79] 
+
+
+
+The solver of choice is conjugate gradient. 
+
+[1.x.80] 
+
+
+
+Now we are setting up the components of the multilevel preconditioner. First, we need transfer between grid levels. The object we are using here generates sparse matrices for these transfers. 
+
+[1.x.81] 
+
+
+
+Then, we need an exact solver for the matrix on the coarsest level. 
+
+[1.x.82] 
+
+
+
+While transfer and coarse grid solver are pretty much generic, more flexibility is offered for the smoother. First, we choose Gauss-Seidel as our smoothing method. 
+
+[1.x.83] 
+
+
+
+Do two smoothing steps on each level. 
+
+[1.x.84] 
+
+
+
+Since the SOR method is not symmetric, but we use conjugate gradient iteration below, here is a trick to make the multilevel preconditioner a symmetric operator even for nonsymmetric smoothers. 
+
+[1.x.85] 
+
+
+
+The smoother class optionally implements the variable V-cycle, which we do not want here. 
+
+[1.x.86] 
+
+
+
+Finally, we must wrap our matrices in an object having the required multiplication functions. 
+
+[1.x.87] 
+
+
+
+Now, we are ready to set up the V-cycle operator and the multilevel preconditioner. 
+
+[1.x.88] 
+
+
+
+Let us not forget the edge matrices needed because of the adaptive refinement. 
+
+[1.x.89] 
+
+
+
+After all preparations, wrap the Multigrid object into another object, which can be used as a regular preconditioner, 
+
+[1.x.90] 
+
+
+
+and use it to solve the system. 
+
+[1.x.91] 
+
+
+
+Another clone of the assemble function. The big difference to the previous ones is here that we also have an input vector. 
+
+[1.x.92] 
+
+
+
+The results of the estimator are stored in a vector with one entry per cell. Since cells in deal.II are not numbered, we have to create our own numbering in order to use this vector. For the assembler used below the information in which component of a vector the result is stored is transmitted by the user_index variable for each cell. We need to set this numbering up here.      
+
+
+On the other hand, somebody might have used the user indices already. So, let's be good citizens and save them before tampering with them. 
+
+[1.x.93] 
+
+
+
+This starts like before, 
+
+[1.x.94] 
+
+
+
+but now we need to notify the info box of the finite element function we want to evaluate in the quadrature points. First, we create an AnyData object with this vector, which is the solution we just computed. 
+
+[1.x.95] 
+
+
+
+Then, we tell the  [2.x.20]  for cells, that we need the second derivatives of this solution (to compute the Laplacian). Therefore, the Boolean arguments selecting function values and first derivatives a false, only the last one selecting second derivatives is true. 
+
+[1.x.96] 
+
+
+
+On interior and boundary faces, we need the function values and the first derivatives, but not second derivatives. 
+
+[1.x.97] 
+
+
+
+And we continue as before, with the exception that the default update flags are already adjusted to the values and derivatives we requested above. 
+
+[1.x.98] 
+
+
+
+The assembler stores one number per cell, but else this is the same as in the computation of the right hand side. 
+
+[1.x.99] 
+
+
+
+Right before we return the result of the error estimate, we restore the old user indices. 
+
+[1.x.100] 
+
+
+
+Here we compare our finite element solution with the (known) exact solution and compute the mean quadratic error of the gradient and the function itself. This function is a clone of the estimation function right above. 
+
+
+
+
+Since we compute the error in the energy and the [1.x.101]-norm, respectively, our block vector needs two blocks here. 
+
+[1.x.102] 
+
+
+
+Create graphical output. We produce the filename by collating the name from its various components, including the refinement cycle that we output with two digits. 
+
+[1.x.103] 
+
+
+
+And finally the adaptive loop, more or less like in previous examples. 
+
+[1.x.104] 
+
+[1.x.105][1.x.106] 
+
+
+[1.x.107][1.x.108] 
+
+First, the program produces the usual logfile here stored in <tt>deallog</tt>. It reads (with omission of intermediate steps) 
+
+[1.x.109] 
+
+
+
+This log for instance shows that the number of conjugate gradient iteration steps is constant at approximately 15. 
+
+[1.x.110][1.x.111] 
+
+
+ [2.x.21]  Using the perl script <tt>postprocess.pl</tt>, we extract relevant data into <tt>output.dat</tt>, which can be used to plot graphs with <tt>gnuplot</tt>. The graph above for instance was produced using the gnuplot script <tt>plot_errors.gpl</tt> via 
+
+[1.x.112] 
+
+
+
+Reference data can be found in <tt>output.reference.dat</tt>. [1.x.113] [1.x.114]  [2.x.22]  
+
+ [2.x.23] 

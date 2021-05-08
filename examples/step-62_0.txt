@@ -1,0 +1,840 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] ,  [2.x.3] . 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5][1.x.6][1.x.7][1.x.8][1.x.9][1.x.10][1.x.11][1.x.12][1.x.13][1.x.14][1.x.15][1.x.16][1.x.17][1.x.18][1.x.19][1.x.20][1.x.21][1.x.22][1.x.23][1.x.24][1.x.25][1.x.26][1.x.27][1.x.28][1.x.29][1.x.30][1.x.31][1.x.32][1.x.33][1.x.34][1.x.35][1.x.36][1.x.37][1.x.38] 
+
+ [2.x.4]  
+
+[1.x.39]  [2.x.5]  
+
+
+
+
+ [2.x.6]  As a prerequisite of this program, you need to have HDF5, complex PETSc, and the p4est libraries installed. The installation of deal.II together with these additional libraries is described in the [1.x.40] file. 
+
+[1.x.41][1.x.42] 
+
+A phononic crystal is a periodic nanostructure that modifies the motion of mechanical vibrations or [phonons](https://en.wikipedia.org/wiki/Phonon). Phononic structures can be used to disperse, route and confine mechanical vibrations. These structures have potential applications in [quantum information](https://journals.aps.org/rmp/abstract/10.1103/RevModPhys.86.1391) and have been used to study [macroscopic quantum phenomena](https://science.sciencemag.org/content/358/6360/203). Phononic crystals are usually fabricated in [cleanrooms](https://en.wikipedia.org/wiki/Cleanroom). 
+
+In this tutorial we show how to a design a [phononic superlattice cavity](https://doi.org/10.1103/PhysRevA.94.033813) which is a particular type of phononic crystal that can be used to confine mechanical vibrations. A phononic superlattice cavity is formed by two [Distributed Bragg Reflector](https://en.wikipedia.org/wiki/Distributed_Bragg_reflector), mirrors and a  [2.x.7]  cavity where  [2.x.8]  is the acoustic wavelength. Acoustic DBRs are  periodic structures where a set of bilayer stacks with contrasting physical properties (sound velocity index) is repeated  [2.x.9]  times. Superlattice cavities are usually grown on a [Gallium Arsenide](https://en.wikipedia.org/wiki/Gallium_arsenide) wafer by [Molecular Beam Epitaxy](https://en.wikipedia.org/wiki/Molecular-beam_epitaxy). The bilayers correspond to GaAs/AlAs mirror pairs. As shown below, the thickness of the mirror layers (brown and green) is  [2.x.10]  and the thickness of the cavity (blue) is  [2.x.11] . 
+
+ [2.x.12]  
+
+In this tutorial we calculate the [band gap](https://en.wikipedia.org/wiki/Band_gap) and the mechanical resonance of a phononic superlattice cavity but the code presented here can be easily used to design and calculate other types of [phononic crystals](https://science.sciencemag.org/content/358/6360/203). 
+
+The device is a waveguide in which the wave goes from left to right. The simulations of this tutorial are done in 2D, but the code is dimension independent and can be easily used with 3D simulations. The waveguide width is equal to the  [2.x.13]  dimension of the domain and the waveguide length is equal to the  [2.x.14]  dimension of the domain. There are two regimes that depend on the waveguide width: 
+
+- Single mode: In this case the width of the structure is much   smaller than the wavelength.   This case can be solved either with FEM (the approach that we take here) or with   a simple semi-analytical   [1D transfer matrix formalism](https://en.wikipedia.org/wiki/Transfer_matrix). 
+
+- Multimode: In this case the width of the structure is larger than the wavelength.   This case can be solved using FEM   or with a [scattering matrix formalism](https://doi.org/10.1103/PhysRevA.94.033813).   Although we do not study this case in this tutorial, it is very easy to reach the multimode   regime by increasing the parameter waveguide width (`dimension_y` in the jupyter notebook). 
+
+The simulations of this tutorial are performed in the frequency domain. To calculate the transmission spectrum, we use a [procedure](https://meep.readthedocs.io/en/latest/Python_Tutorials/Resonant_Modes_and_Transmission_in_a_Waveguide_Cavity/) that is commonly used in time domain [FDTD](https://en.wikipedia.org/wiki/Finite-difference_time-domain_method) simulations. A pulse at a certain frequency is generated on the left side of the structure and the transmitted energy is measured on the right side of the structure. The simulation is run twice. First, we run the simulation with the phononic structure and measure the transmitted energy: 
+
+ [2.x.15]  
+
+Then, we run the simulation without the phononic structure and measure the transmitted energy. We use the simulation without the structure for the calibration: 
+
+ [2.x.16]  
+
+The transmission coefficient corresponds to the energy of the first simulation divided by the calibration energy. We repeat this procedure for each frequency step. 
+
+
+[1.x.43][1.x.44] 
+
+What we want to simulate here is the transmission of elastic waves. Consequently, the right description of the problem uses the elastic equations, which in the time domain are given by [1.x.45] where the stiffness tensor  [2.x.17]  depends on the spatial coordinates and the strain is the symmetrized gradient of the displacement, given by [1.x.46] 
+
+[A perfectly matched layer (PML)](https://en.wikipedia.org/wiki/Perfectly_matched_layer) can be used to truncate the solution at the boundaries. A PML is a transformation that results in a complex coordinate stretching. 
+
+Instead of a time domain approach, this tutorial program converts the equations above into the frequency domain by performing a Fourier transform with regard to the time variable. The elastic equations in the frequency domain then read as follows [1.x.47] 
+
+where the coefficients  [2.x.18]  account for the absorption. There are 3  [2.x.19]  coefficients in 3D and 2 in 2D. The imaginary par of  [2.x.20]  is equal to zero outside the PML. The PMLs are reflectionless only for the exact wave equations. When the set of equations is discretized the PML is no longer reflectionless. The reflections can be made arbitrarily small as long as the medium is slowly varying, see [the adiabatic theorem](https://doi.org/10.1103/PhysRevE.66.066608). In the code a quadratic turn-on of the PML has been used. A linear and cubic turn-on is also [known to work](https://doi.org/10.1364/OE.16.011376). These equations can be expanded into [1.x.48] [1.x.49] where summation over repeated indices (here  [2.x.21] , as well as  [2.x.22]  and  [2.x.23] ) is as always implied. Note that the strain is no longer symmetric after applying the complex coordinate stretching of the PML. This set of equations can be written as [1.x.50] 
+
+The same as the strain, the stress tensor is not symmetric inside the PML ( [2.x.24] ). Indeed the fields inside the PML are not physical. It is useful to introduce the tensors  [2.x.25]  and  [2.x.26] . [1.x.51] 
+
+We can multiply by  [2.x.27]  and integrate over the domain  [2.x.28]  and integrate by parts. [1.x.52] 
+
+It is this set of equations we want to solve for a set of frequencies  [2.x.29]  in order to compute the transmission coefficient as function of frequency. The linear system becomes [1.x.53] 
+
+
+
+[1.x.54][1.x.55] 
+
+In this tutorial we use a python [jupyter notebook](https://github.com/dealii/dealii/blob/phononic-cavity/examples/ [2.x.30] / [2.x.31] .ipynb) to set up the parameters and run the simulation. First we create a HDF5 file where we store the parameters and the results of the simulation. 
+
+Each of the simulations (displacement and calibration) is stored in a separate HDF5 group: 
+
+[1.x.56] 
+
+[1.x.57] [1.x.58] 
+
+
+[1.x.59]  [1.x.60] 
+
+
+
+
+Most of the include files we need for this program have already been discussed in previous programs, in particular in  [2.x.32] . 
+
+[1.x.61] 
+
+
+
+The following header provides the Tensor class that we use to represent the material properties. 
+
+[1.x.62] 
+
+
+
+The following header is necessary for the HDF5 interface of deal.II. 
+
+[1.x.63] 
+
+
+
+This header is required for the function  [2.x.33]  that we use to evaluate the result of the simulation. 
+
+[1.x.64] 
+
+
+
+We need this header for the function  [2.x.34]  that we use in the function  [2.x.35]  
+
+[1.x.65] 
+
+
+
+
+[1.x.66]  [1.x.67] The following classes are used to store the parameters of the simulation. 
+
+
+
+
+
+[1.x.68]  [1.x.69] This class is used to define the force pulse on the left side of the structure: 
+
+[1.x.70] 
+
+
+
+The variable `data` is the  [2.x.36]  in which all the simulation results will be stored. Note that the variables  [2.x.37]   [2.x.38]   [2.x.39]  and  [2.x.40]  point to the same group of the HDF5 file. When a  [2.x.41]  is copied, it will point to the same group of the HDF5 file. 
+
+[1.x.71] 
+
+
+
+The simulation parameters are stored in `data` as HDF5 attributes. The following attributes are defined in the jupyter notebook, stored in `data` as HDF5 attributes and then read by the constructor. 
+
+[1.x.72] 
+
+
+
+In this particular simulation the force has only a  [2.x.42]  component,  [2.x.43] . 
+
+[1.x.73] 
+
+
+
+
+[1.x.74]  [1.x.75] This class is used to define the shape of the Perfectly Matches Layer (PML) to absorb waves traveling towards the boundary: 
+
+[1.x.76] 
+
+
+
+ [2.x.44]  in which all the simulation results will be stored. 
+
+[1.x.77] 
+
+
+
+The same as before, the following attributes are defined in the jupyter notebook, stored in `data` as HDF5 attributes and then read by the constructor. 
+
+[1.x.78] 
+
+
+
+
+[1.x.79]  [1.x.80] This class is used to define the mass density. 
+
+[1.x.81] 
+
+
+
+ [2.x.45]  in which all the simulation results will be stored. 
+
+[1.x.82] 
+
+
+
+The same as before, the following attributes are defined in the jupyter notebook, stored in `data` as HDF5 attributes and then read by the constructor. 
+
+[1.x.83] 
+
+
+
+
+[1.x.84]  [1.x.85] This class contains all the parameters that will be used in the simulation. 
+
+[1.x.86] 
+
+
+
+ [2.x.46]  in which all the simulation results will be stored. 
+
+[1.x.87] 
+
+
+
+The same as before, the following attributes are defined in the jupyter notebook, stored in `data` as HDF5 attributes and then read by the constructor. 
+
+[1.x.88] 
+
+
+
+
+[1.x.89]  [1.x.90] The calculation of the mass and stiffness matrices is very expensive. These matrices are the same for all the frequency steps. The right hand side vector is also the same for all the frequency steps. We use this class to store these objects and re-use them at each frequency step. Note that here we don't store the assembled mass and stiffness matrices and right hand sides, but instead the data for a single cell. `QuadratureCache` class is very similar to the `PointHistory` class that has been used in  [2.x.47] . 
+
+[1.x.91] 
+
+
+
+We store the mass and stiffness matrices in the variables mass_coefficient and stiffness_coefficient. We store as well the right_hand_side and JxW values which are going to be the same for all the frequency steps. 
+
+[1.x.92] 
+
+
+
+
+[1.x.93]  [1.x.94] 
+
+
+
+
+This function returns the stiffness tensor of the material. For the sake of simplicity we consider the stiffness to be isotropic and homogeneous; only the density  [2.x.48]  depends on the position. As we have previously shown in  [2.x.49] , if the stiffness is isotropic and homogeneous, the stiffness coefficients  [2.x.50]  can be expressed as a function of the two coefficients  [2.x.51]  and  [2.x.52] . The coefficient tensor reduces to [1.x.95] 
+
+[1.x.96] 
+
+
+
+
+[1.x.97]  [1.x.98] 
+
+
+
+
+Next let's declare the main class of this program. Its structure is very similar to the  [2.x.53]  tutorial program. The main differences are: 
+
+- The sweep over the frequency values. 
+
+- We save the stiffness and mass matrices in `quadrature_cache` and use them for each frequency step. 
+
+- We store the measured energy by the probe for each frequency step in the HDF5 file. 
+
+[1.x.99] 
+
+
+
+This is called before every frequency step to set up a pristine state for the cache variables. 
+
+[1.x.100] 
+
+
+
+This function loops over the frequency vector and runs the simulation for each frequency step. 
+
+[1.x.101] 
+
+
+
+The parameters are stored in this variable. 
+
+[1.x.102] 
+
+
+
+We store the mass and stiffness matrices for each cell this vector. 
+
+[1.x.103] 
+
+
+
+This vector contains the range of frequencies that we are going to simulate. 
+
+[1.x.104] 
+
+
+
+This vector contains the coordinates  [2.x.54]  of the points of the measurement probe. 
+
+[1.x.105] 
+
+
+
+HDF5 datasets to store the frequency and `probe_positions` vectors. 
+
+[1.x.106] 
+
+
+
+HDF5 dataset that stores the values of the energy measured by the probe. 
+
+[1.x.107] 
+
+
+
+
+[1.x.108]  [1.x.109] 
+
+
+
+
+
+[1.x.110]  [1.x.111] 
+
+
+
+
+The constructor reads all the parameters from the  [2.x.55]  `data` using the  [2.x.56]  function. 
+
+[1.x.112] 
+
+
+
+This function defines the spatial shape of the force vector pulse which takes the form of a Gaussian function 
+
+[1.x.113] 
+
+where  [2.x.57]  is the maximum amplitude that takes the force and  [2.x.58]  and  [2.x.59]  are the standard deviations for the  [2.x.60]  and  [2.x.61]  components. Note that the pulse has been cropped to  [2.x.62]  and  [2.x.63] . 
+
+[1.x.114] 
+
+
+
+
+[1.x.115]  [1.x.116] 
+
+
+
+
+As before, the constructor reads all the parameters from the  [2.x.64]  `data` using the  [2.x.65]  function. As we have discussed, a quadratic turn-on of the PML has been defined in the jupyter notebook. It is possible to use a linear, cubic or another power degree by changing the parameter `pml_coeff_degree`. The parameters `pml_x` and `pml_y` can be used to turn on and off the `x` and `y` PMLs. 
+
+[1.x.117] 
+
+
+
+The PML coefficient for the `x` component takes the form  [2.x.66]  
+
+[1.x.118] 
+
+
+
+
+[1.x.119]  [1.x.120] 
+
+
+
+
+This class is used to define the mass density. As we have explaine before, a phononic superlattice cavity is formed by two [Distributed Reflector](https://en.wikipedia.org/wiki/Band_gap), mirrors and a  [2.x.67]  cavity where  [2.x.68]  is the acoustic wavelength. Acoustic DBRs are periodic structures where a set of bilayer stacks with contrasting physical properties (sound velocity index) is repeated  [2.x.69]  times. The change of in the wave velocity is generated by alternating layers with different density. 
+
+[1.x.121] 
+
+
+
+In order to increase the precision we use [subpixel smoothing](https://meep.readthedocs.io/en/latest/Subpixel_Smoothing/). 
+
+[1.x.122] 
+
+
+
+The speed of sound is defined by [1.x.123] where  [2.x.70]  is the effective elastic constant and  [2.x.71]  the density. Here we consider the case in which the waveguide width is much smaller than the wavelength. In this case it can be shown that for the two dimensional case [1.x.124] and for the three dimensional case  [2.x.72]  is equal to the Young's modulus. [1.x.125] 
+
+[1.x.126] 
+
+
+
+The density  [2.x.73]  takes the following form <img alt="Phononic superlattice cavity" src="https://www.dealii.org/images/steps/developer/ [2.x.74] .04.svg" height="200" /> where the brown color represents material_a and the green color represents material_b. 
+
+[1.x.127] 
+
+
+
+Here we define the [subpixel smoothing](https://meep.readthedocs.io/en/latest/Subpixel_Smoothing/) which improves the precision of the simulation. 
+
+[1.x.128] 
+
+
+
+then the cavity 
+
+[1.x.129] 
+
+
+
+the material_a layers 
+
+[1.x.130] 
+
+
+
+the material_b layers 
+
+[1.x.131] 
+
+
+
+and finally the default is material_a. 
+
+[1.x.132] 
+
+
+
+
+[1.x.133]  [1.x.134] 
+
+
+
+
+The constructor reads all the parameters from the  [2.x.75]  `data` using the  [2.x.76]  function. 
+
+[1.x.135] 
+
+
+
+
+[1.x.136]  [1.x.137] 
+
+
+
+
+We need to reserve enough space for the mass and stiffness matrices and the right hand side vector. 
+
+[1.x.138] 
+
+
+
+
+[1.x.139]  [1.x.140] 
+
+
+
+
+
+[1.x.141]  [1.x.142] 
+
+
+
+
+This is very similar to the constructor of  [2.x.77] . In addition we create the HDF5 datasets `frequency_dataset`, `position_dataset` and `displacement`. Note the use of the `template` keyword for the creation of the HDF5 datasets. It is a C++ requirement to use the `template` keyword in order to treat `create_dataset` as a dependent template name. 
+
+[1.x.143] 
+
+
+
+
+[1.x.144]  [1.x.145] 
+
+
+
+
+There is nothing new in this function, the only difference with  [2.x.78]  is that we don't have to apply boundary conditions because we use the PMLs to truncate the domain. 
+
+[1.x.146] 
+
+
+
+
+[1.x.147]  [1.x.148] 
+
+
+
+
+This function is also very similar to  [2.x.79] , though there are notable differences. We assemble the system for each frequency/omega step. In the first step we set `calculate_quadrature_data = True` and we calculate the mass and stiffness matrices and the right hand side vector. In the subsequent steps we will use that data to accelerate the calculation. 
+
+[1.x.149] 
+
+
+
+Here we store the value of the right hand side, rho and the PML. 
+
+[1.x.150] 
+
+
+
+We calculate the stiffness tensor for the  [2.x.80]  and  [2.x.81]  that have been defined in the jupyter notebook. Note that contrary to  [2.x.82]  the stiffness is constant among for the whole domain. 
+
+[1.x.151] 
+
+
+
+We use the same method of  [2.x.83]  for vector-valued problems. 
+
+[1.x.152] 
+
+
+
+We have to calculate the values of the right hand side, rho and the PML only if we are going to calculate the mass and the stiffness matrices. Otherwise we can skip this calculation which considerably reduces the total calculation time. 
+
+[1.x.153] 
+
+
+
+We have done this in  [2.x.84] . Get a pointer to the quadrature cache data local to the present cell, and, as a defensive measure, make sure that this pointer is within the bounds of the global array: 
+
+[1.x.154] 
+
+
+
+The quadrature_data variable is used to store the mass and stiffness matrices, the right hand side vector and the value of `JxW`. 
+
+[1.x.155] 
+
+
+
+Below we declare the force vector and the parameters of the PML  [2.x.85]  and  [2.x.86] . 
+
+[1.x.156] 
+
+
+
+The following block is calculated only in the first frequency step. 
+
+[1.x.157] 
+
+
+
+Store the value of `JxW`. 
+
+[1.x.158] 
+
+
+
+Convert vectors to tensors and calculate xi 
+
+[1.x.159] 
+
+
+
+Here we calculate the  [2.x.87]  and  [2.x.88]  tensors. 
+
+[1.x.160] 
+
+
+
+calculate the values of the mass matrix. 
+
+[1.x.161] 
+
+
+
+Loop over the  [2.x.89]  indices of the stiffness tensor. 
+
+[1.x.162] 
+
+
+
+Here we calculate the stiffness matrix. Note that the stiffness matrix is not symmetric because of the PMLs. We use the gradient function (see the [documentation](https://www.dealii.org/current/doxygen/deal.II/group__vector__valued.html)) which is a  [2.x.90] . The matrix  [2.x.91]  consists of entries [1.x.163] Note the position of the indices  [2.x.92]  and  [2.x.93]  and the notation that we use in this tutorial:  [2.x.94] . As the stiffness tensor is not symmetric, it is very easy to make a mistake. 
+
+[1.x.164] 
+
+
+
+We save the value of the stiffness matrix in quadrature_data 
+
+[1.x.165] 
+
+
+
+and the value of the right hand side in quadrature_data. 
+
+[1.x.166] 
+
+
+
+We loop again over the degrees of freedom of the cells to calculate the system matrix. These loops are really quick because we have already calculated the stiffness and mass matrices, only the value of  [2.x.95]  changes. 
+
+[1.x.167] 
+
+
+
+
+[1.x.168]  [1.x.169] 
+
+
+
+
+This is even more simple than in  [2.x.96] . We use the parallel direct solver MUMPS which requires less options than an iterative solver. The drawback is that it does not scale very well. It is not straightforward to solve the Helmholtz equation with an iterative solver. The shifted Laplacian multigrid method is a well known approach to precondition this system, but this is beyond the scope of this tutorial. 
+
+[1.x.170] 
+
+
+
+
+[1.x.171]  [1.x.172] 
+
+
+
+
+We use this function to calculate the values of the position vector. 
+
+[1.x.173] 
+
+
+
+Because of the way the operator + and - are overloaded to subtract two points, the following has to be done: `Point_b<dim> + (-Point_a<dim>)` 
+
+[1.x.174] 
+
+
+
+
+[1.x.175]  [1.x.176] 
+
+
+
+
+This function stores in the HDF5 file the measured energy by the probe. 
+
+[1.x.177] 
+
+
+
+We store the displacement in the  [2.x.97]  direction; the displacement in the  [2.x.98]  direction is negligible. 
+
+[1.x.178] 
+
+
+
+The vector coordinates contains the coordinates in the HDF5 file of the points of the probe that are located in locally owned cells. The vector displacement_data contains the value of the displacement at these points. 
+
+[1.x.179] 
+
+
+
+First we have to find out if the point is in a locally owned cell. 
+
+[1.x.180] 
+
+
+
+Then we can store the values of the displacement in the points of the probe in `displacement_data`. 
+
+[1.x.181] 
+
+
+
+We write the displacement data in the HDF5 file. The call  [2.x.99]  is MPI collective which means that all the processes have to participate. 
+
+[1.x.182] 
+
+
+
+Therefore even if the process has no data to write it has to participate in the collective call. For this we can use  [2.x.100]  Note that we have to specify the data type, in this case  [2.x.101]  
+
+[1.x.183] 
+
+
+
+If the variable `save_vtu_files` in the input file equals `True` then all the data will be saved as vtu. The procedure to write `vtu` files has been described in  [2.x.102] . 
+
+[1.x.184] 
+
+
+
+And on the cells that we are not interested in, set the respective value to a bogus value in order to make sure that if we were somehow wrong about our assumption we would find out by looking at the graphical output: 
+
+[1.x.185] 
+
+
+
+
+[1.x.186]  [1.x.187] 
+
+
+
+
+This function writes the datasets that have not already been written. 
+
+[1.x.188] 
+
+
+
+The vectors `frequency` and `position` are the same for all the processes. Therefore any of the processes can write the corresponding `datasets`. Because the call  [2.x.103]  is MPI collective, the rest of the processes will have to call  [2.x.104]  
+
+[1.x.189] 
+
+
+
+
+[1.x.190]  [1.x.191] 
+
+
+
+
+We use this function at the beginning of our computations to set up initial values of the cache variables. This function has been described in  [2.x.105] . There are no differences with the function of  [2.x.106] . 
+
+[1.x.192] 
+
+
+
+
+[1.x.193]  [1.x.194] 
+
+
+
+
+For clarity we divide the function `run` of  [2.x.107]  into the functions `run` and `frequency_sweep`. In the function `frequency_sweep` we place the iteration over the frequency vector. 
+
+[1.x.195] 
+
+
+
+Write the simulation parameters only once 
+
+[1.x.196] 
+
+
+
+We calculate the frequency and omega values for this particular step. 
+
+[1.x.197] 
+
+
+
+In the first frequency step we calculate the mass and stiffness matrices and the right hand side. In the subsequent frequency steps we will use those values. This improves considerably the calculation time. 
+
+[1.x.198] 
+
+
+
+
+[1.x.199]  [1.x.200] 
+
+
+
+
+This function is very similar to the one in  [2.x.108] . 
+
+[1.x.201] 
+
+
+
+
+[1.x.202]  [1.x.203] 
+
+
+
+
+The main function is very similar to the one in  [2.x.109] . 
+
+[1.x.204] 
+
+
+
+Each of the simulations (displacement and calibration) is stored in a separate HDF5 group: 
+
+[1.x.205] 
+
+
+
+For each of these two group names, we now create the group and put attributes into these groups. Specifically, these are: 
+
+- The dimensions of the waveguide (in  [2.x.110]  and  [2.x.111]  directions) 
+
+- The position of the probe (in  [2.x.112]  and  [2.x.113]  directions) 
+
+- The number of points in the probe 
+
+- The global refinement level 
+
+- The cavity resonance frequency 
+
+- The number of mirror pairs 
+
+- The material properties 
+
+- The force parameters 
+
+- The PML parameters 
+
+- The frequency parameters 
+
+
+
+
+
+
+
+[1.x.206] 
+
+
+
+Displacement simulation. The parameters are read from the displacement HDF5 group and the results are saved in the same HDF5 group. 
+
+[1.x.207] 
+
+
+
+Calibration simulation. The parameters are read from the calibration HDF5 group and the results are saved in the same HDF5 group. 
+
+[1.x.208] 
+
+[1.x.209][1.x.210] 
+
+
+[1.x.211][1.x.212] 
+
+
+The results are analyzed in the [jupyter notebook](https://github.com/dealii/dealii/blob/phononic-cavity/examples/ [2.x.114] / [2.x.115] .ipynb) with the following code 
+
+[1.x.213] 
+
+
+
+A phononic cavity is characterized by the [resonance frequency](https://en.wikipedia.org/wiki/Resonance) and the [the quality factor](https://en.wikipedia.org/wiki/Q_factor). The quality factor is equal to the ratio between the stored energy in the resonator and the energy dissipated energy per cycle, which is approximately equivalent to the ratio between the resonance frequency and the [full width at half maximum (FWHM)](https://en.wikipedia.org/wiki/Full_width_at_half_maximum). The FWHM is equal to the bandwidth over which the power of vibration is greater than half the power at the resonant frequency. [1.x.214] 
+
+The square of the amplitude of the mechanical resonance  [2.x.116]  as a function of the frequency has a gaussian shape [1.x.215] where  [2.x.117]  is the resonance frequency and  [2.x.118]  is the dissipation rate. We used the previous equation in the jupyter notebook to fit the mechanical resonance. 
+
+Given the values we have chosen for the parameters, one could estimate the resonance frequency analytically. Indeed, this is then confirmed by what we get in this program: the phononic superlattice cavity exhibits a mechanical resonance at 20GHz and a quality factor of 5046. The following images show the transmission amplitude and phase as a function of frequency in the vicinity of the resonance frequency: 
+
+ [2.x.119]   [2.x.120]  
+
+The images above suggest that the periodic structure has its intended effect: It really only lets waves of a very specific frequency pass through, whereas all other waves are reflected. This is of course precisely what one builds these sorts of devices for. But it is not quite this easy. In practice, there is really only a "band gap", i.e., the device blocks waves other than the desired one at 20GHz only within a certain frequency range. Indeed, to find out how large this "gap" is within which waves are blocked, we can extend the frequency range to 16 GHz through the appropriate parameters in the input file. We then obtain the following image: 
+
+ [2.x.121]  
+
+What this image suggests is that in the range of around 18 to around 22 GHz, really only the waves with a frequency of 20 GHz are allowed to pass through, but beyond this range, there are plenty of other frequencies that can pass through the device. 
+
+[1.x.216][1.x.217] 
+
+
+We can inspect the mode profile with Paraview or VisIt. As we have discussed, at resonance all the mechanical energy is transmitted and the amplitude of motion is amplified inside the cavity. It can be observed that the PMLs are quite effective to truncate the solution. The following image shows the mode profile at resonance: 
+
+ [2.x.122]  
+
+On the other hand,  out of resonance all the mechanical energy is reflected. The following image shows the profile at 19.75 GHz. Note the interference between the force pulse and the reflected wave at the position  [2.x.123] . 
+
+ [2.x.124]  
+
+[1.x.218][1.x.219] 
+
+
+Phononic superlattice cavities find application in [quantum optomechanics](https://journals.aps.org/rmp/abstract/10.1103/RevModPhys.86.1391). Here we have presented the simulation of a 2D superlattice cavity, but this code can be used as well to simulate "real world" 3D devices such as [micropillar superlattice cavities](https://journals.aps.org/prb/abstract/10.1103/PhysRevB.99.060101), which are promising candidates to study macroscopic quantum phenomena. The 20GHz mode of a micropillar superlattice cavity is essentially a mechanical harmonic oscillator that is very well isolated from the environment. If the device is cooled down to 20mK in a dilution fridge, the mode would then become a macroscopic quantum harmonic oscillator. 
+
+
+[1.x.220][1.x.221] 
+
+
+Instead of setting the parameters in the C++ file we could set the parameters using a python script and save them in the HDF5 file that we will use for the simulations. Then the deal.II program will read the parameters from the HDF5 file. 
+
+[1.x.222] 
+
+
+
+In order to read the HDF5 parameters we have to use the  [2.x.125]  flag. 
+
+[1.x.223] 
+
+[1.x.224] [1.x.225]  [2.x.126]  
+
+ [2.x.127] 

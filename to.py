@@ -13,81 +13,111 @@ parser = argparse.ArgumentParser()
 parser.add_argument('filename')
 args = parser.parse_args()
 
-if(re.search('.txt$',args.filename)==None):
-    sys.exit('The input should be .txt file. Exit.')
+if(re.search('.h$',args.filename)==None):
+    sys.exit('The input should be .h file. Exit.')
 
-print('Input file:',args.filename)
+print('LaTeX file:',args.filename)
 
-### Load LaTeX data from binary files
-with open(args.filename, 'r') as fin:
-    source = fin.read()
-#with open ('gtexfix_comments', 'rb') as fp:
-#    comments = pickle.load(fp)
-with open ('doxygen_commands', 'rb') as fp:
-    commands = pickle.load(fp)   
-with open ('doxygen_latex', 'rb') as fp:
-    latex = pickle.load(fp)
+with open(args.filename, 'r') as source_file:
+    source = source_file.read()
 
-### Replace weird characters introduced by translation
-trtext=re.sub('\u200B',' ',source)
-
-### Fix spacing
-trtext = re.sub(r'\\ ',r'\\',trtext)
-trtext = re.sub(' ~ ','~',trtext)
-trtext = re.sub(' {','{',trtext)
-
-### Restore LaTeX and formulas
-here=0
-newtext=''
-nl=0
-nc=0
-corrupted=[]
-for m in re.finditer('\[{0,1}[012][\.\, ][xX][\.\,][0-9]+\]{0,1}',trtext):
-    print(m)
-    t=int( re.search('(?<=\[{0})[012](?=[\.\,][xX][\.\,])',m.group()).group() )
-    n=int( re.search('(?<=[\.\,][xX][\.\,])[0-9]+(?=\]{0})',m.group()).group() )
-    if(t==1):
-        #if(n<nl):
-        #    print('Token ',m.group(),'found in place of [%d.%d]. Edit manually and run again.'%(t,nl))
-        #    break
-        #while(nl!=n):
-        #    corrupted.append('[%d.%d]'%(t,nl))
-        #    nl+=1
-        newtext += trtext[here:m.start()] + latex[n]
-        #nl+=1
-    elif(t==2):
-        #if(n<nc):
-        #    print('Token ',m.group(),'found in place of [%d.%d]. Edit manually and run again.'%(t,nc))
-        #    break
-        #while(nc!=n):
-        #    corrupted.append('[%d.%d]'%(t,nc))
-        #    nc+=1
-        newtext += trtext[here:m.start()] + " " + commands[n] + " "
-        #nc+=1
-    here=m.end()
-newtext += trtext[here:]
-trtext=newtext
-
-
-
-##最后再进行一些修剪的工作
-regex = r"(?<=\<\/h[0-9]\>)[。]|(?<=\<\/h[0-9]\>).[。]|(?<=@f})[。]|(?<=@f}).[。]"
-subst = ""
-trtext = re.sub(regex, subst, trtext , 0)
-
-
-### Save the processed output to .tex file
-output_filename = re.sub('.txt$','.h',args.filename)
-with open(output_filename, 'w') as translation_file:
-	translation_file.write(trtext)
-print('Output file:',output_filename)
-
-### Report the corrupted tokens
-if(corrupted==[]):
-    print('No corrupted tokens. The translation is ready.')	
+### Search for possible token conflicts
+conflicts=re.findall('\[ *[012][\.][0-9]+\]',source)
+if(conflicts!=[]):
+    print('Token conflicts detected: ',conflicts)
+    sys.exit('Tokens may overlap with the content. Change tokens or remove the source of conflict.')
 else:
-    print('Corrupted tokens detected:',end=' ')
-    for c in corrupted:
-        print(c,end=' ')
-    print()
-    print('To improve the output manually change the corrupted tokens in file',args.filename,'and run from.py again.')
+    print('No token conflicts detected. Proceeding.')
+
+
+text=source
+postamble=[]
+
+## 删除 * 注释，该作用是对标号降级，稍微会有一些影响，但无妨
+regex = r"^\s\*\s"
+subst = ""
+# You can manually specify the number of replacements by changing the 4th argument
+text = re.sub(regex, subst, text, 0, re.MULTILINE)
+
+# 首先将\r\r的扩充几行，以免被”吃掉“
+regex0 = r"\n{2}|[\n](?=This tutorial depends on|@note|@htmlonly|@verbatim|@code|@f{align.*}|\s+-|-|\*\/)"
+regex1 = r"(?<=@endhtmlonly)[\n]|(?<=@endverbatim)[\n]|(?<=@endcode)[\n]|(?<=@f})[\n]"
+subst0 = "\n\n\n"
+text = re.sub(regex0, subst0, text, 0)
+text = re.sub(regex1, subst0, text, 0)
+
+### Hide LaTeX constructs \begin{...} ... \end{...}
+latex=[]
+start_values=[]
+end_values=[]
+for m in re.finditer(r'@htmlonly|[@\\]f{align\*}|[@\\]f{align}|[@\\]f{eqnarray}|[@\\]f{eqnarray\*}|@f{equation\*}|@f{multline\*}|@f{gather\*}|@code|@verbatim|[@\\]f\[|\<a[ \n]|\<h[1-9]\>|\<[bi]\>',text):
+    start_values.append(m.start())
+for m in re.finditer(r'@endhtmlonly|@f}|@endcode|@endverbatim|\\f}|[@\\]f\]|\<\/a\>|\<\/h[1-9]\>|<\/[bi]\>',text):
+    end_values.append(m.end())
+nitems=len(start_values)
+assert(len(end_values)==nitems)
+if(nitems>0):
+    newtext=text[:start_values[0]]
+    for neq in range(nitems-1):
+        latex.append(text[start_values[neq]:end_values[neq]])
+        newtext += '[1.x.%d]'%(len(latex)-1) + text[end_values[neq]:start_values[neq+1]]
+    latex.append(text[start_values[nitems-1]:end_values[nitems-1]])
+    newtext += '[1.x.%d]'%(len(latex)-1) + text[end_values[nitems-1]:]
+    text=newtext
+
+### Replace LaTeX commands, formulas and comments by tokens
+recommand = re.compile(r'\/\*\*|\*\/|@ref\s\w+|@cite\s\w+|@note|@dealiiTutorialDOI.*|@dealiiVideoLecture.*|@image.*|@include.*|[sS]tep-\d{0,2}|@page.*|<div\s\w{5}=\"[^>]*?>[\s\S]*?<\/div>[\s\S]<\/div>|<div\s\w{5}=[^>]*?>[\s\S]*?<\/div>|(\$+)(?:(?!\1)[\s\S])*\1|(\<code\>)[\s\S].*(\<\/code\>+)|\<img.*[\s\S]\>|\<em\>|\<\/em\>|\S+\:\:\S+|@p \S+|<table\s\w{5}=\"[^>]*?>[\s\S]*?<\/table>|<table>[\s\S]*?<\/table>|<p\s\w{5}=\"[^>]*?>[\s\S]*?<\/p>|\<ol\>|\<li\>|\<\/li\>|\<\/ol\>|\<ul\>|\<\/ul\>|\<br\>')
+commands=[]
+for m in recommand.finditer(text):
+    commands.append(m.group())
+nc=0
+def repl_f(obj):
+    global nc
+    nc += 1
+    return ' [2.x.%d] '%(nc-1)
+text=recommand.sub(repl_f,text)
+
+
+## save doxygen commands file
+filebase = re.sub('.h$','',args.filename)
+doxygen_latex=filebase+'_doxygen_latex'
+doxygen_commands=filebase+'_doxygen_commands'
+with open(doxygen_latex, 'wb') as fp:
+    pickle.dump(latex, fp)
+with open(doxygen_commands, 'wb') as fp:
+    pickle.dump(commands, fp)
+
+
+
+### 最后将换行户转化为空格，为了更好的翻译目的
+## 接着，开始替换
+regex = r"(?<=[^\n])(\n)(?=[^-])"
+#regex = r"ssssssss"
+subst = " "
+# You can manually specify the number of replacements by changing the 4th argument
+text = re.sub(regex, subst, text, 0, re.MULTILINE)
+
+
+
+
+### Save the processed output to .txt file
+limit=300000 # Estimated Google Translate character limit
+start=0
+npart=0
+for m in re.finditer(r'\.\n',text):
+    if(m.end()-start<limit):
+        end=m.end()
+    else:
+        output_filename = filebase+'_%d.txt'%npart
+        npart+=1
+        with open(output_filename, 'w') as txt_file:
+	        txt_file.write(text[start:end])
+        print('Output file:',output_filename)
+        start=end
+        end=m.end()
+output_filename = filebase+'_%d.txt'%npart
+with open(output_filename, 'w') as txt_file:
+    txt_file.write(text[start:])
+print('Output file:',output_filename)
+print('Supply the output file(s) to Google Translate')
+

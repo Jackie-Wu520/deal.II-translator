@@ -4,6 +4,7 @@
 # Jiaqi-Knight 2021
 # based on Dmitry R. Gulevich 2020 getxfix
 #-----------------------------------------
+
 import re
 import sys
 import pickle
@@ -18,14 +19,18 @@ if(re.search('.txt$',args.filename)==None):
 
 print('Input file:',args.filename)
 
+
+filebase = re.sub('_0_T.txt$','',args.filename)
+doxygen_latex=filebase+'_doxygen_latex'
+doxygen_commands=filebase+'_doxygen_commands'
+
+
 ### Load LaTeX data from binary files
 with open(args.filename, 'r') as fin:
     source = fin.read()
-#with open ('gtexfix_comments', 'rb') as fp:
-#    comments = pickle.load(fp)
-with open ('doxygen_commands', 'rb') as fp:
+with open (doxygen_commands, 'rb') as fp:
     commands = pickle.load(fp)   
-with open ('doxygen_latex', 'rb') as fp:
+with open (doxygen_latex, 'rb') as fp:
     latex = pickle.load(fp)
 
 ### Replace weird characters introduced by translation
@@ -91,3 +96,4 @@ else:
         print(c,end=' ')
     print()
     print('To improve the output manually change the corrupted tokens in file',args.filename,'and run from.py again.')
+

@@ -1,0 +1,574 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] . 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5][1.x.6][1.x.7][1.x.8][1.x.9][1.x.10][1.x.11][1.x.12][1.x.13][1.x.14][1.x.15][1.x.16][1.x.17][1.x.18][1.x.19][1.x.20][1.x.21][1.x.22][1.x.23][1.x.24][1.x.25][1.x.26][1.x.27][1.x.28][1.x.29][1.x.30][1.x.31][1.x.32][1.x.33] 
+
+ [2.x.3]  
+
+[1.x.34] 
+
+ [2.x.4]  
+
+[1.x.35] [1.x.36][1.x.37] 
+
+
+This program solves an advection-diffusion problem using a geometric multigrid (GMG) preconditioner. The basics of this preconditioner are discussed in  [2.x.5] ; here we discuss the necessary changes needed for a non-symmetric PDE. Additionally, we introduce the idea of block smoothing (as compared to point smoothing in  [2.x.6] ), and examine the effects of DoF renumbering for additive and multiplicative smoothers. 
+
+[1.x.38][1.x.39] 
+
+The advection-diffusion equation is given by 
+
+[1.x.40] 
+
+where  [2.x.7] ,  [2.x.8]  is the [1.x.41], and  [2.x.9]  is a source. A few notes: 
+
+1. If  [2.x.10] , this is the Laplace equation solved in  [2.x.11]  (and many other places). 
+
+2. If  [2.x.12]  then this is the stationary advection equation solved in  [2.x.13] . 
+
+3. One can define a dimensionless number for this problem, called the [1.x.42]:  [2.x.14] , where  [2.x.15]  is the length scale of the domain. It characterizes the kind of equation we are considering: If  [2.x.16] , we say the problem is [1.x.43], else if  [2.x.17]  we will say the problem is [1.x.44]. 
+
+For the discussion in this tutorial we will be concerned with advection-dominated flow. This is the complicated case: We know that for diffusion-dominated problems, the standard Galerkin method works just fine, and we also know that simple multigrid methods such as those defined in  [2.x.18]  are very efficient. On the other hand, for advection-dominated problems, the standard Galerkin approach leads to oscillatory and unstable discretizations, and simple solvers are often not very efficient. This tutorial program is therefore intended to address both of these issues. 
+
+
+[1.x.45][1.x.46] 
+
+
+Using the standard Galerkin finite element method, for suitable test functions  [2.x.19] , a discrete weak form of the PDE would read 
+
+[1.x.47] 
+
+where 
+
+[1.x.48] 
+
+
+
+Unfortunately, one typically gets oscillatory solutions with this approach. Indeed, the following error estimate can be shown for this formulation: 
+
+[1.x.49] 
+
+The infimum on the right can be estimated as follows if the exact solution is sufficiently smooth: 
+
+[1.x.50] 
+
+where  [2.x.20]  is the polynomial degree of the finite elements used. As a consequence, we obtain the estimate 
+
+[1.x.51] 
+
+In other words, the numerical solution will converge. On the other hand, given the definition of  [2.x.21]  above, we have to expect poor numerical solutions with a large error when  [2.x.22] , i.e., if the problem has only a small amount of diffusion. 
+
+To combat this, we will consider the new weak form 
+
+[1.x.52] 
+
+where the sum is done over all cells  [2.x.23]  with the inner product taken for each cell, and  [2.x.24]  is a cell-wise constant stabilization parameter defined in  [2.x.25] . 
+
+Essentially, adding in the discrete strong form residual enhances the coercivity of the bilinear form  [2.x.26]  which increases the stability of the discrete solution. This method is commonly referred to as [1.x.53] or [1.x.54] (streamline upwind/Petrov-Galerkin). 
+
+
+[1.x.55][1.x.56] 
+
+
+One of the goals of this tutorial is to expand from using a simple (point-wise) Gauss-Seidel (SOR) smoother that is used in  [2.x.27]  (class PreconditionSOR) on each level of the multigrid hierarchy. The term "point-wise" is traditionally used in solvers to indicate that one solves at one "grid point" at a time; for scalar problems, this means to use a solver that updates one unknown of the linear system at a time, keeping all of the others fixed; one would then iterate over all unknowns in the problem and, once done, start over again from the first unknown until these "sweeps" converge. Jacobi, Gauss-Seidel, and SOR iterations can all be interpreted in this way. In the context of multigrid, one does not think of these methods as "solvers", but as "smoothers". As such, one is not interested in actually solving the linear system. It is enough to remove the high-frequency part of the residual for the multigrid method to work, because that allows restricting the solution to a coarser mesh.  Therefore, one only does a few, fixed number of "sweeps" over all unknowns. In the code in this tutorial this is controlled by the "Smoothing steps" parameter. 
+
+But these methods are known to converge rather slowly when used as solvers. While as multigrid smoothers, they are surprisingly good, they can also be improved upon. In particular, we consider "cell-based" smoothers here as well. These methods solve for all unknowns on a cell at once, keeping all other unknowns fixed; they then move on to the next cell, and so on and so forth. One can think of them as "block" versions of Jacobi, Gauss-Seidel, or SOR, but because degrees of freedom are shared among multiple cells, these blocks overlap and the methods are in fact best be explained within the framework of additive and multiplicative Schwarz methods. 
+
+In contrast to  [2.x.28] , our test problem contains an advective term. Especially with a small diffusion constant  [2.x.29] , information is transported along streamlines in the given advection direction. This means that smoothers are likely to be more effective if they allow information to travel in downstream direction within a single smoother application. If we want to solve one unknown (or block of unknowns) at a time in the order in which these unknowns (or blocks) are enumerated, then this information propagation property requires reordering degrees of freedom or cells (for the cell-based smoothers) accordingly so that the ones further upstream are treated earlier (have lower indices) and those further downstream are treated later (have larger indices). The influence of the ordering will be visible in the results section. 
+
+Let us now briefly define the smoothers used in this tutorial. For a more detailed introduction, we refer to  [2.x.30]  and the books  [2.x.31]  and  [2.x.32] . A Schwarz preconditioner requires a decomposition 
+
+[1.x.57] 
+
+of our finite element space  [2.x.33] . Each subproblem  [2.x.34]  also has a Ritz projection  [2.x.35]  based on the bilinear form  [2.x.36] . This projection induces a local operator  [2.x.37]  for each subproblem  [2.x.38] . If  [2.x.39]  is the orthogonal projector onto  [2.x.40] , one can show  [2.x.41] . 
+
+With this we can define an [1.x.58] for the operator  [2.x.42]  as 
+
+[1.x.59] 
+
+In other words, we project our solution into each subproblem, apply the inverse of the subproblem  [2.x.43] , and sum the contributions up over all  [2.x.44] . 
+
+Note that one can interpret the point-wise (one unknown at a time) Jacobi method as an additive Schwarz method by defining a subproblem  [2.x.45]  for each degree of freedom. Then,  [2.x.46]  becomes a multiplication with the inverse of a diagonal entry of  [2.x.47] . 
+
+For the "Block Jacobi" method used in this tutorial, we define a subproblem  [2.x.48]  for each cell of the mesh on the current level. Note that we use a continuous finite element, so these blocks are overlapping, as degrees of freedom on an interface between two cells belong to both subproblems. The logic for the Schwarz operator operating on the subproblems (in deal.II they are called "blocks") is implemented in the class RelaxationBlock. The "Block Jacobi" method is implemented in the class RelaxationBlockJacobi. Many aspects of the class (for example how the blocks are defined and how to invert the local subproblems  [2.x.49] ) can be configured in the smoother data, see  [2.x.50]  and  [2.x.51]  for details. 
+
+So far, we discussed additive smoothers where the updates can be applied independently and there is no information flowing within a single smoother application. A [1.x.60] addresses this and is defined by 
+
+[1.x.61] 
+
+In contrast to above, the updates on the subproblems  [2.x.52]  are applied sequentially. This means that the update obtained when inverting the subproblem  [2.x.53]  is immediately used in  [2.x.54] . This becomes visible when writing out the project: 
+
+[1.x.62] 
+
+
+
+When defining the sub-spaces  [2.x.55]  as whole blocks of degrees of freedom, this method is implemented in the class RelaxationBlockSOR and used when you select "Block SOR" in this tutorial. The class RelaxationBlockSOR is also derived from RelaxationBlock. As such, both additive and multiplicative Schwarz methods are implemented in a unified framework. 
+
+Finally, let us note that the standard Gauss-Seidel (or SOR) method can be seen as a multiplicative Schwarz method with a subproblem for each DoF. 
+
+
+[1.x.63][1.x.64] 
+
+
+We will be considering the following test problem:  [2.x.56] , i.e., a square with a circle of radius 0.3 centered at the origin removed. In addition, we use  [2.x.57] ,  [2.x.58] ,  [2.x.59] , and Dirichlet boundary values 
+
+[1.x.65] 
+
+
+
+The following figures depict the solutions with (left) and without (right) streamline diffusion. Without streamline diffusion we see large oscillations around the boundary layer, demonstrating the instability of the standard Galerkin finite element method for this problem. 
+
+ [2.x.60]  [1.x.66] [1.x.67] 
+
+
+[1.x.68]  [1.x.69] 
+
+
+
+
+Typical files needed for standard deal.II: 
+
+[1.x.70] 
+
+
+
+Include all relevant multilevel files: 
+
+[1.x.71] 
+
+
+
+C++: 
+
+[1.x.72] 
+
+
+
+We will be using  [2.x.61]  functionality for assembling matrices: 
+
+[1.x.73] 
+
+
+
+
+[1.x.74]  [1.x.75] 
+
+
+
+
+As always, we will be putting everything related to this program into a namespace of its own. 
+
+
+
+
+Since we will be using the MeshWorker framework, the first step is to define the following structures needed by the assemble_cell() function used by  [2.x.62]  `ScratchData` contains an FEValues object which is needed for assembling a cell's local contribution, while `CopyData` contains the output from a cell's local contribution and necessary information to copy that to the global system. (Their purpose is also explained in the documentation of the WorkStream class.) 
+
+[1.x.76] 
+
+
+
+
+[1.x.77]  [1.x.78] 
+
+
+
+
+The second step is to define the classes that deal with run-time parameters to be read from an input file.    
+
+
+We will use ParameterHandler to pass in parameters at runtime. The structure `Settings` parses and stores the parameters to be queried throughout the program. 
+
+[1.x.79] 
+
+
+
+
+[1.x.80]  [1.x.81]    
+
+
+The ordering in which cells and degrees of freedom are traversed will play a role in the speed of convergence for multiplicative methods. Here we define functions which return a specific ordering of cells to be used by the block smoothers.    
+
+
+For each type of cell ordering, we define a function for the active mesh and one for a level mesh (i.e., for the cells at one level of a multigrid hierarchy). While the only reordering necessary for solving the system will be on the level meshes, we include the active reordering for visualization purposes in output_results().    
+
+
+For the two downstream ordering functions, we first create an array with all of the relevant cells that we then sort in downstream direction using a "comparator" object. The output of the functions is then simply an array of the indices of the cells in the just computed order. 
+
+[1.x.82] 
+
+
+
+The functions that produce a random ordering are similar in spirit in that they first put information about all cells into an array. But then, instead of sorting them, they shuffle the elements randomly using the facilities C++ offers to generate random numbers. The way this is done is by iterating over all elements of the array, drawing a random number for another element before that, and then exchanging these elements. The result is a random shuffle of the elements of the array. 
+
+[1.x.83] 
+
+
+
+
+[1.x.84]  [1.x.85] 
+
+
+
+
+The problem solved in this tutorial is an adaptation of Ex. 3.1.3 found on pg. 118 of [1.x.86]. The main difference being that we add a hole in the center of our domain with zero Dirichlet boundary conditions.    
+
+
+For a complete description, we need classes that implement the zero right-hand side first (we could of course have just used  [2.x.63]  
+
+[1.x.87] 
+
+
+
+We also have Dirichlet boundary conditions. On a connected portion of the outer, square boundary we set the value to 1, and we set the value to 0 everywhere else (including the inner, circular boundary): 
+
+[1.x.88] 
+
+
+
+Set boundary to 1 if  [2.x.64] , or if  [2.x.65]  and  [2.x.66] . 
+
+[1.x.89] 
+
+
+
+
+[1.x.90]  [1.x.91] 
+
+
+
+
+The streamline diffusion method has a stabilization constant that we need to be able to compute. The choice of how this parameter is computed is taken from [1.x.92]. 
+
+[1.x.93] 
+
+
+
+
+[1.x.94]  [1.x.95] 
+
+
+
+
+This is the main class of the program, and should look very similar to  [2.x.67] . The major difference is that, since we are defining our multigrid smoother at runtime, we choose to define a function `create_smoother()` and a class object `mg_smoother` which is a  [2.x.68]  to a smoother that is derived from MGSmoother. Note that for smoothers derived from RelaxationBlock, we must include a `smoother_data` object for each level. This will contain information about the cell ordering and the method of inverting cell matrices. 
+
+
+
+
+
+
+
+[1.x.96] 
+
+
+
+
+[1.x.97]  [1.x.98] 
+
+
+
+
+Here we first set up the DoFHandler, AffineConstraints, and SparsityPattern objects for both active and multigrid level meshes.    
+
+
+We could renumber the active DoFs with the DoFRenumbering class, but the smoothers only act on multigrid levels and as such, this would not matter for the computations. Instead, we will renumber the DoFs on each multigrid level below. 
+
+[1.x.99] 
+
+
+
+Having enumerated the global degrees of freedom as well as (in the last line above) the level degrees of freedom, let us renumber the level degrees of freedom to get a better smoother as explained in the introduction.  The first block below renumbers DoFs on each level in downstream or upstream direction if needed. This is only necessary for point smoothers (SOR and Jacobi) as the block smoothers operate on cells (see `create_smoother()`). The blocks below then also implement random numbering. 
+
+[1.x.100] 
+
+
+
+The rest of the function just sets up data structures. The last lines of the code below is unlike the other GMG tutorials, as it sets up both the interface in and out matrices. We need this since our problem is non-symmetric. 
+
+[1.x.101] 
+
+
+
+
+[1.x.102]  [1.x.103] 
+
+
+
+
+Here we define the assembly of the linear system on each cell to be used by the mesh_loop() function below. This one function assembles the cell matrix for either an active or a level cell (whatever it is passed as its first argument), and only assembles a right-hand side if called with an active cell. 
+
+
+
+
+
+
+
+[1.x.104] 
+
+
+
+If we are using streamline diffusion we must add its contribution to both the cell matrix and the cell right-hand side. If we are not using streamline diffusion, setting  [2.x.69]  negates this contribution below and we are left with the standard, Galerkin finite element assembly. 
+
+[1.x.105] 
+
+
+
+The assembly of the local matrix has two parts. First the Galerkin contribution: 
+
+[1.x.106] 
+
+
+
+and then the streamline diffusion contribution: 
+
+[1.x.107] 
+
+
+
+The same applies to the right hand side. First the Galerkin contribution: 
+
+[1.x.108] 
+
+
+
+and then the streamline diffusion contribution: 
+
+[1.x.109] 
+
+
+
+
+[1.x.110]  [1.x.111] 
+
+
+
+
+Here we employ  [2.x.70]  to go over cells and assemble the system_matrix, system_rhs, and all mg_matrices for us. 
+
+
+
+
+
+
+
+[1.x.112] 
+
+
+
+Unlike the constraints for the active level, we choose to create constraint objects for each multigrid level local to this function since they are never needed elsewhere in the program. 
+
+[1.x.113] 
+
+
+
+If  [2.x.71]  is an `interface_out` dof pair, then  [2.x.72]  is an `interface_in` dof pair. Note: For `interface_in`, we load the transpose of the interface entries, i.e., the entry for dof pair  [2.x.73]  is stored in `interface_in(i,j)`. This is an optimization for the symmetric case which allows only one matrix to be used when setting the edge_matrices in solve(). Here, however, since our problem is non-symmetric, we must store both `interface_in` and `interface_out` matrices. 
+
+[1.x.114] 
+
+
+
+
+[1.x.115]  [1.x.116] 
+
+
+
+
+Next, we set up the smoother based on the settings in the `.prm` file. The two options that are of significance is the number of pre- and post-smoothing steps on each level of the multigrid v-cycle and the relaxation parameter. 
+
+
+
+
+Since multiplicative methods tend to be more powerful than additive method, fewer smoothing steps are required to see convergence independent of mesh size. The same holds for block smoothers over point smoothers. This is reflected in the choice for the number of smoothing steps for each type of smoother below. 
+
+
+
+
+The relaxation parameter for point smoothers is chosen based on trial and error, and reflects values necessary to keep the iteration counts in the GMRES solve constant (or as close as possible) as we refine the mesh. The two values given for both "Jacobi" and "SOR" in the `.prm` files are for degree 1 and degree 3 finite elements. If the user wants to change to another degree, they may need to adjust these numbers. For block smoothers, this parameter has a more straightforward interpretation, namely that for additive methods in 2D, a DoF can have a repeated contribution from up to 4 cells, therefore we must relax these methods by 0.25 to compensate. This is not an issue for multiplicative methods as each cell's inverse application carries new information to all its DoFs. 
+
+
+
+
+Finally, as mentioned above, the point smoothers only operate on DoFs, and the block smoothers on cells, so only the block smoothers need to be given information regarding cell orderings. DoF ordering for point smoothers has already been taken care of in `setup_system()`. 
+
+
+
+
+
+
+
+[1.x.117] 
+
+
+
+
+[1.x.118]  [1.x.119] 
+
+
+
+
+Before we can solve the system, we must first set up the multigrid preconditioner. This requires the setup of the transfer between levels, the coarse matrix solver, and the smoother. This setup follows almost identically to  [2.x.74] , the main difference being the various smoothers defined above and the fact that we need different interface edge matrices for in and out since our problem is non-symmetric. (In reality, for this tutorial these interface matrices are empty since we are only using global refinement, and thus have no refinement edges. However, we have still included both here since if one made the simple switch to an adaptively refined method, the program would still run correctly.) 
+
+
+
+
+The last thing to note is that since our problem is non-symmetric, we must use an appropriate Krylov subspace method. We choose here to use GMRES since it offers the guarantee of residual reduction in each iteration. The major disavantage of GMRES is that, for each iteration, the number of stored temporary vectors increases by one, and one also needs to compute a scalar product with all previously stored vectors. This is rather expensive. This requirement is relaxed by using the restarted GMRES method which puts a cap on the number of vectors we are required to store at any one time (here we restart after 50 temporary vectors, or 48 iterations). This then has the disadvantage that we lose information we have gathered throughout the iteration and therefore we could see slower convergence. As a consequence, where to restart is a question of balancing memory consumption, CPU effort, and convergence speed. However, the goal of this tutorial is to have very low iteration counts by using a powerful GMG preconditioner, so we have picked the restart length such that all of the results shown below converge prior to restart happening, and thus we have a standard GMRES method. If the user is interested, another suitable method offered in deal.II would be BiCGStab. 
+
+
+
+
+
+
+
+[1.x.120] 
+
+
+
+
+[1.x.121]  [1.x.122] 
+
+
+
+
+The final function of interest generates graphical output. Here we output the solution and cell ordering in a .vtu format. 
+
+
+
+
+At the top of the function, we generate an index for each cell to visualize the ordering used by the smoothers. Note that we do this only for the active cells instead of the levels, where the smoothers are actually used. For the point smoothers we renumber DoFs instead of cells, so this is only an approximation of what happens in reality. Finally, the random ordering is not the random ordering we actually use (see `create_smoother()` for that).    
+
+
+The (integer) ordering of cells is then copied into a (floating point) vector for graphical output. 
+
+[1.x.123] 
+
+
+
+The remainder of the function is then straightforward, given previous tutorial programs: 
+
+[1.x.124] 
+
+
+
+
+[1.x.125]  [1.x.126] 
+
+
+
+
+As in most tutorials, this function creates/refines the mesh and calls the various functions defined above to set up, assemble, solve, and output the results. 
+
+
+
+
+In cycle zero, we generate the mesh for the on the square  [2.x.75]  with a hole of radius 3/10 units centered at the origin. For objects with `manifold_id` equal to one (namely, the faces adjacent to the hole), we assign a spherical manifold. 
+
+
+
+
+
+
+
+[1.x.127] 
+
+
+
+
+[1.x.128]  [1.x.129] 
+
+
+
+
+Finally, the main function is like most tutorials. The only interesting bit is that we require the user to pass a `.prm` file as a sole command line argument. If no parameter file is given, the program will output the contents of a sample parameter file with all default values to the screen that the user can then copy and paste into their own `.prm` file. 
+
+
+
+
+
+
+
+[1.x.130] 
+
+[1.x.131][1.x.132] 
+
+
+[1.x.133][1.x.134] 
+
+
+The major advantage for GMG is that it is an  [2.x.76]  method, that is, the complexity of the problem increases linearly with the problem size. To show then that the linear solver presented in this tutorial is in fact  [2.x.77] , all one needs to do is show that the iteration counts for the GMRES solve stay roughly constant as we refine the mesh. 
+
+Each of the following tables gives the GMRES iteration counts to reduce the initial residual by a factor of  [2.x.78] . We selected a sufficient number of smoothing steps (based on the method) to get iteration numbers independent of mesh size. As can be seen from the tables below, the method is indeed  [2.x.79] . 
+
+[1.x.135][1.x.136] 
+
+
+The point-wise smoothers ("Jacobi" and "SOR") get applied in the order the DoFs are numbered on each level. We can influence this using the DoFRenumbering namespace. The block smoothers are applied based on the ordering we set in `setup_smoother()`. We can visualize this numbering. The following pictures show the cell numbering of the active cells in downstream, random, and upstream numbering (left to right): 
+
+ [2.x.80]  
+
+Let us start with the additive smoothers. The following table shows the number of iterations necessary to obtain convergence from GMRES: 
+
+ [2.x.81]  
+
+We see that renumbering the DoFs/cells has no effect on convergence speed. This is because these smoothers compute operations on each DoF (point-smoother) or cell (block-smoother) independently and add up the results. Since we can define these smoothers as an application of a sum of matrices, and matrix addition is commutative, the order at which we sum the different components will not affect the end result. 
+
+On the other hand, the situation is different for multiplicative smoothers: 
+
+ [2.x.82]  
+
+Here, we can speed up convergence by renumbering the DoFs/cells in the advection direction, and similarly, we can slow down convergence if we do the renumbering in the opposite direction. This is because advection-dominated problems have a directional flow of information (in the advection direction) which, given the right renumbering of DoFs/cells, multiplicative methods are able to capture. 
+
+This feature of multiplicative methods is, however, dependent on the value of  [2.x.83] . As we increase  [2.x.84]  and the problem becomes more diffusion-dominated, we have a more uniform propagation of information over the mesh and there is a diminished advantage for renumbering in the advection direction. On the opposite end, in the extreme case of  [2.x.85]  (advection-only), we have a 1st-order PDE and multiplicative methods with the right renumbering become effective solvers: A correct downstream numbering may lead to methods that require only a single iteration because information can be propagated from the inflow boundary downstream, with no information transport in the opposite direction. (Note, however, that in the case of  [2.x.86] , special care must be taken for the boundary conditions in this case). 
+
+
+[1.x.137][1.x.138] 
+
+
+We will limit the results to runs using the downstream renumbering. Here is a cross comparison of all four smoothers for both  [2.x.87]  and  [2.x.88]  elements: 
+
+ [2.x.89]  
+
+We see that for  [2.x.90] , both multiplicative smoothers require a smaller combination of smoothing steps and iteration counts than either additive smoother. However, when we increase the degree to a  [2.x.91]  element, there is a clear advantage for the block smoothers in terms of the number of smoothing steps and iterations required to solve. Specifically, the block SOR smoother gives constant iteration counts over the degree, and the block Jacobi smoother only sees about a 38% increase in iterations compared to 75% and 183% for Jacobi and SOR respectively. 
+
+[1.x.139][1.x.140] 
+
+
+Iteration counts do not tell the full story in the optimality of a one smoother over another. Obviously we must examine the cost of an iteration. Block smoothers here are at a disadvantage as they are having to construct and invert a cell matrix for each cell. Here is a comparison of solve times for a  [2.x.92]  element with 74,496 DoFs: 
+
+ [2.x.93]  
+
+The smoother that requires the most iterations (Jacobi) actually takes the shortest time (roughly 2/3 the time of the next fastest method). This is because all that is required to apply a Jacobi smoothing step is multiplication by a diagonal matrix which is very cheap. On the other hand, while SOR requires over 3x more iterations (each with 3x more smoothing steps) than block SOR, the times are roughly equivalent, implying that a smoothing step of block SOR is roughly 9x slower than a smoothing step of SOR. Lastly, block Jacobi is almost 6x more expensive than block SOR, which intuitively makes sense from the fact that 1 step of each method has the same cost (inverting the cell matrices and either adding or multiply them together), and block Jacobi has 3 times the number of smoothing steps per iteration with 2 times the iterations. 
+
+
+[1.x.141][1.x.142] 
+
+
+There are a few more important points to mention: 
+
+ [2.x.94]   [2.x.95]  For a mesh distributed in parallel, multiplicative methods cannot be executed over the entire domain. This is because they operate one cell at a time, and downstream cells can only be handled once upstream cells have already been done. This is fine on a single processor: The processor just goes through the list of cells one after the other. However, in parallel, it would imply that some processors are idle because upstream processors have not finished doing the work on cells upstream from the ones owned by the current processor. Once the upstream processors are done, the downstream ones can start, but by that time the upstream processors have no work left. In other words, most of the time during these smoother steps, most processors are in fact idle. This is not how one obtains good parallel scalability! 
+
+One can use a hybrid method where a multiplicative smoother is applied on each subdomain, but as you increase the number of subdomains, the method approaches the behavior of an additive method. This is a major disadvantage to these methods.  [2.x.96]  
+
+ [2.x.97]  Current research into block smoothers suggest that soon we will be able to compute the inverse of the cell matrices much cheaper than what is currently being done inside deal.II. This research is based on the fast diagonalization method (dating back to the 1960s) and has been used in the spectral community for around 20 years (see, e.g., [1.x.143]). There are currently efforts to generalize these methods to DG and make them more robust. Also, it seems that one should be able to take advantage of matrix-free implementations and the fact that, in the interior of the domain, cell matrices tend to look very similar, allowing fewer matrix inverse computations.  [2.x.98]   [2.x.99]  
+
+Combining 1. and 2. gives a good reason for expecting that a method like block Jacobi could become very powerful in the future, even though currently for these examples it is quite slow. 
+
+
+[1.x.144][1.x.145] 
+
+
+[1.x.146][1.x.147] 
+
+
+Change the number of smoothing steps and the smoother relaxation parameter (set in  [2.x.100]  inside  [2.x.101] , only necessary for point smoothers) so that we maintain a constant number of iterations for a  [2.x.102]  element. 
+
+[1.x.148][1.x.149] 
+
+
+Increase/decrease the parameter "Epsilon" in the `.prm` files of the multiplicative methods and observe for which values renumbering no longer influences convergence speed. 
+
+[1.x.150][1.x.151] 
+
+
+The code is set up to work correctly with an adaptively refined mesh (the interface matrices are created and set). Devise a suitable refinement criterium or try the KellyErrorEstimator class. [1.x.152] [1.x.153]  [2.x.103]  
+
+ [2.x.104] 

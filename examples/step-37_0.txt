@@ -1,0 +1,559 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] ,  [2.x.3] . 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5][1.x.6][1.x.7][1.x.8][1.x.9][1.x.10][1.x.11][1.x.12][1.x.13][1.x.14][1.x.15][1.x.16][1.x.17][1.x.18][1.x.19][1.x.20][1.x.21][1.x.22][1.x.23][1.x.24][1.x.25][1.x.26][1.x.27][1.x.28][1.x.29][1.x.30][1.x.31] 
+
+ [2.x.4]  
+
+[1.x.32][1.x.33] 
+
+[1.x.34] [1.x.35][1.x.36] 
+
+
+This example shows how to implement a matrix-free method, that is, a method that does not explicitly store the matrix elements, for a second-order Poisson equation with variable coefficients on a hypercube. The linear system will be solved with a multigrid method and uses large-scale parallelism with MPI. 
+
+The major motivation for matrix-free methods is the fact that on today's processors access to main memory (i.e., for objects that do not fit in the caches) has become the bottleneck in many solvers for partial differential equations: To perform a matrix-vector product based on matrices, modern CPUs spend far more time waiting for data to arrive from memory than on actually doing the floating point multiplications and additions. Thus, if we could substitute looking up matrix elements in memory by re-computing them &mdash; or rather, the operator represented by these entries &mdash;, we may win in terms of overall run-time even if this requires a significant number of additional floating point operations. That said, to realize this with a trivial implementation is not enough and one needs to really look at the details to gain in performance. This tutorial program and the papers referenced above show how one can implement such a scheme and demonstrates the speedup that can be obtained. 
+
+
+[1.x.37][1.x.38] 
+
+
+In this example, we consider the Poisson problem [1.x.39] where  [2.x.5]  is a variable coefficient. Below, we explain how to implement a matrix-vector product for this problem without explicitly forming the matrix. The construction can, of course, be done in a similar way for other equations as well. 
+
+We choose as domain  [2.x.6]  and  [2.x.7] . Since the coefficient is symmetric around the origin but the domain is not, we will end up with a non-symmetric solution. 
+
+
+[1.x.40][1.x.41] 
+
+
+In order to find out how we can write a code that performs a matrix-vector product, but does not need to store the matrix elements, let us start at looking how a finite element matrix [1.x.42] is assembled: [1.x.43] 
+
+In this formula, the matrix [1.x.44]<sub>cell,loc-glob</sub> is a rectangular matrix that defines the index mapping from local degrees of freedom in the current cell to the global degrees of freedom. The information from which this operator can be built is usually encoded in the  [2.x.8]  variable and is used in the assembly calls filling matrices in deal.II. Here, [1.x.45]<sub>cell</sub> denotes the cell matrix associated with [1.x.46]. 
+
+If we are to perform a matrix-vector product, we can hence use that [1.x.47] 
+
+where [1.x.48]<sub>cell</sub> are the values of [1.x.49] at the degrees of freedom of the respective cell, and [1.x.50]<sub>cell</sub>=[1.x.51]<sub>cell</sub>[1.x.52]<sub>cell</sub> correspondingly for the result. A naive attempt to implement the local action of the Laplacian would hence be to use the following code: 
+
+[1.x.53] 
+
+
+
+Here we neglected boundary conditions as well as any hanging nodes we may have, though neither would be very difficult to include using the AffineConstraints class. Note how we first generate the local matrix in the usual way as a sum over all quadrature points for each local matrix entry. To form the actual product as expressed in the above formula, we extract the values of  [2.x.9]  of the cell-related degrees of freedom (the action of [1.x.54]<sub>cell,loc-glob</sub>), multiply by the local matrix (the action of [1.x.55]<sub>cell</sub>), and finally add the result to the destination vector  [2.x.10]  (the action of [1.x.56]<sub>cell,loc-glob</sub><sup>T</sup>, added over all the elements). It is not more difficult than that, in principle. 
+
+While this code is completely correct, it is very slow. For every cell, we generate a local matrix, which takes three nested loops with loop length equal to the number of local degrees of freedom to compute. The multiplication itself is then done by two nested loops, which means that it is much cheaper. 
+
+One way to improve this is to realize that conceptually the local matrix can be thought of as the product of three matrices, [1.x.57] 
+
+where for the example of the Laplace operator the ([1.x.58]*dim+[1.x.59])-th element of [1.x.60]<sub>cell</sub> is given by  [2.x.11] . This matrix consists of  [2.x.12]  rows and  [2.x.13]  columns. The matrix [1.x.61]<sub>cell</sub> is diagonal and contains the values  [2.x.14]  (or, rather, @p dim copies of each of these values). This kind of representation of finite element matrices can often be found in the engineering literature. 
+
+When the cell matrix is applied to a vector, [1.x.62] 
+
+one would then not form the matrix-matrix products, but rather multiply one matrix at a time with a vector from right to left so that only three successive matrix-vector products are formed. This approach removes the three nested loops in the calculation of the local matrix, which reduces the complexity of the work on one cell from something like  [2.x.15]  to  [2.x.16] . An interpretation of this algorithm is that we first transform the vector of values on the local DoFs to a vector of gradients on the quadrature points. In the second loop, we multiply these gradients by the integration weight and the coefficient. The third loop applies the second gradient (in transposed form), so that we get back to a vector of (Laplacian) values on the cell dofs. 
+
+The bottleneck in the above code is the operations done by the call to  [2.x.17]  for every  [2.x.18] , which take about as much time as the other steps together (at least if the mesh is unstructured; deal.II can recognize that the gradients are often unchanged on structured meshes). That is certainly not ideal and we would like to do better than this. What the reinit function does is to calculate the gradient in real space by transforming the gradient on the reference cell using the Jacobian of the transformation from real to reference cell. This is done for each basis function on the cell, for each quadrature point. The Jacobian does not depend on the basis function, but it is different on different quadrature points in general. If you only build the matrix once as we've done in all previous tutorial programs, there is nothing to be optimized since  [2.x.19]  needs to be called on every cell. In this process, the transformation is applied while computing the local matrix elements. 
+
+In a matrix-free implementation, however, we will compute those integrals very often because iterative solvers will apply the matrix many times during the solution process. Therefore, we need to think about whether we may be able to cache some data that gets reused in the operator applications, i.e., integral computations. On the other hand, we realize that we must not cache too much data since otherwise we get back to the situation where memory access becomes the dominating factor. Therefore, we will not store the transformed gradients in the matrix [1.x.63], as they would in general be different for each basis function and each quadrature point on every element for curved meshes. 
+
+The trick is to factor out the Jacobian transformation and first apply the gradient on the reference cell only. This operation interpolates the vector of values on the local dofs to a vector of (unit-coordinate) gradients on the quadrature points. There, we first apply the Jacobian that we factored out from the gradient, then apply the weights of the quadrature, and finally apply the transposed Jacobian for preparing the third loop which tests by the gradients on the unit cell and sums over quadrature points. 
+
+Let us again write this in terms of matrices. Let the matrix [1.x.64]<sub>cell</sub> denote the cell-related gradient matrix, with each row containing the values on the quadrature points. It is constructed by a matrix-matrix product as [1.x.65] where [1.x.66]<sub>ref_cell</sub> denotes the gradient on the reference cell and [1.x.67]<sup>-T</sup><sub>cell</sub> denotes the inverse transpose Jacobian of the transformation from unit to real cell (in the language of transformations, the operation represented by [1.x.68]<sup>-T</sup><sub>cell</sub> represents a covariant transformation). [1.x.69]<sup>-T</sup><sub>cell</sub> is block-diagonal, and the blocks size is equal to the dimension of the problem. Each diagonal block is the Jacobian transformation that goes from the reference cell to the real cell. 
+
+Putting things together, we find that [1.x.70] 
+
+so we calculate the product (starting the local product from the right) [1.x.71] 
+
+
+
+[1.x.72] 
+
+
+
+Note how we create an additional FEValues object for the reference cell gradients and how we initialize it to the reference cell. The actual derivative data is then applied by the inverse, transposed Jacobians (deal.II calls the Jacobian matrix from real to unit cell inverse_jacobian, as the forward transformation is from unit to real cell). The factor  [2.x.20]  is block-diagonal over quadrature. In this form, one realizes that variable coefficients (possibly expressed through a tensor) and general grid topologies with Jacobian transformations have a similar effect on the coefficient transforming the unit-cell derivatives. 
+
+At this point, one might wonder why we store the matrix  [2.x.21]  and the coefficient separately, rather than only the complete factor  [2.x.22] . The latter would use less memory because the tensor is symmetric with six independent values in 3D, whereas for the former we would need nine entries for the inverse transposed Jacobian, one for the quadrature weight and Jacobian determinant, and one for the coefficient, totaling to 11 doubles. The reason is that the former approach allows for implementing generic differential operators through a common framework of cached data, whereas the latter specifically stores the coefficient for the Laplacian. In case applications demand for it, this specialization could pay off and would be worthwhile to consider. Note that the implementation in deal.II is smart enough to detect Cartesian or affine geometries where the Jacobian is constant throughout the cell and needs not be stored for every cell (and indeed often is the same over different cells as well). 
+
+The final optimization that is most crucial from an operation count point of view is to make use of the tensor product structure in the basis functions. This is possible because we have factored out the gradient from the reference cell operation described by [1.x.73]<sub>ref_cell</sub>, i.e., an interpolation operation over the completely regular data fields of the reference cell. We illustrate the process of complexity reduction in two space dimensions, but the same technique can be used in higher dimensions. On the reference cell, the basis functions are of the tensor product form  [2.x.23] . The part of the matrix [1.x.74]<sub>ref_cell</sub> that computes the first component has the form  [2.x.24] , where [1.x.75]<sub>grad,x</sub> and [1.x.76]<sub>val,y</sub> contain the evaluation of all the 1D basis functions on all the 1D quadrature points. Forming a matrix [1.x.77] with [1.x.78] containing the coefficient belonging to basis function  [2.x.25] , we get  [2.x.26] . This reduces the complexity for computing this product from  [2.x.27]  to  [2.x.28] , where [1.x.79]-1 is the degree of the finite element (i.e., equivalently, [1.x.80] is the number of shape functions in each coordinate direction), or  [2.x.29]  to  [2.x.30]  in general. The reason why we look at the complexity in terms of the polynomial degree is since we want to be able to go to high degrees and possibly increase the polynomial degree [1.x.81] instead of the grid resolution. Good algorithms for moderate degrees like the ones used here are linear in the polynomial degree independent on the dimension, as opposed to matrix-based schemes or naive evaluation through FEValues. The techniques used in the implementations of deal.II have been established in the spectral element community since the 1980s. 
+
+Implementing a matrix-free and cell-based finite element operator requires a somewhat different program design as compared to the usual matrix assembly codes shown in previous tutorial programs. The data structures for doing this are the MatrixFree class that collects all data and issues a (parallel) loop over all cells and the FEEvaluation class that evaluates finite element basis functions by making use of the tensor product structure. 
+
+The implementation of the matrix-free matrix-vector product shown in this tutorial is slower than a matrix-vector product using a sparse matrix for linear elements, but faster for all higher order elements thanks to the reduced complexity due to the tensor product structure and due to less memory transfer during computations. The impact of reduced memory transfer is particularly beneficial when working on a multicore processor where several processing units share access to memory. In that case, an algorithm which is computation bound will show almost perfect parallel speedup (apart from possible changes of the processor's clock frequency through turbo modes depending on how many cores are active), whereas an algorithm that is bound by memory transfer might not achieve similar speedup (even when the work is perfectly parallel and one could expect perfect scaling like in sparse matrix-vector products). An additional gain with this implementation is that we do not have to build the sparse matrix itself, which can also be quite expensive depending on the underlying differential equation. Moreover, the above framework is simple to generalize to nonlinear operations, as we demonstrate in  [2.x.31] . 
+
+
+[1.x.82][1.x.83] 
+
+
+Above, we have gone to significant lengths to implement a matrix-vector product that does not actually store the matrix elements. In many user codes, however, one wants more than just doing a few matrix-vector products &mdash; one wants to do as few of these operations as possible when solving linear systems. In theory, we could use the CG method without preconditioning; however, that would not be very efficient for the Laplacian. Rather, preconditioners are used for increasing the speed of convergence. Unfortunately, most of the more frequently used preconditioners such as SSOR, ILU or algebraic multigrid (AMG) cannot be used here because their implementation requires knowledge of the elements of the system matrix. 
+
+One solution is to use geometric multigrid methods as shown in  [2.x.32] . They are known to be very fast, and they are suitable for our purpose since all ingredients, including the transfer between different grid levels, can be expressed in terms of matrix-vector products related to a collection of cells. All one needs to do is to find a smoother that is based on matrix-vector products rather than all the matrix entries. One such candidate would be a damped Jacobi iteration that requires access to the matrix diagonal, but it is often not sufficiently good in damping all high-frequency errors. The properties of the Jacobi method can be improved by iterating it a few times with the so-called Chebyshev iteration. The Chebyshev iteration is described by a polynomial expression of the matrix-vector product where the coefficients can be chosen to achieve certain properties, in this case to smooth the high-frequency components of the error which are associated to the eigenvalues of the Jacobi-preconditioned matrix. At degree zero, the Jacobi method with optimal damping parameter is retrieved, whereas higher order corrections are used to improve the smoothing properties. The effectiveness of Chebyshev smoothing in multigrid has been demonstrated, e.g., in the article [1.x.84][1.x.85]. This publication also identifies one more advantage of Chebyshev smoothers that we exploit here, namely that they are easy to parallelize, whereas SOR/Gauss&ndash;Seidel smoothing relies on substitutions, for which a naive parallelization works on diagonal sub-blocks of the matrix, thereby decreases efficiency (for more detail see e.g. Y. Saad, Iterative Methods for Sparse Linear Systems, SIAM, 2nd edition, 2003, chapters 11 & 12). 
+
+The implementation into the multigrid framework is then straightforward. The multigrid implementation in this program is similar to  [2.x.33]  and includes adaptivity. 
+
+
+[1.x.86][1.x.87] 
+
+
+The computational kernels for evaluation in FEEvaluation are written in a way to optimally use computational resources. To achieve this, they do not operate on double data types, but something we call VectorizedArray (check e.g. the return type of  [2.x.34]  which is VectorizedArray for a scalar element and a Tensor of VectorizedArray for a vector finite element). VectorizedArray is a short array of doubles or float whose length depends on the particular computer system in use. For example, systems based on x86-64 support the streaming SIMD extensions (SSE), where the processor's vector units can process two doubles (or four single-precision floats) by one CPU instruction. Newer processors (from about 2012 and onwards) support the so-called advanced vector extensions (AVX) with 256 bit operands, which can use four doubles and eight floats, respectively. Vectorization is a single-instruction/multiple-data (SIMD) concept, that is, one CPU instruction is used to process multiple data values at once. Often, finite element programs do not use vectorization explicitly as the benefits of this concept are only in arithmetic intensive operations. The bulk of typical finite element workloads are memory bandwidth limited (operations on sparse matrices and vectors) where the additional computational power is useless. 
+
+Behind the scenes, optimized BLAS packages might heavily rely on vectorization, though. Also, optimizing compilers might automatically transform loops involving standard code into more efficient vectorized form (deal.II uses OpenMP SIMD pragmas inside the regular loops of vector updates). However, the data flow must be very regular in order for compilers to produce efficient code. For example, already the automatic vectorization of the prototype operation that benefits from vectorization, matrix-matrix products, fails on most compilers (as of writing this tutorial in early 2012 and updating in late 2016, neither gcc nor the Intel compiler manage to produce useful vectorized code for the  [2.x.35]  function, and not even on the simpler case where the matrix bounds are compile-time constants instead of run-time constants as in  [2.x.36]  The main reason for this is that the information to be processed at the innermost loop (that is where vectorization is applied) is not necessarily a multiple of the vector length, leaving parts of the resources unused. Moreover, the data that can potentially be processed together might not be laid out in a contiguous way in memory or not with the necessary alignment to address boundaries that are needed by the processor. Or the compiler might not be able to prove that data arrays do not overlap when loading several elements at once. 
+
+In the matrix-free implementation in deal.II, we have therefore chosen to apply vectorization at the level which is most appropriate for finite element computations: The cell-wise computations are typically exactly the same for all cells (except for indices in the indirect addressing used while reading from and writing to vectors), and hence SIMD can be used to process several cells at once. In all what follows, you can think of a VectorizedArray to hold data from several cells. Remember that it is not related to the spatial dimension and the number of elements e.g. in a Tensor or Point. 
+
+Note that vectorization depends on the CPU the code is running on and for which the code is compiled. In order to generate the fastest kernels of FEEvaluation for your computer, you should compile deal.II with the so-called [1.x.88] processor variant. When using the gcc compiler, it can be enabled by setting the variable <tt>CMAKE_CXX_FLAGS</tt> to <tt>"-march=native"</tt> in the cmake build settings (on the command line, specify <tt>-DCMAKE_CXX_FLAGS="-march=native"</tt>, see the deal.II README for more information). Similar options exist for other compilers. We output the current vectorization length in the run() function of this example. 
+
+
+[1.x.89][1.x.90] 
+
+
+As mentioned above, all components in the matrix-free framework can easily be parallelized with MPI using domain decomposition. Thanks to the easy access to large-scale parallel meshes through p4est (see  [2.x.37]  for details) in deal.II, and the fact that cell-based loops with matrix-free evaluation [1.x.91] need a decomposition of the mesh into chunks of roughly equal size on each processor, there is relatively little to do to write a parallel program working with distributed memory. While other tutorial programs using MPI have relied on either PETSc or Trilinos, this program uses deal.II's own parallel vector facilities. 
+
+The deal.II parallel vector class,  [2.x.38]  holds the processor-local part of the solution as well as data fields for ghosted DoFs, i.e. DoFs that are owned by a remote processor but accessed by cells that are owned by the present processor. In the  [2.x.39]  "glossary" these degrees of freedom are referred to as locally active degrees of freedom. The function  [2.x.40]  provides a method that sets this design. Note that hanging nodes can relate to additional ghosted degrees of freedom that must be included in the distributed vector but are not part of the locally active DoFs in the sense of the  [2.x.41]  "glossary". Moreover, the distributed vector holds the MPI metadata for DoFs that are owned locally but needed by other processors. A benefit of the design of this vector class is the way ghosted entries are accessed. In the storage scheme of the vector, the data array extends beyond the processor-local part of the solution with further vector entries available for the ghosted degrees of freedom. This gives a contiguous index range for all locally active degrees of freedom. (Note that the index range depends on the exact configuration of the mesh.) Since matrix-free operations can be thought of doing linear algebra that is performance critical, and performance-critical code cannot waste time on doing MPI-global to MPI-local index translations, the availability of an index spaces local to one MPI rank is fundamental. The way things are accessed here is a direct array access. This is provided through  [2.x.42]  but it is actually rarely needed because all of this happens internally in FEEvaluation. 
+
+The design of  [2.x.43]  is similar to the  [2.x.44]  and  [2.x.45]  data types we have used in  [2.x.46]  and  [2.x.47]  before, but since we do not need any other parallel functionality of these libraries, we use the  [2.x.48]  class of deal.II instead of linking in another large library in this tutorial program. Also note that the PETSc and Trilinos vectors do not provide the fine-grained control over ghost entries with direct array access because they abstract away the necessary implementation details. [1.x.92] [1.x.93] 
+
+First include the necessary files from the deal.II library. 
+
+[1.x.94] 
+
+
+
+This includes the data structures for the efficient implementation of matrix-free methods or more generic finite element operators with the class MatrixFree. 
+
+[1.x.95] 
+
+
+
+To be efficient, the operations performed in the matrix-free implementation require knowledge of loop lengths at compile time, which are given by the degree of the finite element. Hence, we collect the values of the two template parameters that can be changed at one place in the code. Of course, one could make the degree of the finite element a run-time parameter by compiling the computational kernels for all degrees that are likely (say, between 1 and 6) and selecting the appropriate kernel at run time. Here, we simply choose second order  [2.x.49]  elements and choose dimension 3 as standard. 
+
+[1.x.96] 
+
+
+
+
+[1.x.97]  [1.x.98] 
+
+
+
+
+We define a variable coefficient function for the Poisson problem. It is similar to the function in  [2.x.50]  but we use the form  [2.x.51]  instead of a discontinuous one. It is merely to demonstrate the possibilities of this implementation, rather than making much sense physically. We define the coefficient in the same way as functions in earlier tutorial programs. There is one new function, namely a  [2.x.52]  method with template argument  [2.x.53]  
+
+[1.x.99] 
+
+
+
+This is the new function mentioned above: Evaluate the coefficient for abstract type  [2.x.54]  It might be just a usual double, but it can also be a somewhat more complicated type that we call VectorizedArray. This data type is essentially a short array of doubles as discussed in the introduction that holds data from several cells. For example, we evaluate the coefficient shown here not on a simple point as usually done, but we hand it a Point<dim,VectorizedArray<double> > point, which is actually a collection of four points in the case of AVX. Do not confuse the entries in VectorizedArray with the different coordinates of the point. Indeed, the data is laid out such that  [2.x.55]  returns a VectorizedArray, which in turn contains the x-coordinate for the first point and the second point. You may access the coordinates individually using e.g.  [2.x.56] , j=0,1,2,3, but it is recommended to define operations on a VectorizedArray as much as possible in order to make use of vectorized operations.    
+
+
+In the function implementation, we assume that the number type overloads basic arithmetic operations, so we just write the code as usual. The base class function  [2.x.57]  is then computed from the templated function with double type, in order to avoid duplicating code. 
+
+[1.x.100] 
+
+
+
+
+[1.x.101]  [1.x.102] 
+
+
+
+
+The following class, called  [2.x.58] , implements the differential operator. For all practical purposes, it is a matrix, i.e., you can ask it for its size (member functions  [2.x.59] ) and you can apply it to a vector (the  [2.x.60]  function). The difference to a real matrix of course lies in the fact that this class does not actually store the [1.x.103] of the matrix, but only knows how to compute the action of the operator when applied to a vector.    
+
+
+The infrastructure describing the matrix size, the initialization from a MatrixFree object, and the various interfaces to matrix-vector products through vmult() and Tvmult() methods, is provided by the class  [2.x.61]  from which this class derives. The LaplaceOperator class defined here only has to provide a few interfaces, namely the actual action of the operator through the apply_add() method that gets used in the vmult() functions, and a method to compute the diagonal entries of the underlying matrix. We need the diagonal for the definition of the multigrid smoother. Since we consider a problem with variable coefficient, we further implement a method that can fill the coefficient values.    
+
+
+Note that the file  [2.x.62]  already contains an implementation of the Laplacian through the class  [2.x.63]  For educational purposes, the operator is re-implemented in this tutorial program, explaining the ingredients and concepts used there.    
+
+
+This program makes use of the data cache for finite element operator application that is integrated in deal.II. This data cache class is called MatrixFree. It contains mapping information (Jacobians) and index relations between local and global degrees of freedom. It also contains constraints like the ones from hanging nodes or Dirichlet boundary conditions. Moreover, it can issue a loop over all cells in %parallel, making sure that only cells are worked on that do not share any degree of freedom (this makes the loop thread-safe when writing into destination vectors). This is a more advanced strategy compared to the WorkStream class described in the  [2.x.64]  module. Of course, to not destroy thread-safety, we have to be careful when writing into class-global structures.    
+
+
+The class implementing the Laplace operator has three template arguments, one for the dimension (as many deal.II classes carry), one for the degree of the finite element (which we need to enable efficient computations through the FEEvaluation class), and one for the underlying scalar type. We want to use  [2.x.65]  numbers (i.e., double precision, 64-bit floating point) for the final matrix, but floats (single precision, 32-bit floating point numbers) for the multigrid level matrices (as that is only a preconditioner, and floats can be processed twice as fast). The class FEEvaluation also takes a template argument for the number of quadrature points in one dimension. In the code below, we hard-code it to  [2.x.66] . If we wanted to change it independently of the polynomial degree, we would need to add a template parameter as is done in the  [2.x.67]  class.    
+
+
+As a sidenote, if we implemented several different operations on the same grid and degrees of freedom (like a mass matrix and a Laplace matrix), we would define two classes like the current one for each of the operators (derived from the  [2.x.68]  class), and let both of them refer to the same MatrixFree data cache from the general problem class. The interface through  [2.x.69]  requires us to only provide a minimal set of functions. This concept allows for writing complex application codes with many matrix-free operations.    
+
+
+
+
+ [2.x.70]  Storing values of type  [2.x.71]  requires care: Here, we use the deal.II table class which is prepared to hold the data with correct alignment. However, storing e.g. an  [2.x.72]  is not possible with vectorization: A certain alignment of the data with the memory address boundaries is required (essentially, a VectorizedArray that is 32 bytes long in case of AVX needs to start at a memory address that is divisible by 32). The table class (as well as the AlignedVector class it is based on) makes sure that this alignment is respected, whereas  [2.x.73]  does not in general, which may lead to segmentation faults at strange places for some systems or suboptimal performance for other systems. 
+
+[1.x.104] 
+
+
+
+This is the constructor of the  [2.x.74]  class. All it does is to call the default constructor of the base class  [2.x.75]  which in turn is based on the Subscriptor class that asserts that this class is not accessed after going out of scope e.g. in a preconditioner. 
+
+[1.x.105] 
+
+
+
+
+[1.x.106]  [1.x.107] 
+
+
+
+
+To initialize the coefficient, we directly give it the Coefficient class defined above and then select the method  [2.x.76]  with vectorized number (which the compiler can deduce from the point data type). The use of the FEEvaluation class (and its template arguments) will be explained below. 
+
+[1.x.108] 
+
+
+
+
+[1.x.109]  [1.x.110] 
+
+
+
+
+Here comes the main function of this class, the evaluation of the matrix-vector product (or, in general, a finite element operator evaluation). This is done in a function that takes exactly four arguments, the MatrixFree object, the destination and source vectors, and a range of cells that are to be worked on. The method  [2.x.77]  in the MatrixFree class will internally call this function with some range of cells that is obtained by checking which cells are possible to work on simultaneously so that write operations do not cause any race condition. Note that the cell range used in the loop is not directly the number of (active) cells in the current mesh, but rather a collection of batches of cells.  In other word, "cell" may be the wrong term to begin with, since FEEvaluation groups data from several cells together. This means that in the loop over quadrature points we are actually seeing a group of quadrature points of several cells as one block. This is done to enable a higher degree of vectorization.  The number of such "cells" or "cell batches" is stored in MatrixFree and can be queried through  [2.x.78]  Compared to the deal.II cell iterators, in this class all cells are laid out in a plain array with no direct knowledge of level or neighborship relations, which makes it possible to index the cells by unsigned integers.    
+
+
+The implementation of the Laplace operator is quite simple: First, we need to create an object FEEvaluation that contains the computational kernels and has data fields to store temporary results (e.g. gradients evaluated on all quadrature points on a collection of a few cells). Note that temporary results do not use a lot of memory, and since we specify template arguments with the element order, the data is stored on the stack (without expensive memory allocation). Usually, one only needs to set two template arguments, the dimension as a first argument and the degree of the finite element as the second argument (this is equal to the number of degrees of freedom per dimension minus one for FE_Q elements). However, here we also want to be able to use float numbers for the multigrid preconditioner, which is the last (fifth) template argument. Therefore, we cannot rely on the default template arguments and must also fill the third and fourth field, consequently. The third argument specifies the number of quadrature points per direction and has a default value equal to the degree of the element plus one. The fourth argument sets the number of components (one can also evaluate vector-valued functions in systems of PDEs, but the default is a scalar element), and finally the last argument sets the number type.    
+
+
+Next, we loop over the given cell range and then we continue with the actual implementation:  [2.x.79]   [2.x.80] Tell the FEEvaluation object the (macro) cell we want to work on.   [2.x.81] Read in the values of the source vectors ( [2.x.82]  including the resolution of constraints. This stores  [2.x.83]  as described in the introduction.   [2.x.84] Compute the unit-cell gradient (the evaluation of finite element functions). Since FEEvaluation can combine value computations with gradient computations, it uses a unified interface to all kinds of derivatives of order between zero and two. We only want gradients, no values and no second derivatives, so we set the function arguments to true in the gradient slot (second slot), and to false in the values slot (first slot). There is also a third slot for the Hessian which is false by default, so it needs not be given. Note that the FEEvaluation class internally evaluates shape functions in an efficient way where one dimension is worked on at a time (using the tensor product form of shape functions and quadrature points as mentioned in the introduction). This gives complexity equal to  [2.x.85]  for polynomial degree  [2.x.86]  in  [2.x.87]  dimensions, compared to the naive approach with loops over all local degrees of freedom and quadrature points that is used in FEValues and costs  [2.x.88] .   [2.x.89] Next comes the application of the Jacobian transformation, the multiplication by the variable coefficient and the quadrature weight. FEEvaluation has an access function  [2.x.90]  that applies the Jacobian and returns the gradient in real space. Then, we just need to multiply by the (scalar) coefficient, and let the function  [2.x.91]  apply the second Jacobian (for the test function) and the quadrature weight and Jacobian determinant (JxW). Note that the submitted gradient is stored in the same data field as where it is read from in  [2.x.92]  Therefore, you need to make sure to not read from the same quadrature point again after having called  [2.x.93]  on that particular quadrature point. In general, it is a good idea to copy the result of  [2.x.94]  when it is used more often than once.   [2.x.95] Next follows the summation over quadrature points for all test functions that corresponds to the actual integration step. For the Laplace operator, we just multiply by the gradient, so we call the integrate function with the respective argument set. If you have an equation where you test by both the values of the test functions and the gradients, both template arguments need to be set to true. Calling first the integrate function for values and then gradients in a separate call leads to wrong results, since the second call will internally overwrite the results from the first call. Note that there is no function argument for the second derivative for integrate step.   [2.x.96] Eventually, the local contributions in the vector  [2.x.97]  as mentioned in the introduction need to be added into the result vector (and constraints are applied). This is done with a call to  [2.x.98]  the same name as the corresponding function in the AffineConstraints (only that we now store the local vector in the FEEvaluation object, as are the indices between local and global degrees of freedom).   [2.x.99]  
+
+[1.x.111] 
+
+
+
+This function implements the loop over all cells for the  [2.x.100]  interface. This is done with the  [2.x.101]  of the MatrixFree class, which takes the operator() of this class with arguments MatrixFree, OutVector, InVector, cell_range. When working with MPI parallelization (but no threading) as is done in this tutorial program, the cell loop corresponds to the following three lines of code:    
+
+
+ [2.x.102]     
+
+
+Here, the two calls update_ghost_values() and compress() perform the data exchange on processor boundaries for MPI, once for the source vector where we need to read from entries owned by remote processors, and once for the destination vector where we have accumulated parts of the residuals that need to be added to the respective entry of the owner processor. However,  [2.x.103]  does not only abstract away those two calls, but also performs some additional optimizations. On the one hand, it will split the update_ghost_values() and compress() calls in a way to allow for overlapping communication and computation. The local_apply function is then called with three cell ranges representing partitions of the cell range from 0 to  [2.x.104]  On the other hand, cell_loop also supports thread parallelism in which case the cell ranges are split into smaller chunks and scheduled in an advanced way that avoids access to the same vector entry by several threads. That feature is explained in  [2.x.105] .    
+
+
+Note that after the cell loop, the constrained degrees of freedom need to be touched once more for sensible vmult() operators: Since the assembly loop automatically resolves constraints (just as the  [2.x.106]  call does), it does not compute any contribution for constrained degrees of freedom, leaving the respective entries zero. This would represent a matrix that had empty rows and columns for constrained degrees of freedom. However, iterative solvers like CG only work for non-singular matrices. The easiest way to do that is to set the sub-block of the matrix that corresponds to constrained DoFs to an identity matrix, in which case application of the matrix would simply copy the elements of the right hand side vector into the left hand side. Fortunately, the vmult() implementations  [2.x.107]  do this automatically for us outside the apply_add() function, so we do not need to take further action here.    
+
+
+When using the combination of MatrixFree and FEEvaluation in parallel with MPI, there is one aspect to be careful about &mdash; the indexing used for accessing the vector. For performance reasons, MatrixFree and FEEvaluation are designed to access vectors in MPI-local index space also when working with multiple processors. Working in local index space means that no index translation needs to be performed at the place the vector access happens, apart from the unavoidable indirect addressing. However, local index spaces are ambiguous: While it is standard convention to access the locally owned range of a vector with indices between 0 and the local size, the numbering is not so clear for the ghosted entries and somewhat arbitrary. For the matrix-vector product, only the indices appearing on locally owned cells (plus those referenced via hanging node constraints) are necessary. However, in deal.II we often set all the degrees of freedom on ghosted elements as ghosted vector entries, called the  [2.x.108]  "locally relevant DoFs described in the glossary". In that case, the MPI-local index of a ghosted vector entry can in general be different in the two possible ghost sets, despite referring to the same global index. To avoid problems, FEEvaluation checks that the partitioning of the vector used for the matrix-vector product does indeed match with the partitioning of the indices in MatrixFree by a check called  [2.x.109]  To facilitate things, the  [2.x.110]  class includes a mechanism to fit the ghost set to the correct layout. This happens in the ghost region of the vector, so keep in mind that the ghost region might be modified in both the destination and source vector after a call to a vmult() method. This is legitimate because the ghost region of a distributed deal.II vector is a mutable section and filled on demand. Vectors used in matrix-vector products must not be ghosted upon entry of vmult() functions, so no information gets lost. 
+
+[1.x.113] 
+
+
+
+The following function implements the computation of the diagonal of the operator. Computing matrix entries of a matrix-free operator evaluation turns out to be more complicated than evaluating the operator. Fundamentally, we could obtain a matrix representation of the operator by applying the operator on [1.x.114] unit vectors. Of course, that would be very inefficient since we would need to perform [1.x.115] operator evaluations to retrieve the whole matrix. Furthermore, this approach would completely ignore the matrix sparsity. On an individual cell, however, this is the way to go and actually not that inefficient as there usually is a coupling between all degrees of freedom inside the cell.    
+
+
+We first initialize the diagonal vector to the correct parallel layout. This vector is encapsulated in a member called inverse_diagonal_entries of type DiagonalMatrix in the base class  [2.x.111]  This member is a shared pointer that we first need to initialize and then get the vector representing the diagonal entries in the matrix. As to the actual diagonal computation, we again use the cell_loop infrastructure of MatrixFree to invoke a local worker routine called local_compute_diagonal(). Since we will only write into a vector but not have any source vector, we put a dummy argument of type <tt>unsigned int</tt> in place of the source vector to confirm with the cell_loop interface. After the loop, we need to set the vector entries subject to Dirichlet boundary conditions to one (either those on the boundary described by the AffineConstraints object inside MatrixFree or the indices at the interface between different grid levels in adaptive multigrid). This is done through the function  [2.x.112]  and matches with the setting in the matrix-vector product provided by the Base operator. Finally, we need to invert the diagonal entries which is the form required by the Chebyshev smoother based on the Jacobi iteration. In the loop, we assert that all entries are non-zero, because they should either have obtained a positive contribution from integrals or be constrained and treated by  [2.x.113]  following cell_loop. 
+
+[1.x.116] 
+
+
+
+In the local compute loop, we compute the diagonal by a loop over all columns in the local matrix and putting the entry 1 in the [1.x.117]th slot and a zero entry in all other slots, i.e., we apply the cell-wise differential operator on one unit vector at a time. The inner part invoking  [2.x.114]  the loop over quadrature points, and  [2.x.115]  is exactly the same as in the local_apply function. Afterwards, we pick out the [1.x.118]th entry of the local result and put it to a temporary storage (as we overwrite all entries in the array behind  [2.x.116]  with the next loop iteration). Finally, the temporary storage is written to the destination vector. Note how we use  [2.x.117]  and  [2.x.118]  to read and write to the data field that FEEvaluation uses for the integration on the one hand and writes into the global vector on the other hand.    
+
+
+Given that we are only interested in the matrix diagonal, we simply throw away all other entries of the local matrix that have been computed along the way. While it might seem wasteful to compute the complete cell matrix and then throw away everything but the diagonal, the integration are so efficient that the computation does not take too much time. Note that the complexity of operator evaluation per element is  [2.x.119]  for polynomial degree  [2.x.120] , so computing the whole matrix costs us  [2.x.121]  operations, not too far away from  [2.x.122]  complexity for computing the diagonal with FEValues. Since FEEvaluation is also considerably faster due to vectorization and other optimizations, the diagonal computation with this function is actually the fastest (simple) variant. (It would be possible to compute the diagonal with sum factorization techniques in  [2.x.123]  operations involving specifically adapted kernels&mdash;but since such kernels are only useful in that particular context and the diagonal computation is typically not on the critical path, they have not been implemented in deal.II.)    
+
+
+Note that the code that calls distribute_local_to_global on the vector to accumulate the diagonal entries into the global matrix has some limitations. For operators with hanging node constraints that distribute an integral contribution of a constrained DoF to several other entries inside the distribute_local_to_global call, the vector interface used here does not exactly compute the diagonal entries, but lumps some contributions located on the diagonal of the local matrix that would end up in a off-diagonal position of the global matrix to the diagonal. The result is correct up to discretization accuracy as explained in [1.x.119], but not mathematically equal. In this tutorial program, no harm can happen because the diagonal is only used for the multigrid level matrices where no hanging node constraints appear. 
+
+[1.x.120] 
+
+
+
+
+[1.x.121]  [1.x.122] 
+
+
+
+
+This class is based on the one in  [2.x.124] . However, we replaced the SparseMatrix<double> class by our matrix-free implementation, which means that we can also skip the sparsity patterns. Notice that we define the LaplaceOperator class with the degree of finite element as template argument (the value is defined at the top of the file), and that we use float numbers for the multigrid level matrices.    
+
+
+The class also has a member variable to keep track of all the detailed timings for setting up the entire chain of data before we actually go about solving the problem. In addition, there is an output stream (that is disabled by default) that can be used to output details for the individual setup operations instead of the summary only that is printed out by default.    
+
+
+Since this program is designed to be used with MPI, we also provide the usual  [2.x.125]  output stream that only prints the information of the processor with MPI rank 0. The grid used for this programs can either be a distributed triangulation based on p4est (in case deal.II is configured to use p4est), otherwise it is a serial grid that only runs without MPI. 
+
+[1.x.123] 
+
+
+
+When we initialize the finite element, we of course have to use the degree specified at the top of the file as well (otherwise, an exception will be thrown at some point, since the computational kernel defined in the templated LaplaceOperator class and the information from the finite element read out by MatrixFree will not match). The constructor of the triangulation needs to set an additional flag that tells the grid to conform to the 2:1 cell balance over vertices, which is needed for the convergence of the geometric multigrid routines. For the distributed grid, we also need to specifically enable the multigrid hierarchy. 
+
+[1.x.124] 
+
+
+
+The LaplaceProblem class holds an additional output stream that collects detailed timings about the setup phase. This stream, called time_details, is disabled by default through the  [2.x.126]  argument specified here. For detailed timings, removing the  [2.x.127]  argument prints all the details. 
+
+[1.x.125] 
+
+
+
+
+[1.x.126]  [1.x.127] 
+
+
+
+
+The setup stage is in analogy to  [2.x.128]  with relevant changes due to the LaplaceOperator class. The first thing to do is to set up the DoFHandler, including the degrees of freedom for the multigrid levels, and to initialize constraints from hanging nodes and homogeneous Dirichlet conditions. Since we intend to use this programs in %parallel with MPI, we need to make sure that the constraints get to know the locally relevant degrees of freedom, otherwise the storage would explode when using more than a few hundred millions of degrees of freedom, see  [2.x.129] . 
+
+
+
+
+Once we have created the multigrid dof_handler and the constraints, we can call the reinit function for the global matrix operator as well as each level of the multigrid scheme. The main action is to set up the  [2.x.130]  instance for the problem. The base class of the  [2.x.131]  class,  [2.x.132]  is initialized with a shared pointer to MatrixFree object. This way, we can simply create it here and then pass it on to the system matrix and level matrices, respectively. For setting up MatrixFree, we need to activate the update flag in the AdditionalData field of MatrixFree that enables the storage of quadrature point coordinates in real space (by default, it only caches data for gradients (inverse transposed Jacobians) and JxW values). Note that if we call the reinit function without specifying the level (i.e., giving  [2.x.133] ), MatrixFree constructs a loop over the active cells. In this tutorial, we do not use threads in addition to MPI, which is why we explicitly disable it by setting the  [2.x.134]  to  [2.x.135]  Finally, the coefficient is evaluated and vectors are initialized as explained above. 
+
+[1.x.128] 
+
+
+
+Next, initialize the matrices for the multigrid method on all the levels. The data structure MGConstrainedDoFs keeps information about the indices subject to boundary conditions as well as the indices on edges between different refinement levels as described in the  [2.x.136]  tutorial program. We then go through the levels of the mesh and construct the constraints and matrices on each level. These follow closely the construction of the system matrix on the original mesh, except the slight difference in naming when accessing information on the levels rather than the active cells. 
+
+[1.x.129] 
+
+
+
+
+[1.x.130]  [1.x.131] 
+
+
+
+
+The assemble function is very simple since all we have to do is to assemble the right hand side. Thanks to FEEvaluation and all the data cached in the MatrixFree class, which we query from  [2.x.137]  this can be done in a few lines. Since this call is not wrapped into a  [2.x.138]  (which would be an alternative), we must not forget to call compress() at the end of the assembly to send all the contributions of the right hand side to the owner of the respective degree of freedom. 
+
+[1.x.132] 
+
+
+
+
+[1.x.133]  [1.x.134] 
+
+
+
+
+The solution process is similar as in  [2.x.139] . We start with the setup of the transfer. For  [2.x.140]  there is a very fast transfer class called MGTransferMatrixFree that does the interpolation between the grid levels with the same fast sum factorization kernels that get also used in FEEvaluation. 
+
+[1.x.135] 
+
+
+
+As a smoother, this tutorial program uses a Chebyshev iteration instead of SOR in  [2.x.141] . (SOR would be very difficult to implement because we do not have the matrix elements available explicitly, and it is difficult to make it work efficiently in %parallel.)  The smoother is initialized with our level matrices and the mandatory additional data for the Chebyshev smoother. We use a relatively high degree here (5), since matrix-vector products are comparably cheap. We choose to smooth out a range of  [2.x.142]  in the smoother where  [2.x.143]  is an estimate of the largest eigenvalue (the factor 1.2 is applied inside PreconditionChebyshev). In order to compute that eigenvalue, the Chebyshev initialization performs a few steps of a CG algorithm without preconditioner. Since the highest eigenvalue is usually the easiest one to find and a rough estimate is enough, we choose 10 iterations. Finally, we also set the inner preconditioner type in the Chebyshev method which is a Jacobi iteration. This is represented by the DiagonalMatrix class that gets the inverse diagonal entry provided by our LaplaceOperator class.      
+
+
+On level zero, we initialize the smoother differently because we want to use the Chebyshev iteration as a solver. PreconditionChebyshev allows the user to switch to solver mode where the number of iterations is internally chosen to the correct value. In the additional data object, this setting is activated by choosing the polynomial degree to  [2.x.144]  The algorithm will then attack all eigenvalues between the smallest and largest one in the coarse level matrix. The number of steps in the Chebyshev smoother are chosen such that the Chebyshev convergence estimates guarantee to reduce the residual by the number specified in the variable @p smoothing_range. Note that for solving,  [2.x.145]  is a relative tolerance and chosen smaller than one, in this case, we select three orders of magnitude, whereas it is a number larger than 1 when only selected eigenvalues are smoothed.      
+
+
+From a computational point of view, the Chebyshev iteration is a very attractive coarse grid solver as long as the coarse size is moderate. This is because the Chebyshev method performs only matrix-vector products and vector updates, which typically parallelize better to the largest cluster size with more than a few tens of thousands of cores than inner product involved in other iterative methods. The former involves only local communication between neighbors in the (coarse) mesh, whereas the latter requires global communication over all processors. 
+
+[1.x.136] 
+
+
+
+The next step is to set up the interface matrices that are needed for the case with hanging nodes. The adaptive multigrid realization in deal.II implements an approach called local smoothing. This means that the smoothing on the finest level only covers the local part of the mesh defined by the fixed (finest) grid level and ignores parts of the computational domain where the terminal cells are coarser than this level. As the method progresses to coarser levels, more and more of the global mesh will be covered. At some coarser level, the whole mesh will be covered. Since all level matrices in the multigrid method cover a single level in the mesh, no hanging nodes appear on the level matrices. At the interface between multigrid levels, homogeneous Dirichlet boundary conditions are set while smoothing. When the residual is transferred to the next coarser level, however, the coupling over the multigrid interface needs to be taken into account. This is done by the so-called interface (or edge) matrices that compute the part of the residual that is missed by the level matrix with homogeneous Dirichlet conditions. We refer to the  [2.x.146]  "Multigrid paper by Janssen and Kanschat" for more details.      
+
+
+For the implementation of those interface matrices, there is already a pre-defined class  [2.x.147]  that wraps the routines  [2.x.148]  and  [2.x.149]  in a new class with @p vmult() and  [2.x.150]  operations (that were originally written for matrices, hence expecting those names). Note that vmult_interface_down is used during the restriction phase of the multigrid V-cycle, whereas vmult_interface_up is used during the prolongation phase.      
+
+
+Once the interface matrix is created, we set up the remaining Multigrid preconditioner infrastructure in complete analogy to  [2.x.151]  to obtain a  [2.x.152]  object that can be applied to a matrix. 
+
+[1.x.137] 
+
+
+
+The setup of the multigrid routines is quite easy and one cannot see any difference in the solve process as compared to  [2.x.153] . All the magic is hidden behind the implementation of the  [2.x.154]  operation. Note that we print out the solve time and the accumulated setup time through standard out, i.e., in any case, whereas detailed times for the setup operations are only printed in case the flag for detail_times in the constructor is changed. 
+
+
+
+
+
+
+
+[1.x.138] 
+
+
+
+
+[1.x.139]  [1.x.140] 
+
+
+
+
+Here is the data output, which is a simplified version of  [2.x.155] . We use the standard VTU (= compressed VTK) output for each grid produced in the refinement process. In addition, we use a compression algorithm that is optimized for speed rather than disk usage. The default setting (which optimizes for disk usage) makes saving the output take about 4 times as long as running the linear solver, while setting  [2.x.156]  to  [2.x.157]  lowers this to only one fourth the time of the linear solve.    
+
+
+We disable the output when the mesh gets too large. A variant of this program has been run on hundreds of thousands MPI ranks with as many as 100 billion grid cells, which is not directly accessible to classical visualization tools. 
+
+[1.x.141] 
+
+
+
+
+[1.x.142]  [1.x.143] 
+
+
+
+
+The function that runs the program is very similar to the one in  [2.x.158] . We do few refinement steps in 3D compared to 2D, but that's it.    
+
+
+Before we run the program, we output some information about the detected vectorization level as discussed in the introduction. 
+
+[1.x.144] 
+
+
+
+
+[1.x.145]  [1.x.146] 
+
+
+
+
+Apart from the fact that we set up the MPI framework according to  [2.x.159] , there are no surprises in the main function. 
+
+[1.x.147] 
+
+[1.x.148][1.x.149] 
+
+
+[1.x.150][1.x.151] 
+
+
+Since this example solves the same problem as  [2.x.160]  (except for a different coefficient), there is little to say about the solution. We show a picture anyway, illustrating the size of the solution through both isocontours and volume rendering: 
+
+ [2.x.161]  
+
+Of more interest is to evaluate some aspects of the multigrid solver. When we run this program in 2D for quadratic ( [2.x.162] ) elements, we get the following output (when run on one core in release mode): 
+
+[1.x.152] 
+
+
+
+As in  [2.x.163] , we see that the number of CG iterations remains constant with increasing number of degrees of freedom. A constant number of iterations (together with optimal computational properties) means that the computing time approximately quadruples as the problem size quadruples from one cycle to the next. The code is also very efficient in terms of storage. Around 2-4 million degrees of freedom fit into 1 GB of memory, see also the MPI results below. An interesting fact is that solving one linear system is cheaper than the setup, despite not building a matrix (approximately half of which is spent in the  [2.x.164]  and  [2.x.165]  calls). This shows the high efficiency of this approach, but also that the deal.II data structures are quite expensive to set up and the setup cost must be amortized over several system solves. 
+
+Not much changes if we run the program in three spatial dimensions. Since we use uniform mesh refinement, we get eight times as many elements and approximately eight times as many degrees of freedom with each cycle: 
+
+[1.x.153] 
+
+
+
+Since it is so easy, we look at what happens if we increase the polynomial degree. When selecting the degree as four in 3D, i.e., on  [2.x.166]  elements, by changing the line <code>const unsigned int degree_finite_element=4;</code> at the top of the program, we get the following program output: 
+
+[1.x.154] 
+
+
+
+Since  [2.x.167]  elements on a certain mesh correspond to  [2.x.168]  elements on half the mesh size, we can compare the run time at cycle 4 with fourth degree polynomials with cycle 5 using quadratic polynomials, both at 2.1 million degrees of freedom. The surprising effect is that the solver for  [2.x.169]  element is actually slightly faster than for the quadratic case, despite using one more linear iteration. The effect that higher-degree polynomials are similarly fast or even faster than lower degree ones is one of the main strengths of matrix-free operator evaluation through sum factorization, see the [1.x.155]. This is fundamentally different to matrix-based methods that get more expensive per unknown as the polynomial degree increases and the coupling gets denser. 
+
+In addition, also the setup gets a bit cheaper for higher order, which is because fewer elements need to be set up. 
+
+Finally, let us look at the timings with degree 8, which corresponds to another round of mesh refinement in the lower order methods: 
+
+[1.x.156] 
+
+
+
+Here, the initialization seems considerably slower than before, which is mainly due to the computation of the diagonal of the matrix, which actually computes a 729 x 729 matrix on each cell and throws away everything but the diagonal. The solver times, however, are again very close to the quartic case, showing that the linear increase with the polynomial degree that is theoretically expected is almost completely offset by better computational characteristics and the fact that higher order methods have a smaller share of degrees of freedom living on several cells that add to the evaluation complexity. 
+
+[1.x.157][1.x.158] 
+
+
+In order to understand the capabilities of the matrix-free implementation, we compare the performance of the 3d example above with a sparse matrix implementation based on  [2.x.170]  by measuring both the computation times for the initialization of the problem (distribute DoFs, setup and assemble matrices, setup multigrid structures) and the actual solution for the matrix-free variant and the variant based on sparse matrices. We base the preconditioner on float numbers and the actual matrix and vectors on double numbers, as shown above. Tests are run on an Intel Core i7-5500U notebook processor (two cores and [1.x.159] support, i.e., four operations on doubles can be done with one CPU instruction, which is heavily used in FEEvaluation), optimized mode, and two MPI ranks. 
+
+ [2.x.171]  
+
+The table clearly shows that the matrix-free implementation is more than twice as fast for the solver, and more than six times as fast when it comes to initialization costs. As the problem size is made a factor 8 larger, we note that the times usually go up by a factor eight, too (as the solver iterations are constant at six). The main deviation is in the sparse matrix between 5k and 36k degrees of freedom, where the time increases by a factor 12. This is the threshold where the (L3) cache in the processor can no longer hold all data necessary for the matrix-vector products and all matrix elements must be fetched from main memory. 
+
+Of course, this picture does not necessarily translate to all cases, as there are problems where knowledge of matrix entries enables much better solvers (as happens when the coefficient is varying more strongly than in the above example). Moreover, it also depends on the computer system. The present system has good memory performance, so sparse matrices perform comparably well. Nonetheless, the matrix-free implementation gives a nice speedup already for the [1.x.160]<sub>2</sub> elements used in this example. This becomes particularly apparent for time-dependent or nonlinear problems where sparse matrices would need to be reassembled over and over again, which becomes much easier with this class. And of course, thanks to the better complexity of the products, the method gains increasingly larger advantages when the order of the elements increases (the matrix-free implementation has costs 4[1.x.161]<sup>2</sup>[1.x.162] per degree of freedom, compared to 2[1.x.163] for the sparse matrix, so it will win anyway for order 4 and higher in 3d). 
+
+[1.x.164][1.x.165] 
+
+
+As explained in the introduction and the in-code comments, this program can be run in parallel with MPI. It turns out that geometric multigrid schemes work really well and can scale to very large machines. To the authors' knowledge, the geometric multigrid results shown here are the largest computations done with deal.II as of late 2016, run on up to 147,456 cores of the [1.x.166]. The ingredients for scalability beyond 1000 cores are that no data structure that depends on the global problem size is held in its entirety on a single processor and that the communication is not too frequent in order not to run into latency issues of the network.  For PDEs solved with iterative solvers, the communication latency is often the limiting factor, rather than the throughput of the network. For the example of the SuperMUC system, the point-to-point latency between two processors is between 1e-6 and 1e-5 seconds, depending on the proximity in the MPI network. The matrix-vector products with  [2.x.172]  from this class involves several point-to-point communication steps, interleaved with computations on each core. The resulting latency of a matrix-vector product is around 1e-4 seconds. Global communication, for example an  [2.x.173]  operation that accumulates the sum of a single number per rank over all ranks in the MPI network, has a latency of 1e-4 seconds. The multigrid V-cycle used in this program is also a form of global communication. Think about the coarse grid solve that happens on a single processor: It accumulates the contributions from all processors before it starts. When completed, the coarse grid solution is transferred to finer levels, where more and more processors help in smoothing until the fine grid. Essentially, this is a tree-like pattern over the processors in the network and controlled by the mesh. As opposed to the  [2.x.174]  operations where the tree in the reduction is optimized to the actual links in the MPI network, the multigrid V-cycle does this according to the partitioning of the mesh. Thus, we cannot expect the same optimality. Furthermore, the multigrid cycle is not simply a walk up and down the refinement tree, but also communication on each level when doing the smoothing. In other words, the global communication in multigrid is more challenging and related to the mesh that provides less optimization opportunities. The measured latency of the V-cycle is between 6e-3 and 2e-2 seconds, i.e., the same as 60 to 200 MPI_Allreduce operations. 
+
+The following figure shows a scaling experiments on  [2.x.175]  elements. Along the lines, the problem size is held constant as the number of cores is increasing. When doubling the number of cores, one expects a halving of the computational time, indicated by the dotted gray lines. The results show that the implementation shows almost ideal behavior until an absolute time of around 0.1 seconds is reached. The solver tolerances have been set such that the solver performs five iterations. This way of plotting data is the [1.x.167] of the algorithm. As we go to very large core counts, the curves flatten out a bit earlier, which is because of the communication network in SuperMUC where communication between processors farther away is slightly slower. 
+
+ [2.x.176]  
+
+In addition, the plot also contains results for [1.x.168] that lists how the algorithm behaves as both the number of processor cores and elements is increased at the same pace. In this situation, we expect that the compute time remains constant. Algorithmically, the number of CG iterations is constant at 5, so we are good from that end. The lines in the plot are arranged such that the top left point in each data series represents the same size per processor, namely 131,072 elements (or approximately 3.5 million degrees of freedom per core). The gray lines indicating ideal strong scaling are by the same factor of 8 apart. The results show again that the scaling is almost ideal. The parallel efficiency when going from 288 cores to 147,456 cores is at around 75% for a local problem size of 750,000 degrees of freedom per core which takes 1.0s on 288 cores, 1.03s on 2304 cores, 1.19s on 18k cores, and 1.35s on 147k cores. The algorithms also reach a very high utilization of the processor. The largest computation on 147k cores reaches around 1.7 PFLOPs/s on SuperMUC out of an arithmetic peak of 3.2 PFLOPs/s. For an iterative PDE solver, this is a very high number and significantly more is often only reached for dense linear algebra. Sparse linear algebra is limited to a tenth of this value. 
+
+As mentioned in the introduction, the matrix-free method reduces the memory consumption of the data structures. Besides the higher performance due to less memory transfer, the algorithms also allow for very large problems to fit into memory. The figure below shows the computational time as we increase the problem size until an upper limit where the computation exhausts memory. We do this for 1k cores, 8k cores, and 65k cores and see that the problem size can be varied over almost two orders of magnitude with ideal scaling. The largest computation shown in this picture involves 292 billion ( [2.x.177] ) degrees of freedom. On a DG computation of 147k cores, the above algorithms were also run involving up to 549 billion (2^39) DoFs. 
+
+ [2.x.178]  
+
+Finally, we note that while performing the tests on the large-scale system shown above, improvements of the multigrid algorithms in deal.II have been developed. The original version contained the sub-optimal code based on MGSmootherPrecondition where some MPI_Allreduce commands (checking whether all vector entries are zero) were done on each smoothing operation on each level, which only became apparent on 65k cores and more. However, the following picture shows that the improvement already pay off on a smaller scale, here shown on computations on up to 14,336 cores for  [2.x.179]  elements: 
+
+ [2.x.180]  
+
+
+[1.x.169][1.x.170] 
+
+
+As explained in the code, the algorithm presented here is prepared to run on adaptively refined meshes. If only part of the mesh is refined, the multigrid cycle will run with local smoothing and impose Dirichlet conditions along the interfaces which differ in refinement level for smoothing through the  [2.x.181]  class. Due to the way the degrees of freedom are distributed over levels, relating the owner of the level cells to the owner of the first descendant active cell, there can be an imbalance between different processors in MPI, which limits scalability by a factor of around two to five. 
+
+[1.x.171][1.x.172] 
+
+
+[1.x.173][1.x.174] 
+
+
+As mentioned above the code is ready for locally adaptive h-refinement. For the Poisson equation one can employ the Kelly error indicator, implemented in the KellyErrorEstimator class. However one needs to be careful with the ghost indices of parallel vectors. In order to evaluate the jump terms in the error indicator, each MPI process needs to know locally relevant DoFs. However  [2.x.182]  function initializes the vector only with some locally relevant DoFs. The ghost indices made available in the vector are a tight set of only those indices that are touched in the cell integrals (including constraint resolution). This choice has performance reasons, because sending all locally relevant degrees of freedom would be too expensive compared to the matrix-vector product. Consequently the solution vector as-is is not suitable for the KellyErrorEstimator class. The trick is to change the ghost part of the partition, for example using a temporary vector and  [2.x.183]  as shown below. 
+
+[1.x.175] 
+
+
+
+[1.x.176][1.x.177] 
+
+
+This program is parallelized with MPI only. As an alternative, the MatrixFree loop can also be issued in hybrid mode, for example by using MPI parallelizing over the nodes of a cluster and with threads through Intel TBB within the shared memory region of one node. To use this, one would need to both set the number of threads in the MPI_InitFinalize data structure in the main function, and set the  [2.x.184]  to partition_color to actually do the loop in parallel. This use case is discussed in  [2.x.185] . 
+
+[1.x.178][1.x.179] 
+
+
+The presented program assumes homogeneous Dirichlet boundary conditions. When going to non-homogeneous conditions, the situation is a bit more intricate. To understand how to implement such a setting, let us first recall how these arise in the mathematical formulation and how they are implemented in a matrix-based variant. In essence, an inhomogeneous Dirichlet condition sets some of the nodal values in the solution to given values rather than determining them through the variational principles, [1.x.180] 
+
+where  [2.x.186]  denotes the nodal values of the solution and  [2.x.187]  denotes the set of all nodes. The set  [2.x.188]  is the subset of the nodes that are subject to Dirichlet boundary conditions where the solution is forced to equal  [2.x.189]  as the interpolation of boundary values on the Dirichlet-constrained node points  [2.x.190] . We then insert this solution representation into the weak form, e.g. the Laplacian shown above, and move the known quantities to the right hand side: [1.x.181] 
+
+In this formula, the equations are tested for all basis functions  [2.x.191]  with  [2.x.192]  that are not related to the nodes constrained by Dirichlet conditions. 
+
+In the implementation in deal.II, the integrals  [2.x.193]  on the right hand side are already contained in the local matrix contributions we assemble on each cell. When using  [2.x.194]  as first described in the  [2.x.195]  and  [2.x.196]  tutorial programs, we can account for the contribution of inhomogeneous constraints [1.x.182] by multiplying the columns [1.x.183] and rows [1.x.184] of the local matrix according to the integrals  [2.x.197]  by the inhomogeneities and subtracting the resulting from the position [1.x.185] in the global right-hand-side vector, see also the  [2.x.198]  module. In essence, we use some of the integrals that get eliminated from the left hand side of the equation to finalize the right hand side contribution. Similar mathematics are also involved when first writing all entries into a left hand side matrix and then eliminating matrix rows and columns by  [2.x.199]  
+
+In principle, the components that belong to the constrained degrees of freedom could be eliminated from the linear system because they do not carry any information. In practice, in deal.II we always keep the size of the linear system the same to avoid handling two different numbering systems and avoid confusion about the two different index sets. In order to ensure that the linear system does not get singular when not adding anything to constrained rows, we then add dummy entries to the matrix diagonal that are otherwise unrelated to the real entries. 
+
+In a matrix-free method, we need to take a different approach, since the @p LaplaceOperator class represents the matrix-vector product of a [1.x.186] operator (the left-hand side of the last formula).  It does not matter whether the AffineConstraints object passed to the  [2.x.200]  contains inhomogeneous constraints or not, the  [2.x.201]  call will only resolve the homogeneous part of the constraints as long as it represents a [1.x.187] operator. 
+
+In our matrix-free code, the right hand side computation where the contribution of inhomogeneous conditions ends up is completely decoupled from the matrix operator and handled by a different function above. Thus, we need to explicitly generate the data that enters the right hand side rather than using a byproduct of the matrix assembly. Since we already know how to apply the operator on a vector, we could try to use those facilities for a vector where we only set the Dirichlet values: 
+
+[1.x.188] 
+
+or, equivalently, if we already had filled the inhomogeneous constraints into an AffineConstraints object, 
+
+[1.x.189] 
+
+
+
+We could then pass the vector  [2.x.202]  to the @p  [2.x.203]  function and add the new contribution to the @p system_rhs vector that gets filled in the  [2.x.204]  function. However, this idea does not work because the  [2.x.205]  call used inside the vmult() functions assumes homogeneous values on all constraints (otherwise the operator would not be a linear operator but an affine one). To also retrieve the values of the inhomogeneities, we could select one of two following strategies. 
+
+[1.x.190][1.x.191] 
+
+
+The class FEEvaluation has a facility that addresses precisely this requirement: For non-homogeneous Dirichlet values, we do want to skip the implicit imposition of homogeneous (Dirichlet) constraints upon reading the data from the vector  [2.x.206]  For example, we could extend the @p  [2.x.207]  function to deal with inhomogeneous Dirichlet values as follows, assuming the Dirichlet values have been interpolated into the object  [2.x.208]  
+
+[1.x.192] 
+
+
+
+In this code, we replaced the  [2.x.209]  function for the tentative solution vector by  [2.x.210]  that ignores all constraints. Due to this setup, we must make sure that other constraints, e.g. by hanging nodes, are correctly distributed to the input vector already as they are not resolved as in  [2.x.211]  Inside the loop, we then evaluate the Laplacian and repeat the second derivative call with  [2.x.212]  from the  [2.x.213]  class, but with the sign switched since we wanted to subtract the contribution of Dirichlet conditions on the right hand side vector according to the formula above. When we invoke the  [2.x.214]  call, we then set both arguments regarding the value slot and first derivative slot to true to account for both terms added in the loop over quadrature points. Once the right hand side is assembled, we then go on to solving the linear system for the homogeneous problem, say involving a variable  [2.x.215]  After solving, we can add  [2.x.216]  to the  [2.x.217]  vector that contains the final (inhomogeneous) solution. 
+
+Note that the negative sign for the Laplacian alongside with a positive sign for the forcing that we needed to build the right hand side is a more general concept: We have implemented nothing else than Newton's method for nonlinear equations, but applied to a linear system. We have used an initial guess for the variable  [2.x.218]  in terms of the Dirichlet boundary conditions and computed a residual  [2.x.219] . The linear system was then solved as  [2.x.220]  and we finally computed  [2.x.221] . For a linear system, we obviously reach the exact solution after a single iteration. If we wanted to extend the code to a nonlinear problem, we would rename the  [2.x.222]  function into a more descriptive name like @p assemble_residual() that computes the (weak) form of the residual, whereas the  [2.x.223]  function would get the linearization of the residual with respect to the solution variable. 
+
+[1.x.193][1.x.194] 
+
+
+A second alternative to get the right hand side that re-uses the @p  [2.x.224]  function is to instead add a second LaplaceOperator that skips Dirichlet constraints. To do this, we initialize a second MatrixFree object which does not have any boundary value constraints. This  [2.x.225]  object is then passed to a  [2.x.226]  class instance @p inhomogeneous_operator that is only used to create the right hand side: 
+
+[1.x.195] 
+
+
+
+A more sophisticated implementation of this technique could reuse the original MatrixFree object. This can be done by initializing the MatrixFree object with multiple blocks, where each block corresponds to a different AffineConstraints object. Doing this would require making substantial modifications to the LaplaceOperator class, but the  [2.x.227]  class that comes with the library can do this. See the discussion on blocks in  [2.x.228]  for more information on how to set up blocks. [1.x.196] [1.x.197]  [2.x.229]  
+
+ [2.x.230] 

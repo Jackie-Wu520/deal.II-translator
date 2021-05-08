@@ -1,0 +1,577 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] . 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5][1.x.6][1.x.7][1.x.8][1.x.9][1.x.10][1.x.11][1.x.12][1.x.13][1.x.14][1.x.15][1.x.16][1.x.17][1.x.18][1.x.19][1.x.20][1.x.21][1.x.22][1.x.23][1.x.24][1.x.25][1.x.26][1.x.27][1.x.28][1.x.29][1.x.30][1.x.31][1.x.32][1.x.33][1.x.34][1.x.35][1.x.36][1.x.37][1.x.38][1.x.39] 
+
+ [2.x.3]  
+
+[1.x.40] 
+
+[1.x.41] [1.x.42][1.x.43] 
+
+
+This tutorial program presents an implementation of the "weak Galerkin" finite element method for the Poisson equation. In some sense, the motivation for considering this method starts from the same point as in  [2.x.4] : We would like to consider discontinuous shape functions, but then need to address the fact that the resulting problem has a much larger number of degrees of freedom compared to the usual continuous Galerkin method (because, for example, each vertex carries as many degrees of freedom as there are adjacent cells). We also have to address the fact that, unlike in the continuous Galerkin method, [1.x.44] degree of freedom on one cell couples with all of the degrees of freedom on each of its face neighbor cells. Consequently, the matrix one gets from the "traditional" discontinuous Galerkin methods are both large and relatively dense. 
+
+Both the hybridized discontinuous Galerkin method (HDG) in  [2.x.5]  and the weak Galerkin (WG) method in this tutorial address the issue of coupling by introducing additional degrees of freedom whose shape functions only live on a face between cells (i.e., on the "skeleton" of the mesh), and which therefore "insulate" the degrees of freedom on the adjacent cells from each other: cell degrees of freedom only couple with other cell degrees of freedom on the same cell, as well as face degrees of freedom, but not with cell degrees of freedom on neighboring cells. Consequently, the coupling of shape functions for these cell degrees of freedom indeed couple on exactly one cell and the degrees of freedom defined on its faces. 
+
+For a given equation, say the second order Poisson equation, the difference between the HDG and the WG method is how precisely one formulates the problem that connects all of these different shape functions. (Indeed, for some WG and HDG formulation, it is possible to show that they are equivalent.) The HDG does things by reformulating second order problems in terms of a system of first order equations and then conceptually considers the face degrees of freedom to be "fluxes" of this first order system. In contrast, the WG method keeps things in second order form and considers the face degrees of freedom as of the same type as the primary solution variable, just restricted to the lower-dimensional faces. For the purposes of the equation, one then needs to somehow "extend" these shape functions into the interior of the cell when defining what it means to apply a differential operator to them. Compared to the HDG, the method has the advantage that it does not lead to a proliferation of unknowns due to rewriting the equation as a first-order system, but it is also not quite as easy to implement. However, as we will see in the following, this additional effort is not prohibitive. 
+
+
+[1.x.45][1.x.46] 
+
+
+Weak Galerkin Finite Element Methods (WGFEMs) use discrete weak functions to approximate scalar unknowns, and discrete weak gradients to approximate classical gradients. The method was originally introduced by Junping Wang and Xiu Ye in the paper [1.x.47][1.x.48]. Compared to the continuous Galerkin method, the weak Galerkin method satisfies important physical properties, namely local mass conservation and bulk normal flux continuity. It results in a SPD linear system, and optimal convergence rates can be obtained with mesh refinement. 
+
+
+[1.x.49][1.x.50] 
+
+This program solves the Poisson equation using the weak Galerkin finite element method: 
+
+[1.x.51] 
+
+where  [2.x.6]  is a bounded domain. In the context of the flow of a fluid through a porous medium,  [2.x.7]  is the pressure,  [2.x.8]  is a permeability tensor,  [2.x.9]  is the source term, and  [2.x.10]  represent Dirichlet and Neumann boundary conditions. We can introduce a flux,  [2.x.11] , that corresponds to the Darcy velocity (in the way we did in  [2.x.12] ) and this variable will be important in the considerations below. 
+
+In this program, we will consider a test case where the exact pressure is  [2.x.13]  on the unit square domain, with homogeneous Dirichelet boundary conditions and  [2.x.14]  the identity matrix. Then we will calculate  [2.x.15]  errors of pressure, velocity, and flux. 
+
+
+[1.x.52][1.x.53] 
+
+
+The Poisson equation above has a solution  [2.x.16]  that needs to satisfy the weak formulation of the problem, [1.x.54] 
+
+for all test functions  [2.x.17] , where [1.x.55] 
+
+and [1.x.56] 
+
+Here, we have integrated by parts in the bilinear form, and we are evaluating the gradient of  [2.x.18]  in the interior and the values of  [2.x.19]  on the boundary of the domain. All of this is well defined because we assume that the solution is in  [2.x.20]  for which taking the gradient and evaluating boundary values are valid operations. 
+
+The idea of the weak Galerkin method is now to approximate the exact  [2.x.21]  solution with a [1.x.57]  [2.x.22] . This function may only be discontinuous along interfaces between cells, and because we will want to evaluate this function also along interfaces, we have to prescribe not only what values it is supposed to have in the cell interiors but also its values along interfaces. We do this by saying that  [2.x.23]  is actually a tuple,  [2.x.24] , though it's really just a single function that is either equal to  [2.x.25]  or  [2.x.26] , depending on whether it is evaluated at a point  [2.x.27]  that lies in the cell interior or on cell interfaces. 
+
+We would then like to simply stick this approximation into the bilinear form above. This works for the case where we have to evaluate the test function  [2.x.28]  on the boundary (where we would simply take its interface part  [2.x.29] ) but we have to be careful with the gradient because that is only defined in cell interiors. Consequently, the weak Galerkin scheme for the Poisson equation is defined by [1.x.58] 
+
+for all discrete test functions  [2.x.30] , where [1.x.59] 
+
+and [1.x.60] 
+
+The key point is that here, we have replaced the gradient  [2.x.31]  by the [1.x.61] operator  [2.x.32]  that makes sense for our peculiarly defined approximation  [2.x.33] . 
+
+The question is then how that operator works. For this, let us first say how we think of the discrete approximation  [2.x.34]  of the pressure. As mentioned above, the "function"  [2.x.35]  actually consists of two parts: the values  [2.x.36]  in the interior of cells, and  [2.x.37]  on the interfaces. We have to define discrete (finite-dimensional) function spaces for both of these; in this program, we will use FE_DGQ for  [2.x.38]  as the space in the interior of cells (defined on each cell, but in general discontinuous along interfaces), and FE_FaceQ for  [2.x.39]  as the space on the interfaces. 
+
+Then let us consider just a single cell (because the integrals above are all defined cell-wise, and because the weak discrete gradient is defined cell-by-cell). The restriction of  [2.x.40]  to cell  [2.x.41] ,  [2.x.42]  then consists of the pair  [2.x.43] . In essence, we can think of  [2.x.44]  of some function defined on  [2.x.45]  that approximates the gradient; in particular, if  [2.x.46]  was the restriction of a differentiable function (to the interior and boundary of  [2.x.47]  -- which would make it continuous between the interior and boundary), then  [2.x.48]  would simply be the exact gradient  [2.x.49] . But, since  [2.x.50]  is not continuous between interior and boundary of  [2.x.51] , we need a more general definition; furthermore, we can not deal with arbitrary functions, and so require that  [2.x.52]  is also in a finite element space (which, since the gradient is a vector, has to be vector-valued, and because the weak gradient is defined on each cell separately, will also be discontinuous between cells). 
+
+The way this is done is to define this weak gradient operator  [2.x.53]  (where  [2.x.54]  is the vector-valued Raviart-Thomas space of order  [2.x.55]  on cell  [2.x.56] ) in the following way: [1.x.62] 
+
+for all test functions  [2.x.57] . This is, in essence, simply an application of the integration-by-parts formula. In other words, for a given  [2.x.58] , we need to think of  [2.x.59]  as that Raviart-Thomas function of degree  [2.x.60]  for which the left hand side and right hand side are equal for all test functions. 
+
+A key point to make is then the following: While the usual gradient  [2.x.61]  is a *local* operator that computes derivatives based simply on the value of a function at a point and its (infinitesimal) neighborhood, the weak discrete gradient  [2.x.62]  does not have this property: It depends on the values of the function it is applied to on the entire cell, including the cell's boundary. Both are, however, linear operators as is clear from the definition of  [2.x.63]  above, and that will allow us to represent  [2.x.64]  via a matrix in the discussion below. 
+
+ [2.x.65]  It may be worth pointing out that while the weak discrete   gradient is an element of the Raviart-Thomas space  [2.x.66]  on each   cell  [2.x.67] , it is discontinuous between cells. On the other hand, the   Raviart-Thomas space  [2.x.68]  defined on the entire   mesh and implemented by the FE_RaviartThomas class represents   functions that have continuous normal components at interfaces   between cells. This means that [1.x.63],  [2.x.69]    is not in  [2.x.70] , even though it is on every cell  [2.x.71]  in  [2.x.72] .   Rather, it is in a "broken" Raviart-Thomas space that below we will   represent by the symbol  [2.x.73] . (The term "broken" here refers to   the process of "breaking something apart", and not to the synonym to   the expression "not functional".) One might therefore (rightfully) argue that   the notation used in the weak Galerkin literature is a bit misleading,   but as so often it all depends on the context in which a certain   notation is used -- in the current context, references to the   Raviart-Thomas space or element are always understood to be to the   "broken" spaces. 
+
+ [2.x.74]  deal.II happens to have an implementation of this broken Raviart-Thomas   space: The FE_DGRT class. As a consequence, in this tutorial we will simply   always use the FE_DGRT class, even though in all of those places where   we have to compute cell-local matrices and vectors, it makes no difference. 
+
+
+[1.x.64][1.x.65] 
+
+
+Since  [2.x.75]  is an element of a finite element space, we can expand it in a basis as we always do, i.e., we can write [1.x.66] 
+
+Here, since  [2.x.76]  has two components (the interior and the interface components), the same must hold true for the basis functions  [2.x.77] , which we can write as  [2.x.78] . If you've followed the descriptions in  [2.x.79] ,  [2.x.80] , and the  [2.x.81]  "documentation module on vector-valued problems", it will be no surprise that for some values of  [2.x.82] ,  [2.x.83]  will be zero, whereas for other values of  [2.x.84] ,  [2.x.85]  will be zero -- i.e., shape functions will be of either one or the other kind. That is not important, here, however. What is important is that we need to wonder how we can represent  [2.x.86]  because that is clearly what will appear in the problem when we want to implement the bilinear form [1.x.67] 
+
+
+
+The key point is that  [2.x.87]  is known to be a member of the "broken" Raviart-Thomas space  [2.x.88] . What this means is that we can represent (on each cell  [2.x.89]  separately) [1.x.68] 
+
+where the functions  [2.x.90] , and where  [2.x.91]  is a matrix of dimension 
+
+[1.x.69] 
+
+(That the weak discrete gradient can be represented as a matrix should not come as a surprise: It is a linear operator from one finite dimensional space to another finite dimensional space. If one chooses bases for both of these spaces, then [1.x.70] can of course be written as a matrix mapping the vector of expansion coefficients with regards to the basis of the domain space of the operator, to the vector of expansion coefficients with regards to the basis in the image space.) 
+
+Using this expansion, we can easily use the definition of the weak discrete gradient above to define what the matrix is going to be: [1.x.71] 
+
+for all test functions  [2.x.92] . 
+
+This clearly leads to a linear system of the form [1.x.72] 
+
+with [1.x.73] 
+
+and consequently [1.x.74] 
+
+(In this last step, we have assumed that the indices  [2.x.93]  only range over those degrees of freedom active on cell  [2.x.94] , thereby ensuring that the mass matrix on the space  [2.x.95]  is invertible.) Equivalently, using the symmetry of the matrix  [2.x.96] , we have that [1.x.75] 
+
+Also worth pointing out is that the matrices  [2.x.97]  and  [2.x.98]  are of course not square but rectangular. 
+
+
+[1.x.76][1.x.77] 
+
+
+Having explained how the weak discrete gradient is defined, we can now come back to the question of how the linear system for the equation in question should be assembled. Specifically, using the definition of the bilinear form  [2.x.99]  shown above, we then need to compute the elements of the local contribution to the global matrix, [1.x.78] 
+
+As explained above, we can expand  [2.x.100]  in terms of the Raviart-Thomas basis on each cell, and similarly for  [2.x.101] : [1.x.79] 
+
+By re-arranging sums, this yields the following expression: [1.x.80] 
+
+So, if we have the matrix  [2.x.102]  for each cell  [2.x.103] , then we can easily compute the contribution  [2.x.104]  for cell  [2.x.105]  to the matrix  [2.x.106]  as follows: [1.x.81] 
+
+Here, [1.x.82] 
+
+which is really just the mass matrix on cell  [2.x.107]  using the Raviart-Thomas basis and weighting by the permeability tensor  [2.x.108] . The derivation here then shows that the weak Galerkin method really just requires us to compute these  [2.x.109]  and  [2.x.110]  matrices on each cell  [2.x.111] , and then  [2.x.112] , which is easily computed. The code to be shown below does exactly this. 
+
+Having so computed the contribution  [2.x.113]  of cell  [2.x.114]  to the global matrix, all we have to do is to "distribute" these local contributions into the global matrix. How this is done is first shown in  [2.x.115]  and  [2.x.116] . In the current program, this will be facilitated by calling  [2.x.117]  
+
+A linear system of course also needs a right hand side. There is no difficulty associated with computing the right hand side here other than the fact that we only need to use the cell-interior part  [2.x.118]  for each shape function  [2.x.119] . 
+
+
+[1.x.83][1.x.84][1.x.85] 
+
+
+The discussions in the previous sections have given us a linear system that we can solve for the numerical pressure  [2.x.120] . We can use this to compute an approximation to the variable  [2.x.121]  that corresponds to the velocity with which the medium flows in a porous medium if this is the model we are trying to solve. This kind of step -- computing a derived quantity from the solution of the discrete problem -- is typically called "post-processing". 
+
+Here, instead of using the exact gradient of  [2.x.122] , let us instead use the discrete weak gradient of  [2.x.123]  to calculate the velocity on each element. As discussed above, on each element the gradient of the numerical pressure  [2.x.124]  can be approximated by discrete weak gradients   [2.x.125] : [1.x.86] 
+
+
+
+On cell  [2.x.126] , the numerical velocity  [2.x.127]  can be written as 
+
+[1.x.87] 
+
+where  [2.x.128]  is the expansion matrix from above, and  [2.x.129]  is the basis function of the  [2.x.130]  space on a cell. 
+
+Unfortunately,  [2.x.131]  may not be in the  [2.x.132]  space (unless, of course, if  [2.x.133]  is constant times the identity matrix). So, in order to represent it in a finite element program, we need to project it back into a finite dimensional space we can work with. Here, we will use the  [2.x.134] -projection to project it back to the (broken)  [2.x.135]  space. 
+
+We define the projection as  [2.x.136]  on each cell  [2.x.137] . For any  [2.x.138] ,  [2.x.139]  So, rather than the formula shown above, the numerical velocity on cell  [2.x.140]  instead becomes [1.x.88] 
+
+and we have the following system to solve for the coefficients  [2.x.141] : [1.x.89] 
+
+In the implementation below, the matrix with elements  [2.x.142]  is called  [2.x.143] , whereas the matrix with elements  [2.x.144]  is called  [2.x.145] . 
+
+Then the elementwise velocity is [1.x.90] 
+
+where  [2.x.146]  is called `cell_velocity` in the code. 
+
+Using this velocity obtained by "postprocessing" the solution, we can define the  [2.x.147] -errors of pressure, velocity, and flux by the following formulas: 
+
+[1.x.91] 
+
+where  [2.x.148]  is the area of the element,  [2.x.149]  are faces of the element,  [2.x.150]  are unit normal vectors of each face. The last of these norms measures the accuracy of the normal component of the velocity vectors over the interfaces between the cells of the mesh. The scaling factor  [2.x.151]  is chosen so as to scale out the difference in the length (or area) of the collection of interfaces as the mesh size changes. 
+
+The first of these errors above is easily computed using  [2.x.152]  The others require a bit more work and are implemented in the code below. [1.x.92] [1.x.93] 
+
+
+[1.x.94]  [1.x.95] This program is based on  [2.x.153] ,  [2.x.154]  and  [2.x.155] , so most of the following header files are familiar. We need the following, of which only the one that imports the FE_DGRaviartThomas class (namely, `deal.II/fe/fe_dg_vector.h`) is really new; the FE_DGRaviartThomas implements the "broken" Raviart-Thomas space discussed in the introduction: 
+
+[1.x.96] 
+
+
+
+Our first step, as always, is to put everything related to this tutorial program into its own namespace: 
+
+[1.x.97] 
+
+
+
+
+[1.x.98]  [1.x.99] 
+
+
+
+
+This is the main class of this program. We will solve for the numerical pressure in the interior and on faces using the weak Galerkin (WG) method, and calculate the  [2.x.156]  error of pressure. In the post-processing step, we will also calculate  [2.x.157] -errors of the velocity and flux.    
+
+
+The structure of the class is not fundamentally different from that of previous tutorial programs, so there is little need to comment on the details with one exception: The class has a member variable `fe_dgrt` that corresponds to the "broken" Raviart-Thomas space mentioned in the introduction. There is a matching `dof_handler_dgrt` that represents a global enumeration of a finite element field created from this element, and a vector `darcy_velocity` that holds nodal values for this field. We will use these three variables after solving for the pressure to compute a postprocessed velocity field for which we can then evaluate the error and which we can output for visualization. 
+
+[1.x.100] 
+
+
+
+
+[1.x.101]  [1.x.102] 
+
+
+
+
+Next, we define the coefficient matrix  [2.x.158]  (here, the identity matrix), Dirichlet boundary conditions, the right-hand side  [2.x.159] , and the exact solution that corresponds to these choices for  [2.x.160]  and  [2.x.161] , namely  [2.x.162] . 
+
+[1.x.103] 
+
+
+
+The class that implements the exact pressure solution has an oddity in that we implement it as a vector-valued one with two components. (We say that it has two components in the constructor where we call the constructor of the base Function class.) In the `value()` function, we do not test for the value of the `component` argument, which implies that we return the same value for both components of the vector-valued function. We do this because we describe the finite element in use in this program as a vector-valued system that contains the interior and the interface pressures, and when we compute errors, we will want to use the same pressure solution to test both of these components. 
+
+[1.x.104] 
+
+
+
+
+[1.x.105]  [1.x.106] 
+
+
+
+
+
+[1.x.107]  [1.x.108] 
+
+
+
+
+In this constructor, we create a finite element space for vector valued functions, which will here include the ones used for the interior and interface pressures,  [2.x.163]  and  [2.x.164] . 
+
+[1.x.109] 
+
+
+
+
+[1.x.110]  [1.x.111] 
+
+
+
+
+We generate a mesh on the unit square domain and refine it. 
+
+[1.x.112] 
+
+
+
+
+[1.x.113]  [1.x.114] 
+
+
+
+
+After we have created the mesh above, we distribute degrees of freedom and resize matrices and vectors. The only piece of interest in this function is how we interpolate the boundary values for the pressure. Since the pressure consists of interior and interface components, we need to make sure that we only interpolate onto that component of the vector-valued solution space that corresponds to the interface pressures (as these are the only ones that are defined on the boundary of the domain). We do this via a component mask object for only the interface pressures. 
+
+[1.x.115] 
+
+
+
+In the bilinear form, there is no integration term over faces between two neighboring cells, so we can just use  [2.x.165]  to calculate the sparse matrix. 
+
+[1.x.116] 
+
+
+
+
+[1.x.117]  [1.x.118] 
+
+
+
+
+This function is more interesting. As detailed in the introduction, the assembly of the linear system requires us to evaluate the weak gradient of the shape functions, which is an element in the Raviart-Thomas space. As a consequence, we need to define a Raviart-Thomas finite element object, and have FEValues objects that evaluate it at quadrature points. We then need to compute the matrix  [2.x.166]  on every cell  [2.x.167] , for which we need the matrices  [2.x.168]  and  [2.x.169]  mentioned in the introduction.    
+
+
+A point that may not be obvious is that in all previous tutorial programs, we have always called  [2.x.170]  with a cell iterator from a DoFHandler. This is so that one can call functions such as  [2.x.171]  that extract the values of a finite element function (represented by a vector of DoF values) on the quadrature points of a cell. For this operation to work, one needs to know which vector elements correspond to the degrees of freedom on a given cell -- i.e., exactly the kind of information and operation provided by the DoFHandler class.    
+
+
+We could create a DoFHandler object for the "broken" Raviart-Thomas space (using the FE_DGRT class), but we really don't want to here: At least in the current function, we have no need for any globally defined degrees of freedom associated with this broken space, but really only need to reference the shape functions of such a space on the current cell. As a consequence, we use the fact that one can call  [2.x.172]  also with cell iterators into Triangulation objects (rather than DoFHandler objects). In this case, FEValues can of course only provide us with information that only references information about cells, rather than degrees of freedom enumerated on these cells. So we can't use  [2.x.173]  but we can use  [2.x.174]  to obtain the values of shape functions at quadrature points on the current cell. It is this kind of functionality we will make use of below. The variable that will give us this information about the Raviart-Thomas functions below is then the `fe_values_rt` (and corresponding `fe_face_values_rt`) object.    
+
+
+Given this introduction, the following declarations should be pretty obvious: 
+
+[1.x.119] 
+
+
+
+Next, let us declare the various cell matrices discussed in the introduction: 
+
+[1.x.120] 
+
+
+
+We need  [2.x.175]  to access the  [2.x.176]  and  [2.x.177]  component of the shape functions. 
+
+[1.x.121] 
+
+
+
+This finally gets us in position to loop over all cells. On each cell, we will first calculate the various cell matrices used to construct the local matrix -- as they depend on the cell in question, they need to be re-computed on each cell. We need shape functions for the Raviart-Thomas space as well, for which we need to create first an iterator to the cell of the triangulation, which we can obtain by assignment from the cell pointing into the DoFHandler. 
+
+[1.x.122] 
+
+
+
+The first cell matrix we will compute is the mass matrix for the Raviart-Thomas space.  Hence, we need to loop over all the quadrature points for the velocity FEValues object. 
+
+[1.x.123] 
+
+
+
+Next we take the inverse of this matrix by using  [2.x.178]  It will be used to calculate the coefficient matrix  [2.x.179]  later. It is worth recalling later that `cell_matrix_M` actually contains the *inverse* of  [2.x.180]  after this call. 
+
+[1.x.124] 
+
+
+
+From the introduction, we know that the right hand side  [2.x.181]  of the equation that defines  [2.x.182]  is the difference between a face integral and a cell integral. Here, we approximate the negative of the contribution in the interior. Each component of this matrix is the integral of a product between a basis function of the polynomial space and the divergence of a basis function of the Raviart-Thomas space. These basis functions are defined in the interior. 
+
+[1.x.125] 
+
+
+
+Next, we approximate the integral on faces by quadrature. Each component is the integral of a product between a basis function of the polynomial space and the dot product of a basis function of the Raviart-Thomas space and the normal vector. So we loop over all the faces of the element and obtain the normal vector. 
+
+[1.x.126] 
+
+
+
+ [2.x.183]  is then the matrix product between the transpose of  [2.x.184]  and the inverse of the mass matrix (where this inverse is stored in  [2.x.185]  
+
+[1.x.127] 
+
+
+
+Finally we can compute the local matrix  [2.x.186] .  Element  [2.x.187]  is given by  [2.x.188] . We have calculated the coefficients  [2.x.189]  in the previous step, and so obtain the following after suitably re-arranging the loops: 
+
+[1.x.128] 
+
+
+
+Next, we calculate the right hand side,  [2.x.190] : 
+
+[1.x.129] 
+
+
+
+The last step is to distribute components of the local matrix into the system matrix and transfer components of the cell right hand side into the system right hand side: 
+
+[1.x.130] 
+
+
+
+
+[1.x.131]  [1.x.132] 
+
+
+
+
+This step is rather trivial and the same as in many previous tutorial programs: 
+
+[1.x.133] 
+
+
+
+
+[1.x.134]  [1.x.135] 
+
+
+
+
+In this function, compute the velocity field from the pressure solution previously computed. The velocity is defined as  [2.x.191] , which requires us to compute many of the same terms as in the assembly of the system matrix. There are also the matrices  [2.x.192]  we need to assemble (see the introduction) but they really just follow the same kind of pattern.    
+
+
+Computing the same matrices here as we have already done in the `assemble_system()` function is of course wasteful in terms of CPU time. Likewise, we copy some of the code from there to this function, and this is also generally a poor idea. A better implementation might provide for a function that encapsulates this duplicated code. One could also think of using the classic trade-off between computing efficiency and memory efficiency to only compute the  [2.x.193]  matrices once per cell during the assembly, storing them somewhere on the side, and re-using them here. (This is what  [2.x.194]  does, for example, where the `assemble_system()` function takes an argument that determines whether the local matrices are recomputed, and a similar approach 
+
+-- maybe with storing local matrices elsewhere -- could be adapted for the current program.) 
+
+[1.x.136] 
+
+
+
+In the introduction, we explained how to calculate the numerical velocity on the cell. We need the pressure solution values on each cell, coefficients of the Gram matrix and coefficients of the  [2.x.195]  projection. We have already calculated the global solution, so we will extract the cell solution from the global solution. The coefficients of the Gram matrix have been calculated when we assembled the system matrix for the pressures. We will do the same way here. For the coefficients of the projection, we do matrix multiplication, i.e., the inverse of the Gram matrix times the matrix with  [2.x.196]  as components. Then, we multiply all these coefficients and call them beta. The numerical velocity is the product of beta and the basis functions of the Raviart-Thomas space. 
+
+[1.x.137] 
+
+
+
+The component of this  [2.x.197]  is the integral of  [2.x.198] .  [2.x.199]  is the Gram matrix. 
+
+[1.x.138] 
+
+
+
+To compute the matrix  [2.x.200]  mentioned in the introduction, we then need to evaluate  [2.x.201]  as explained in the introduction: 
+
+[1.x.139] 
+
+
+
+Then we also need, again, to compute the matrix  [2.x.202]  that is used to evaluate the weak discrete gradient. This is the exact same code as used in the assembly of the system matrix, so we just copy it from there: 
+
+[1.x.140] 
+
+
+
+Finally, we need to extract the pressure unknowns that correspond to the current cell: 
+
+[1.x.141] 
+
+
+
+We are now in a position to compute the local velocity unknowns (with respect to the Raviart-Thomas space we are projecting the term  [2.x.203]  into): 
+
+[1.x.142] 
+
+
+
+We compute Darcy velocity. This is same as cell_velocity but used to graph Darcy velocity. 
+
+[1.x.143] 
+
+
+
+
+[1.x.144]  [1.x.145] 
+
+
+
+
+This part is to calculate the  [2.x.204]  error of the pressure.  We define a vector that holds the norm of the error on each cell. Next, we use  [2.x.205]  to compute the error in the  [2.x.206]  norm on each cell. However, we really only care about the error in the interior component of the solution vector (we can't even evaluate the interface pressures at the quadrature points because these are all located in the interior of cells) and consequently have to use a weight function that ensures that the interface component of the solution variable is ignored. This is done by using the ComponentSelectFunction whose arguments indicate which component we want to select (component zero, i.e., the interior pressures) and how many components there are in total (two). 
+
+[1.x.146] 
+
+
+
+
+[1.x.147]  [1.x.148] 
+
+
+
+
+In this function, we evaluate  [2.x.207]  errors for the velocity on each cell, and  [2.x.208]  errors for the flux on faces. The function relies on the `compute_postprocessed_velocity()` function having previous computed, which computes the velocity field based on the pressure solution that has previously been computed.    
+
+
+We are going to evaluate velocities on each cell and calculate the difference between numerical and exact velocities. 
+
+[1.x.149] 
+
+
+
+Having previously computed the postprocessed velocity, we here only have to extract the corresponding values on each cell and face and compare it to the exact values. 
+
+[1.x.150] 
+
+
+
+First compute the  [2.x.209]  error between the postprocessed velocity field and the exact one: 
+
+[1.x.151] 
+
+
+
+For reconstructing the flux we need the size of cells and faces. Since fluxes are calculated on faces, we have the loop over all four faces of each cell. To calculate the face velocity, we extract values at the quadrature points from the `darcy_velocity` which we have computed previously. Then, we calculate the squared velocity error in normal direction. Finally, we calculate the  [2.x.210]  flux error on the cell by appropriately scaling with face and cell areas and add it to the global error. 
+
+[1.x.152] 
+
+
+
+After adding up errors over all cells and faces, we take the square root and get the  [2.x.211]  errors of velocity and flux. These we output to screen. 
+
+[1.x.153] 
+
+
+
+
+[1.x.154]  [1.x.155] 
+
+
+
+
+We have two sets of results to output: the interior solution and the skeleton solution. We use  [2.x.212]  to visualize interior results. The graphical output for the skeleton results is done by using the DataOutFaces class.    
+
+
+In both of the output files, both the interior and the face variables are stored. For the interface output, the output file simply contains the interpolation of the interior pressures onto the faces, but because it is undefined which of the two interior pressure variables you get from the two adjacent cells, it is best to ignore the interior pressure in the interface output file. Conversely, for the cell interior output file, it is of course impossible to show any interface pressures  [2.x.213] , because these are only available on interfaces and not cell interiors. Consequently, you will see them shown as an invalid value (such as an infinity).    
+
+
+For the cell interior output, we also want to output the velocity variables. This is a bit tricky since it lives on the same mesh but uses a different DoFHandler object (the pressure variables live on the `dof_handler` object, the Darcy velocity on the `dof_handler_dgrt` object). Fortunately, there are variations of the  [2.x.214]  function that allow specifying which DoFHandler a vector corresponds to, and consequently we can visualize the data from both DoFHandler objects within the same file. 
+
+[1.x.156] 
+
+
+
+First attach the pressure solution to the DataOut object: 
+
+[1.x.157] 
+
+
+
+Then do the same with the Darcy velocity field, and continue with writing everything out into a file. 
+
+[1.x.158] 
+
+
+
+
+[1.x.159]  [1.x.160] 
+
+
+
+
+This is the final function of the main class. It calls the other functions of our class. 
+
+[1.x.161] 
+
+
+
+
+[1.x.162]  [1.x.163] 
+
+
+
+
+This is the main function. We can change the dimension here to run in 3d. 
+
+[1.x.164] 
+
+[1.x.165][1.x.166] 
+
+
+We run the program with a right hand side that will produce the solution  [2.x.215]  and with homogeneous Dirichlet boundary conditions in the domain  [2.x.216] . In addition, we choose the coefficient matrix in the differential operator  [2.x.217]  as the identity matrix. We test this setup using  [2.x.218] ,  [2.x.219]  and  [2.x.220]  element combinations, which one can select by using the appropriate constructor argument for the `WGDarcyEquation` object in `main()`. We will then visualize pressure values in interiors of cells and on faces. We want to see that the pressure maximum is around 1 and the minimum is around 0. With mesh refinement, the convergence rates of pressure, velocity and flux should then be around 1 for  [2.x.221]  , 2 for  [2.x.222] , and 3 for  [2.x.223] . 
+
+
+[1.x.167][1.x.168][1.x.169] 
+
+
+The following figures show interior pressures and face pressures using the  [2.x.224]  element. The mesh is refined 2 times (top) and 4 times (bottom), respectively. (This number can be adjusted in the `make_grid()` function.) When the mesh is coarse, one can see the face pressures  [2.x.225]  neatly between the values of the interior pressures  [2.x.226]  on the two adjacent cells. 
+
+ [2.x.227]  
+
+From the figures, we can see that with the mesh refinement, the maximum and minimum pressure values are approaching the values we expect. Since the mesh is a rectangular mesh and numbers of cells in each direction is even, we have symmetric solutions. From the 3d figures on the right, we can see that on  [2.x.228] , the pressure is a constant in the interior of the cell, as expected. 
+
+[1.x.170][1.x.171][1.x.172] 
+
+
+We run the code with differently refined meshes (chosen in the `make_grid()` function) and get the following convergence rates of pressure, velocity, and flux (as defined in the introduction). 
+
+ [2.x.229]  
+
+We can see that the convergence rates of  [2.x.230]  are around 1. This, of course, matches our theoretical expectations. 
+
+
+[1.x.173][1.x.174][1.x.175] 
+
+
+We can repeat the experiment from above using the next higher polynomial degree: The following figures are interior pressures and face pressures implemented using  [2.x.231] . The mesh is refined 4 times.  Compared to the previous figures using  [2.x.232] , on each cell, the solution is no longer constant on each cell, as we now use bilinear polynomials to do the approximation. Consequently, there are 4 pressure values in one interior, 2 pressure values on each face. 
+
+ [2.x.233]  
+
+Compared to the corresponding image for the  [2.x.234]  combination, the solution is now substantially more accurate and, in particular so close to being continuous at the interfaces that we can no longer distinguish the interface pressures  [2.x.235]  from the interior pressures  [2.x.236]  on the adjacent cells. 
+
+[1.x.176][1.x.177][1.x.178] 
+
+
+The following are the convergence rates of pressure, velocity, and flux we obtain from using the  [2.x.237]  element combination: 
+
+ [2.x.238]  
+
+The convergence rates of  [2.x.239]  are around 2, as expected. 
+
+
+
+
+[1.x.179][1.x.180][1.x.181] 
+
+
+Let us go one polynomial degree higher. The following are interior pressures and face pressures implemented using  [2.x.240] , with mesh size  [2.x.241]  (i.e., 5 global mesh refinement steps). In the program, we use `data_out_face.build_patches(fe.degree)` when generating graphical output (see the documentation of  [2.x.242]  which here implies that we divide each 2d cell interior into 4 subcells in order to provide a better visualization of the quadratic polynomials.  [2.x.243]  
+
+
+[1.x.182][1.x.183][1.x.184] 
+
+
+As before, we can generate convergence data for the  [2.x.244]  errors of pressure, velocity, and flux using the  [2.x.245]  combination: 
+
+ [2.x.246]  
+
+Once more, the convergence rates of  [2.x.247]  is as expected, with values around 3. [1.x.185] [1.x.186]  [2.x.248]  
+
+ [2.x.249] 

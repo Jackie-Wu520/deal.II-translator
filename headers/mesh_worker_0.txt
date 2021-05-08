@@ -1,0 +1,26 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ [2.x.0]  @defgroup MeshWorker The MeshWorker interface A collection of classes and functions simplifying the coding of loops over all cells and faces. All classes and functions of this module are in the MeshWorker namespace, which also contains documentation on the usage. @ingroup Integrators   [2.x.1] 

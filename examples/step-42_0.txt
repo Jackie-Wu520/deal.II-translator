@@ -1,0 +1,730 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] ,  [2.x.3] . 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5][1.x.6][1.x.7][1.x.8][1.x.9][1.x.10][1.x.11][1.x.12][1.x.13][1.x.14][1.x.15][1.x.16][1.x.17][1.x.18][1.x.19][1.x.20][1.x.21][1.x.22][1.x.23][1.x.24][1.x.25][1.x.26][1.x.27][1.x.28][1.x.29][1.x.30][1.x.31][1.x.32][1.x.33][1.x.34][1.x.35][1.x.36][1.x.37][1.x.38] 
+
+ [2.x.4]  
+
+[1.x.39][1.x.40] 
+
+
+
+
+[1.x.41] [1.x.42][1.x.43] 
+
+
+This example is an extension of  [2.x.5] , considering a 3d contact problem with an elasto-plastic material behavior with isotropic hardening in three dimensions. In other words, it considers how a three-dimensional body deforms if one pushes into it a rigid obstacle (the contact problem) where deformation is governed by an elasto-plastic material law (a material that can only accommodate a certain maximal stress) that hardens as deformation accumulates. To show what we intend to do before going into too many details, let us just show a picture of what the solution will look like (the deformable body is a cube - only half of which is actually shown -, the obstacle corresponds to a Chinese character that is discussed below): 
+
+ [2.x.6]  
+
+
+This problem description implies that we have to take care of an additional nonlinearity compared to  [2.x.7] : the material behavior. Since we consider a three dimensional problem here, we also have to account for the fact that the contact area is at the boundary of the deformable body now, rather than in the interior. Finally, compared to  [2.x.8] , we also have to deal with hanging nodes in both the handling of the linear system as well as of the inequality constraints as we would like to use an adaptive mesh; in the latter case, we will have to deal with prioritizing whether the constraints from the hanging nodes or from the inequalities are more important. 
+
+Since you can very easily reach a few million degrees of freedom in three dimensions, even with adaptive mesh refinement, we decided to use Trilinos and p4est to run our code in parallel, building on the framework of  [2.x.9]  for the parallelization. Additional pointers for parallelization can be found in  [2.x.10] . 
+
+
+[1.x.44][1.x.45] 
+
+
+The classical formulation of the problem possesses the following form: 
+
+[1.x.46] 
+
+Here, the first of these equations defines the relationship between strain  [2.x.11]  and stress  [2.x.12]  via the fourth-order compliance tensor  [2.x.13] ;  [2.x.14]  provides the plastic component of the strain to ensure that the stress does not exceed the yield stress. We will only consider isotropic materials for which  [2.x.15]  can be expressed in terms of the Lam&eacute; moduli  [2.x.16]  and  [2.x.17]  or alternatively in terms of the bulk modulus  [2.x.18]  and  [2.x.19] . The second equation is the force balance; we will here not consider any body forces and henceforth assume that  [2.x.20] . The complementarity condition in the third line implies that  [2.x.21]  if  [2.x.22]  but that  [2.x.23]  may be a nonzero tensor if and only if  [2.x.24] , and in particular that in this case  [2.x.25]  must point in the direction  [2.x.26] . The inequality  [2.x.27]  is a statement of the fact that plastic materials can only support a finite amount of stress; in other words, they react with plastic deformations  [2.x.28]  if external forces would result in a stress  [2.x.29]  for which  [2.x.30]  would result. A typical form for this [1.x.47] is  [2.x.31]  where  [2.x.32]  is the deviatoric part of a tensor and  [2.x.33]  denotes the Frobenius norm. 
+
+Further equations describe a fixed, zero displacement on  [2.x.34]  and that on the surface  [2.x.35]  where contact may appear, the normal force  [2.x.36]  exerted by the obstacle is inward (no "pull" by the obstacle on our body) and with zero tangential component  [2.x.37] . The last condition is again a complementarity condition that implies that on  [2.x.38] , the normal force can only be nonzero if the body is in contact with the obstacle; the second part describes the impenetrability of the obstacle and the body. The last two equations are commonly referred to as the Signorini contact conditions. 
+
+Most materials - especially metals - have the property that they show some hardening as a result of deformation. In other words,  [2.x.39]  increases with deformation. In practice, it is not the elastic deformation that results in hardening, but the plastic component. There are different constitutive laws to describe those material behaviors. The simplest one is called linear isotropic hardening described by the flow function  [2.x.40] . 
+
+
+[1.x.48][1.x.49] 
+
+
+It is generally rather awkward to deal with inequalities. Here, we have to deal with two: plasticity and the contact problem. As described in more detail in the paper mentioned at the top of this page, one can at least reformulate the plasticity in a way that makes it look like a nonlinearity that we can then treat with Newton's method. This is slightly tricky mathematically since the nonlinearity is not just some smooth function but instead has kinks where the stress reaches the yield stress; however, it can be shown for such [1.x.50] functions that Newton's method still converges. 
+
+Without going into details, we will also get rid of the stress as an independent variable and instead work exclusively with the displacements  [2.x.41] . Ultimately, the goal of this reformulation is that we will want to end up with a symmetric, positive definite problem - such as a linearized elasticity problem with spatially variable coefficients resulting from the plastic behavior - that needs to be solved in each Newton step. We want this because there are efficient and scalable methods for the solution of such linear systems, such as CG preconditioned with an algebraic multigrid. This is opposed to the saddle point problem akin to the mixed Laplace (see  [2.x.42] ) we would get were we to continue with the mixed formulation containing both displacements and stresses, and for which  [2.x.43]  already gives a hint at how difficult it is to construct good solvers and preconditioners. 
+
+With this said, let us simply state the problem we obtain after reformulation (again, details can be found in the paper): Find a displacement  [2.x.44]  so that 
+
+[1.x.51] 
+
+where the projector  [2.x.45]  is defined as 
+
+[1.x.52] 
+
+and the space  [2.x.46]  is the space of all displacements that satisfy the contact condition: 
+
+[1.x.53] 
+
+
+
+In the actual code, we will use the abbreviation  [2.x.47] . 
+
+Given this formulation, we will apply two techniques: 
+
+- Run a Newton method to iterate out the nonlinearity in the projector. 
+
+- Run an active set method for the contact condition, in much the same   way as we did in  [2.x.48] . 
+
+A strict approach would keep the active set fixed while we iterate the Newton method to convergence (or maybe the other way around: find the final active set before moving on to the next Newton iteration). In practice, it turns out that it is sufficient to do only a single Newton step per active set iteration, and so we will iterate over them concurrently. We will also, every once in a while, refine the mesh. 
+
+
+[1.x.54][1.x.55] 
+
+
+As mentioned, we will treat the nonlinearity of the operator  [2.x.49]  by applying a Newton method, despite the fact that the operator is not differentiable in the strict sense. However, it satisfies the conditions of [1.x.56] differentiability and this turns out to be enough for Newton's method to work. The resulting method then goes by the name [1.x.57], which sounds impressive but is, in reality, just a Newton method applied to a semi-smooth function with an appropriately chosen "derivative". 
+
+In the current case, we will run our iteration by solving in each iteration  [2.x.50]  the following equation (still an inequality, but linearized): 
+
+[1.x.58] 
+
+where the rank-4 tensor  [2.x.51]  given by 
+
+[1.x.59] 
+
+This tensor is the (formal) linearization of  [2.x.52]  around  [2.x.53] . For the linear isotropic material we consider here, the bulk and shear components of the projector are given by [1.x.60] 
+
+where  [2.x.54]  and  [2.x.55]  are the identity tensors of rank 2 and 4, respectively. 
+
+Note that this problem corresponds to a linear elastic contact problem where  [2.x.56]  plays the role of the elasticity tensor  [2.x.57] . Indeed, if the material is not plastic at a point, then  [2.x.58] . However, at places where the material is plastic,  [2.x.59]  is a spatially varying function. In any case, the system we have to solve for the Newton iterate  [2.x.60]  gets us closer to the goal of rewriting our problem in a way that allows us to use well-known solvers and preconditioners for elliptic systems. 
+
+As a final note about the Newton method let us mention that as is common with Newton methods we need to globalize it by controlling the step length. In other words, while the system above solves for  [2.x.61] , the final iterate will rather be 
+
+[1.x.61] 
+
+where the difference in parentheses on the right takes the role of the traditional Newton direction,  [2.x.62] . We will determine  [2.x.63]  using a standard line search. 
+
+
+[1.x.62][1.x.63] 
+
+
+This linearized problem to be solved in each Newton step is essentially like in  [2.x.64] . The only difference consists in the fact that the contact area is at the boundary instead of in the domain. But this has no further consequence so that we refer to the documentation of  [2.x.65]  with the only hint that  [2.x.66]  contains all the vertices at the contact boundary  [2.x.67]  this time. As there, what we need to do is keep a subset of degrees of freedom fixed, leading to additional constraints that one can write as a saddle point problem. However, as discussed in the paper, by writing these constraints in an appropriate way that removes the coupling between degrees of freedom, we end up with a set of nodes that essentially just have Dirichlet values attached to them. 
+
+
+[1.x.64][1.x.65] 
+
+
+The algorithm outlined above combines the damped semismooth Newton-method, which we use for the nonlinear constitutive law, with the semismooth Newton method for the contact. It works as follows:  [2.x.68]    [2.x.69]  Initialize the active and inactive sets  [2.x.70]  and  [2.x.71]   such that  [2.x.72]  and  [2.x.73]  and set  [2.x.74] . Here,  [2.x.75]  is the set of  all degrees of freedom located at the surface of the domain where contact  may happen.  The start value  [2.x.76]  fulfills our obstacle condition, i.e., we project an  initial zero displacement onto the set of feasible displacements. 
+
+  [2.x.77]  Assemble the Newton matrix  [2.x.78]  and the right-hand-side  [2.x.79] .  These correspond to the linearized Newton step, ignoring for the moment  the contact inequality. 
+
+  [2.x.80]  Find the primal-dual pair  [2.x.81]  that satisfies  [1.x.66] 
+
+ As in  [2.x.82] , we can obtain the solution to this problem by eliminating  those degrees of freedom in  [2.x.83]  from the first equation and  obtain a linear system  [2.x.84] . 
+
+
+
+
+  [2.x.85]  Damp the Newton iteration for  [2.x.86]  by applying a line search and  calculating a linear combination of  [2.x.87]  and  [2.x.88] . This  requires finding an   [2.x.89]  so that  [1.x.67] 
+
+ satisfies  [1.x.68]  with  [2.x.90]  with  the exceptions of (i) elements  [2.x.91]  where we set  [2.x.92] ,  and (ii) elements that correspond to hanging nodes, which we eliminate in the usual manner. 
+
+  [2.x.93]  Define the new active and inactive sets by  [1.x.69] 
+
+ [1.x.70] 
+
+
+
+  [2.x.94] Project  [2.x.95]  so that it satisfies the contact inequality,  [1.x.71] 
+
+ Here,   [2.x.96]  is the projection of the active  components in  [2.x.97]  to the gap  [1.x.72] 
+
+ where  [2.x.98]  is the [1.x.73] denoting the distance of the obstacle  from the undisplaced configuration of the body. 
+
+  [2.x.99]  If  [2.x.100]  and  [2.x.101]  then stop, else set  [2.x.102]  and go to  step (1). This step ensures that we only stop iterations if both the correct  active set has been found and the plasticity has been iterated to sufficient  accuracy.  [2.x.103]  
+
+In step 3 of this algorithm, the matrix  [2.x.104] ,  [2.x.105]  describes the coupling of the bases for the displacements and Lagrange multiplier (contact forces) and it is not quadratic in our situation since  [2.x.106]  is only defined on  [2.x.107] , i.e., the surface where contact may happen. As shown in the paper, we can choose  [2.x.108]  to be a matrix that has only one entry per row, (see also H&uuml;eber, Wohlmuth: A primal-dual active set strategy for non-linear multibody contact problems, Comput. Methods Appl. Mech. Engrg. 194, 2005, pp. 3147-3166). The vector  [2.x.109]  is defined by a suitable approximation  [2.x.110]  of the gap  [2.x.111]  [1.x.74] 
+
+
+
+
+[1.x.75][1.x.76] 
+
+
+Since we run our program in 3d, the computations the program performs are expensive. Consequently using adaptive mesh refinement is an important step towards staying within acceptable run-times. To make our lives easier we simply choose the KellyErrorEstimator that is already implemented in deal.II. We hand the solution vector to it which contains the displacement  [2.x.112] . As we will see in the results it yields a quite reasonable adaptive mesh for the contact zone as well as for plasticity. 
+
+
+[1.x.77][1.x.78] 
+
+
+This tutorial is essentially a mixture of  [2.x.113]  and  [2.x.114]  but instead of PETSc we let the Trilinos library deal with parallelizing the linear algebra (like in  [2.x.115] ). Since we are trying to solve a similar problem like in  [2.x.116]  we will use the same methods but now in parallel. 
+
+A difficulty is handling of the constraints from the Dirichlet conditions, hanging nodes and the inequality condition that arises from the contact. For this purpose we create three objects of type AffineConstraints that describe the various constraints and that we will combine as appropriate in each iteration. 
+
+Compared to  [2.x.117] , the programs has a few new classes: 
+
+ [2.x.118]   [2.x.119]   [2.x.120]  describes the plastic behavior of the   material 
+
+ [2.x.121]   [2.x.122]  describes a sphere that serves as the   obstacle that is pushed into the deformable, elastoplastic body.   Whether this or the next class is used to describe the obstacle is   determined from the input parameter file. 
+
+ [2.x.123]   [2.x.124]  (and a helper class) is a class that   allows us to read in an obstacle from a file. In the example we   will show in the results section, this file will be    [2.x.125]  and will correspond to data that shows the   Chinese, Japanese or   Korean symbol for force or power (see http://www.orientaloutpost.com/ :   "This word can be used for motivation - it   can also mean power/motion/propulsion/force. It can be anything   internal or external that keeps you going. This is the safest way to express   motivation in Chinese. If your audience is Japanese, please see the other entry   for motivation. This is a word in Japanese and Korean, but it means "motive   power" or "kinetic energy" (without the motivation meaning that you are   probably looking for)"). In essence, we will pretend that we have a stamp   (i.e., a mask that corresponds to a flat bottomed obstacle with no pieces   of intermediate height) that we press into the body. The symbol in question   looks as follows (see also the picture at   the top of this section on how the end result looks like): 
+
+   [2.x.126]   [2.x.127]  
+
+Other than that, let us comment only on the following aspects:  [2.x.128]   [2.x.129]  The program allows you to select from two different coarse meshes   through the parameter file. These are either a cube  [2.x.130]  or   a half sphere with the open side facing the positive  [2.x.131]  direction. 
+
+ [2.x.132] In either case, we will assume the convention that the part of the   boundary that may be in contact with the obstacle has boundary   indicator one. For both kinds of meshes, we assume that this is a free   surface, i.e., the body is either in contact there or there is no force   acting on it. For the half sphere, the curved part has boundary   indicator zero and we impose zero displacement there. For the box,   we impose zero displacement along the bottom but allow vertical   displacement along the sides (though no horizontal displacement).  [2.x.133]  [1.x.79] [1.x.80] 
+
+
+[1.x.81]  [1.x.82] The set of include files is not much of a surprise any more at this time: 
+
+[1.x.83] 
+
+
+
+Finally, we include two system headers that let us create a directory for output files. The first header provides the  [2.x.134]  function and the second lets us determine what happened if  [2.x.135]  fails. 
+
+[1.x.84] 
+
+
+
+
+[1.x.85]  [1.x.86] 
+
+
+
+
+This class provides an interface for a constitutive law, i.e., for the relationship between strain  [2.x.136]  and stress  [2.x.137] . In this example we are using an elastoplastic material behavior with linear, isotropic hardening. Such materials are characterized by Young's modulus  [2.x.138] , Poisson's ratio  [2.x.139] , the initial yield stress  [2.x.140]  and the isotropic hardening parameter  [2.x.141] .  For  [2.x.142]  we obtain perfect elastoplastic behavior.    
+
+
+As explained in the paper that describes this program, the first Newton steps are solved with a completely elastic material model to avoid having to deal with both nonlinearities (plasticity and contact) at once. To this end, this class has a function  [2.x.143]  that we use later on to simply set  [2.x.144]  to a very large value -- essentially guaranteeing that the actual stress will not exceed it, and thereby producing an elastic material. When we are ready to use a plastic model, we set  [2.x.145]  back to its proper value, using the same function.  As a result of this approach, we need to leave  [2.x.146]  as the only non-const member variable of this class. 
+
+[1.x.87] 
+
+
+
+The constructor of the ConstitutiveLaw class sets the required material parameter for our deformable body. Material parameters for elastic isotropic media can be defined in a variety of ways, such as the pair  [2.x.147]  (elastic modulus and Poisson's number), using the Lam&eacute; parameters  [2.x.148]  or several other commonly used conventions. Here, the constructor takes a description of material parameters in the form of  [2.x.149] , but since this turns out to these are not the coefficients that appear in the equations of the plastic projector, we immediately convert them into the more suitable set  [2.x.150]  of bulk and shear moduli.  In addition, the constructor takes  [2.x.151]  (the yield stress absent any plastic strain) and  [2.x.152]  (the hardening parameter) as arguments. In this constructor, we also compute the two principal components of the stress-strain relation and its linearization. 
+
+[1.x.88] 
+
+
+
+
+[1.x.89]  [1.x.90] 
+
+
+
+
+This is the principal component of the constitutive law. It computes the fourth order symmetric tensor that relates the strain to the stress according to the projection given above, when evaluated at a particular strain point. We need this function to calculate the nonlinear residual in  [2.x.153]  where we multiply this tensor with the strain given in a quadrature point. The computations follow the formulas laid out in the introduction. In comparing the formulas there with the implementation below, recall that  [2.x.154]  and that  [2.x.155] .    
+
+
+The function returns whether the quadrature point is plastic to allow for some statistics downstream on how many of the quadrature points are plastic and how many are elastic. 
+
+[1.x.91] 
+
+
+
+
+[1.x.92]  [1.x.93] 
+
+
+
+
+This function returns the linearized stress strain tensor, linearized around the solution  [2.x.156]  of the previous Newton step  [2.x.157] .  The parameter  [2.x.158]  (commonly denoted  [2.x.159] ) must be passed as an argument, and serves as the linearization point. The function returns the derivative of the nonlinear constitutive law in the variable stress_strain_tensor, as well as the stress-strain tensor of the linearized problem in stress_strain_tensor_linearized.  See  [2.x.160]  where this function is used. 
+
+[1.x.94] 
+
+
+
+[1.x.95]    
+
+
+The following should be relatively standard. We need classes for the boundary forcing term (which we here choose to be zero) and boundary values on those part of the boundary that are not part of the contact surface (also chosen to be zero here). 
+
+[1.x.96] 
+
+
+
+
+[1.x.97]  [1.x.98] 
+
+
+
+
+The following class is the first of two obstacles that can be selected from the input file. It describes a sphere centered at position  [2.x.161]  and radius  [2.x.162] , where  [2.x.163]  is the vertical position of the (flat) surface of the deformable body. The function's  [2.x.164]  returns the location of the obstacle for a given  [2.x.165]  value if the point actually lies below the sphere, or a large positive value that can't possibly interfere with the deformation if it lies outside the "shadow" of the sphere. 
+
+[1.x.99] 
+
+
+
+preceding Assert 
+
+[1.x.100] 
+
+
+
+
+[1.x.101]  [1.x.102] 
+
+
+
+
+The following two classes describe the obstacle outlined in the introduction, i.e., the Chinese character. The first of the two,  [2.x.166]  is responsible for reading in data from a picture file stored in pbm ascii format. This data will be bilinearly interpolated and thereby provides a function that describes the obstacle. (The code below shows how one can construct a function by interpolating between given data points. One could use the  [2.x.167]  introduced after this tutorial program was written, which does exactly what we want here, but it is instructive to see how to do it by hand.)      
+
+
+The data which we read from the file will be stored in a double  [2.x.168]  named obstacle_data.  This vector composes the base to calculate a piecewise bilinear function as a polynomial interpolation. The data we will read from a file consists of zeros (white) and ones (black).      
+
+
+The  [2.x.169]  variables denote the spacing between pixels in  [2.x.170]  and  [2.x.171]  directions.  [2.x.172]  are the numbers of pixels in each of these directions.   [2.x.173]  returns the value of the image at a given location, interpolated from the adjacent pixel values. 
+
+[1.x.103] 
+
+
+
+The constructor of this class reads in the data that describes the obstacle from the given file name. 
+
+[1.x.104] 
+
+
+
+The following two functions return the value of a given pixel with coordinates  [2.x.174] , which we identify with the values of a function defined at positions  [2.x.175] , and at arbitrary coordinates  [2.x.176]  where we do a bilinear interpolation between point values returned by the first of the two functions. In the second function, for each  [2.x.177] , we first compute the (integer) location of the nearest pixel coordinate to the bottom left of  [2.x.178] , and then compute the coordinates  [2.x.179]  within this pixel. We truncate both kinds of variables from both below and above to avoid problems when evaluating the function outside of its defined range as may happen due to roundoff errors. 
+
+[1.x.105] 
+
+
+
+Finally, this is the class that actually uses the class above. It has a BitmapFile object as a member that describes the height of the obstacle. As mentioned above, the BitmapFile class will provide us with a mask, i.e., values that are either zero or one (and, if you ask for locations between pixels, values that are interpolated between zero and one). This class translates this to heights that are either 0.001 below the surface of the deformable body (if the BitmapFile class reports a one at this location) or 0.999 above the obstacle (if the BitmapFile class reports a zero). The following function should then be self-explanatory. 
+
+[1.x.106] 
+
+
+
+preceding Assert 
+
+[1.x.107] 
+
+
+
+
+[1.x.108]  [1.x.109] 
+
+
+
+
+This is the main class of this program and supplies all functions and variables needed to describe the nonlinear contact problem. It is close to  [2.x.180]  but with some additional features like handling hanging nodes, a Newton method, using Trilinos and p4est for parallel distributed computing. To deal with hanging nodes makes life a bit more complicated since we need another AffineConstraints object now. We create a Newton method for the active set method for the contact situation and to handle the nonlinear operator for the constitutive law.    
+
+
+The general layout of this class is very much like for most other tutorial programs. To make our life a bit easier, this class reads a set of input parameters from an input file. These parameters, using the ParameterHandler class, are declared in the  [2.x.181]  function (which is static so that it can be called before we even create an object of the current type), and a ParameterHandler object that has been used to read an input file will then be passed to the constructor of this class.    
+
+
+The remaining member functions are by and large as we have seen in several of the other tutorial programs, though with additions for the current nonlinear system. We will comment on their purpose as we get to them further below. 
+
+[1.x.110] 
+
+
+
+As far as member variables are concerned, we start with ones that we use to indicate the MPI universe this program runs on, a stream we use to let exactly one processor produce output to the console (see  [2.x.182] ) and a variable that is used to time the various sections of the program: 
+
+[1.x.111] 
+
+
+
+The next group describes the mesh and the finite element space. In particular, for this parallel program, the finite element space has associated with it variables that indicate which degrees of freedom live on the current processor (the index sets, see also  [2.x.183]  and the  [2.x.184]  documentation module) as well as a variety of constraints: those imposed by hanging nodes, by Dirichlet boundary conditions, and by the active set of contact nodes. Of the three AffineConstraints variables defined here, the first only contains hanging node constraints, the second also those associated with Dirichlet boundary conditions, and the third these plus the contact constraints.      
+
+
+The variable  [2.x.185]  consists of those degrees of freedom constrained by the contact, and we use  [2.x.186]  to keep track of the fraction of quadrature points on each cell where the stress equals the yield stress. The latter is only used to create graphical output showing the plastic zone, but not for any further computation; the variable is a member variable of this class since the information is computed as a by-product of computing the residual, but is used only much later. (Note that the vector is a vector of length equal to the number of active cells on the [1.x.112]; it is never used to exchange information between processors and can therefore be a regular deal.II vector.) 
+
+[1.x.113] 
+
+
+
+The next block of variables corresponds to the solution and the linear systems we need to form. In particular, this includes the Newton matrix and right hand side; the vector that corresponds to the residual (i.e., the Newton right hand side) but from which we have not eliminated the various constraints and that is used to determine which degrees of freedom need to be constrained in the next iteration; and a vector that corresponds to the diagonal of the  [2.x.187]  matrix briefly mentioned in the introduction and discussed in the accompanying paper. 
+
+[1.x.114] 
+
+
+
+The next block contains the variables that describe the material response: 
+
+[1.x.115] 
+
+
+
+And then there is an assortment of other variables that are used to identify the mesh we are asked to build as selected by the parameter file, the obstacle that is being pushed into the deformable body, the mesh refinement strategy, whether to transfer the solution from one mesh to the next, and how many mesh refinement cycles to perform. As possible, we mark these kinds of variables as  [2.x.188]  to help the reader identify which ones may or may not be modified later on (the output directory being an exception -- it is never modified outside the constructor but it is awkward to initialize in the member-initializer-list following the colon in the constructor since there we have only one shot at setting it; the same is true for the mesh refinement criterion): 
+
+[1.x.116] 
+
+
+
+
+[1.x.117]  [1.x.118] 
+
+
+
+
+
+[1.x.119]  [1.x.120] 
+
+
+
+
+Let us start with the declaration of run-time parameters that can be selected in the input file. These values will be read back in the constructor of this class to initialize the member variables of this class: 
+
+[1.x.121] 
+
+
+
+
+[1.x.122]  [1.x.123] 
+
+
+
+
+Given the declarations of member variables as well as the declarations of run-time parameters that are read from the input file, there is nothing surprising in this constructor. In the body we initialize the mesh refinement strategy and the output directory, creating such a directory if necessary. 
+
+[1.x.124] 
+
+
+
+If necessary, create a new directory for the output. 
+
+[1.x.125] 
+
+
+
+
+[1.x.126]  [1.x.127] 
+
+
+
+
+The next block deals with constructing the starting mesh. We will use the following helper function and the first block of the  [2.x.189]  to construct a mesh that corresponds to a half sphere. deal.II has a function that creates such a mesh, but it is in the wrong location and facing the wrong direction, so we need to shift and rotate it a bit before using it.    
+
+
+For later reference, as described in the documentation of  [2.x.190]  the flat surface of the halfsphere has boundary indicator zero, while the remainder has boundary indicator one. 
+
+[1.x.128] 
+
+
+
+Since we will attach a different manifold below, we immediately clear the default manifold description: 
+
+[1.x.129] 
+
+
+
+Alternatively, create a hypercube mesh. After creating it, assign boundary indicators as follows:  [2.x.191]  In other words, the boundary indicators of the sides of the cube are 8. The boundary indicator of the bottom is 6 and the top has indicator 1. We set these by looping over all cells of all faces and looking at coordinate values of the cell center, and will make use of these indicators later when evaluating which boundary will carry Dirichlet boundary conditions or will be subject to potential contact. (In the current case, the mesh contains only a single cell, and all of its faces are on the boundary, so both the loop over all cells and the query whether a face is on the boundary are, strictly speaking, unnecessary; we retain them simply out of habit: this kind of code can be found in many programs in essentially this form.) 
+
+[1.x.131] 
+
+
+
+
+[1.x.132]  [1.x.133] 
+
+
+
+
+The next piece in the puzzle is to set up the DoFHandler, resize vectors and take care of various other status variables such as index sets and constraint matrices.    
+
+
+In the following, each group of operations is put into a brace-enclosed block that is being timed by the variable declared at the top of the block (the constructor of the  [2.x.192]  variable starts the timed section, the destructor that is called at the end of the block stops it again). 
+
+[1.x.134] 
+
+
+
+Finally, we set up sparsity patterns and matrices. We temporarily (ab)use the system matrix to also build the (diagonal) matrix that we use in eliminating degrees of freedom that are in contact with the obstacle, but we then immediately set the Newton matrix back to zero. 
+
+[1.x.135] 
+
+
+
+
+[1.x.136]  [1.x.137] 
+
+
+
+
+This function, broken out of the preceding one, computes the constraints associated with Dirichlet-type boundary conditions and puts them into the  [2.x.193]  variable by merging with the constraints that come from hanging nodes.    
+
+
+As laid out in the introduction, we need to distinguish between two cases: 
+
+- If the domain is a box, we set the displacement to zero at the bottom, and allow vertical movement in z-direction along the sides. As shown in the  [2.x.194]  function, the former corresponds to boundary indicator 6, the latter to 8. 
+
+- If the domain is a half sphere, then we impose zero displacement along the curved part of the boundary, associated with boundary indicator zero. 
+
+[1.x.138] 
+
+
+
+interpolate all components of the solution 
+
+[1.x.139] 
+
+
+
+interpolate x- and y-components of the solution (this is a bit mask, so apply operator| ) 
+
+[1.x.140] 
+
+
+
+
+[1.x.141]  [1.x.142] 
+
+
+
+
+The next helper function computes the (diagonal) mass matrix that is used to determine the active set of the active set method we use in the contact algorithm. This matrix is of mass matrix type, but unlike the standard mass matrix, we can make it diagonal (even in the case of higher order elements) by using a quadrature formula that has its quadrature points at exactly the same locations as the interpolation points for the finite element are located. We achieve this by using a QGaussLobatto quadrature formula here, along with initializing the finite element with a set of interpolation points derived from the same quadrature formula. The remainder of the function is relatively straightforward: we put the resulting matrix into the given argument; because we know the matrix is diagonal, it is sufficient to have a loop over only  [2.x.195]  and not over  [2.x.196] . Strictly speaking, we could even avoid multiplying the shape function's values at quadrature point  [2.x.197]  by itself because we know the shape value to be a vector with exactly one one which when dotted with itself yields one. Since this function is not time critical we add this term for clarity. 
+
+[1.x.143] 
+
+
+
+
+[1.x.144]  [1.x.145] 
+
+
+
+
+The following function is the first function we call in each Newton iteration in the  [2.x.198]  function. What it does is to project the solution onto the feasible set and update the active set for the degrees of freedom that touch or penetrate the obstacle.    
+
+
+In order to function, we first need to do some bookkeeping: We need to write into the solution vector (which we can only do with fully distributed vectors without ghost elements) and we need to read the Lagrange multiplier and the elements of the diagonal mass matrix from their respective vectors (which we can only do with vectors that do have ghost elements), so we create the respective vectors. We then also initialize the constraints object that will contain constraints from contact and all other sources, as well as an object that contains an index set of all locally owned degrees of freedom that are part of the contact: 
+
+[1.x.146] 
+
+
+
+The second part is a loop over all cells in which we look at each point where a degree of freedom is defined whether the active set condition is true and we need to add this degree of freedom to the active set of contact nodes. As we always do, if we want to evaluate functions at individual points, we do this with an FEValues object (or, here, an FEFaceValues object since we need to check contact at the surface) with an appropriately chosen quadrature object. We create this face quadrature object by choosing the "support points" of the shape functions defined on the faces of cells (for more on support points, see this  [2.x.199]  "glossary entry"). As a consequence, we have as many quadrature points as there are shape functions per face and looping over quadrature points is equivalent to looping over shape functions defined on a face. With this, the code looks as follows: 
+
+[1.x.147] 
+
+
+
+At each quadrature point (i.e., at each support point of a degree of freedom located on the contact boundary), we then ask whether it is part of the z-displacement degrees of freedom and if we haven't encountered this degree of freedom yet (which can happen for those on the edges between faces), we need to evaluate the gap between the deformed object and the obstacle. If the active set condition is true, then we add a constraint to the AffineConstraints object that the next Newton update needs to satisfy, set the solution vector's corresponding element to the correct value, and add the index to the IndexSet object that stores which degree of freedom is part of the contact: 
+
+[1.x.148] 
+
+
+
+At the end of this function, we exchange data between processors updating those ghost elements in the  [2.x.200]  variable that have been written by other processors. We then merge the Dirichlet constraints and those from hanging nodes into the AffineConstraints object that already contains the active set. We finish the function by outputting the total number of actively constrained degrees of freedom for which we sum over the number of actively constrained degrees of freedom owned by each of the processors. This number of locally owned constrained degrees of freedom is of course the number of elements of the intersection of the active set and the set of locally owned degrees of freedom, which we can get by using  [2.x.201]  on two IndexSets: 
+
+[1.x.149] 
+
+
+
+
+[1.x.150]  [1.x.151] 
+
+
+
+
+Given the complexity of the problem, it may come as a bit of a surprise that assembling the linear system we have to solve in each Newton iteration is actually fairly straightforward. The following function builds the Newton right hand side and Newton matrix. It looks fairly innocent because the heavy lifting happens in the call to  [2.x.202]  and in particular in  [2.x.203]  using the constraints we have previously computed. 
+
+[1.x.152] 
+
+
+
+Having computed the stress-strain tensor and its linearization, we can now put together the parts of the matrix and right hand side. In both, we need the linearized stress-strain tensor times the symmetric gradient of  [2.x.204] , i.e. the term  [2.x.205] , so we introduce an abbreviation of this term. Recall that the matrix corresponds to the bilinear form  [2.x.206]  in the notation of the accompanying publication, whereas the right hand side is  [2.x.207]  where  [2.x.208]  is the current linearization points (typically the last solution). This might suggest that the right hand side will be zero if the material is completely elastic (where  [2.x.209] ) but this ignores the fact that the right hand side will also contain contributions from non-homogeneous constraints due to the contact.                    
+
+
+The code block that follows this adds contributions that are due to boundary forces, should there be any. 
+
+[1.x.153] 
+
+
+
+
+[1.x.154]  [1.x.155] 
+
+
+
+
+The following function computes the nonlinear residual of the equation given the current solution (or any other linearization point). This is needed in the linear search algorithm where we need to try various linear combinations of previous and current (trial) solution to compute the (real, globalized) solution of the current Newton step.    
+
+
+That said, in a slight abuse of the name of the function, it actually does significantly more. For example, it also computes the vector that corresponds to the Newton residual but without eliminating constrained degrees of freedom. We need this vector to compute contact forces and, ultimately, to compute the next active set. Likewise, by keeping track of how many quadrature points we encounter on each cell that show plastic yielding, we also compute the  [2.x.210]  vector that we can later output to visualize the plastic zone. In both of these cases, the results are not necessary as part of the line search, and so we may be wasting a small amount of time computing them. At the same time, this information appears as a natural by-product of what we need to do here anyway, and we want to collect it once at the end of each Newton step, so we may as well do it here.    
+
+
+The actual implementation of this function should be rather obvious: 
+
+[1.x.156] 
+
+
+
+
+[1.x.157]  [1.x.158] 
+
+
+
+
+The last piece before we can discuss the actual Newton iteration on a single mesh is the solver for the linear systems. There are a couple of complications that slightly obscure the code, but mostly it is just setup then solve. Among the complications are: 
+
+   
+
+
+
+
+- For the hanging nodes we have to apply the  [2.x.211]  function to newton_rhs. This is necessary if a hanging node with solution value  [2.x.212]  has one neighbor with value  [2.x.213]  which is in contact with the obstacle and one neighbor  [2.x.214]  which is not in contact. Because the update for the former will be prescribed, the hanging node constraint will have an inhomogeneity and will look like  [2.x.215] . So the corresponding entries in the right-hand-side are non-zero with a meaningless value. These values we have to set to zero. 
+
+- Like in  [2.x.216] , we need to shuffle between vectors that do and do not have ghost elements when solving or using the solution.    
+
+
+The rest of the function is similar to  [2.x.217]  and  [2.x.218]  except that we use a BiCGStab solver instead of CG. This is due to the fact that for very small hardening parameters  [2.x.219] , the linear system becomes almost semidefinite though still symmetric. BiCGStab appears to have an easier time with such linear systems. 
+
+[1.x.159] 
+
+
+
+
+[1.x.160]  [1.x.161] 
+
+
+
+
+This is, finally, the function that implements the damped Newton method on the current mesh. There are two nested loops: the outer loop for the Newton iteration and the inner loop for the line search which will be used only if necessary. To obtain a good and reasonable starting value we solve an elastic problem in the very first Newton step on each mesh (or only on the first mesh if we transfer solutions between meshes). We do so by setting the yield stress to an unreasonably large value in these iterations and then setting it back to the correct value in subsequent iterations.    
+
+
+Other than this, the top part of this function should be reasonably obvious. We initialize the variable  [2.x.220]  to the most negative value representable with double precision numbers so that the comparison whether the current residual is less than that of the previous step will always fail in the first step. 
+
+[1.x.162] 
+
+
+
+It gets a bit more hairy after we have computed the trial solution  [2.x.221]  of the current Newton step. We handle a highly nonlinear problem so we have to damp Newton's method using a line search. To understand how we do this, recall that in our formulation, we compute a trial solution in each Newton step and not the update between old and new solution. Since the solution set is a convex set, we will use a line search that tries linear combinations of the previous and the trial solution to guarantee that the damped solution is in our solution set again. At most we apply 5 damping steps.          
+
+
+There are exceptions to when we use a line search. First, if this is the first Newton step on any mesh, then we don't have any point to compare the residual to, so we always accept a full step. Likewise, if this is the second Newton step on the first mesh (or the second on any mesh if we don't transfer solutions from mesh to mesh), then we have computed the first of these steps using just an elastic model (see how we set the yield stress sigma to an unreasonably large value above). In this case, the first Newton solution was a purely elastic one, the second one a plastic one, and any linear combination would not necessarily be expected to lie in the feasible set -- so we just accept the solution we just got.          
+
+
+In either of these two cases, we bypass the line search and just update residual and other vectors as necessary. 
+
+[1.x.163] 
+
+
+
+The final step is to check for convergence. If the active set has not changed across all processors and the residual is less than a threshold of  [2.x.222] , then we terminate the iteration on the current mesh: 
+
+[1.x.164] 
+
+
+
+
+[1.x.165]  [1.x.166] 
+
+
+
+
+If you've made it this far into the deal.II tutorial, the following function refining the mesh should not pose any challenges to you any more. It refines the mesh, either globally or using the Kelly error estimator, and if so asked also transfers the solution from the previous to the next mesh. In the latter case, we also need to compute the active set and other quantities again, for which we need the information computed by  [2.x.223] . 
+
+[1.x.167] 
+
+
+
+enforce constraints to make the interpolated solution conforming on the new mesh: 
+
+[1.x.168] 
+
+
+
+
+[1.x.169]  [1.x.170] 
+
+
+
+
+The remaining three functions before we get to  [2.x.224]  have to do with generating output. The following one is an attempt at showing the deformed body in its deformed configuration. To this end, this function takes a displacement vector field and moves every vertex of the (local part) of the mesh by the previously computed displacement. We will call this function with the current displacement field before we generate graphical output, and we will call it again after generating graphical output with the negative displacement field to undo the changes to the mesh so made.    
+
+
+The function itself is pretty straightforward. All we have to do is keep track which vertices we have already touched, as we encounter the same vertices multiple times as we loop over cells. 
+
+[1.x.171] 
+
+
+
+
+[1.x.172]  [1.x.173] 
+
+
+
+
+Next is the function we use to actually generate graphical output. The function is a bit tedious, but not actually particularly complicated. It moves the mesh at the top (and moves it back at the end), then computes the contact forces along the contact surface. We can do so (as shown in the accompanying paper) by taking the untreated residual vector and identifying which degrees of freedom correspond to those with contact by asking whether they have an inhomogeneous constraints associated with them. As always, we need to be mindful that we can only write into completely distributed vectors (i.e., vectors without ghost elements) but that when we want to generate output, we need vectors that do indeed have ghost entries for all locally relevant degrees of freedom. 
+
+[1.x.174] 
+
+
+
+Calculation of the contact forces 
+
+[1.x.175] 
+
+
+
+In the remainder of the function, we generate one VTU file on every processor, indexed by the subdomain id of this processor. On the first processor, we then also create a  [2.x.225]  file that indexes [1.x.176] of the VTU files so that the entire set of output files can be read at once. These  [2.x.226]  are used by Paraview to describe an entire parallel computation's output files. We then do the same again for the competitor of Paraview, the VisIt visualization program, by creating a matching  [2.x.227]  file. 
+
+[1.x.177] 
+
+
+
+
+[1.x.178]  [1.x.179] 
+
+
+
+
+This last auxiliary function computes the contact force by calculating an integral over the contact pressure in z-direction over the contact area. For this purpose we set the contact pressure lambda to 0 for all inactive dofs (whether a degree of freedom is part of the contact is determined just as we did in the previous function). For all active dofs, lambda contains the quotient of the nonlinear residual (newton_rhs_uncondensed) and corresponding diagonal entry of the mass matrix (diag_mass_matrix_vector). Because it is not unlikely that hanging nodes show up in the contact area it is important to apply constraints_hanging_nodes.distribute to the distributed_lambda vector. 
+
+[1.x.180] 
+
+
+
+
+[1.x.181]  [1.x.182] 
+
+
+
+
+As in all other tutorial programs, the  [2.x.228]  function contains the overall logic. There is not very much to it here: in essence, it performs the loops over all mesh refinement cycles, and within each, hands things over to the Newton solver in  [2.x.229]  on the current mesh and calls the function that creates graphical output for the so-computed solution. It then outputs some statistics concerning both run times and memory consumption that has been collected over the course of computations on this mesh. 
+
+[1.x.183] 
+
+
+
+
+[1.x.184]  [1.x.185] 
+
+
+
+
+There really isn't much to the  [2.x.230]  function. It looks like they always do: 
+
+[1.x.186] 
+
+[1.x.187][1.x.188] 
+
+
+The directory that contains this program also contains a number of input parameter files that can be used to create various different simulations. For example, running the program with the  [2.x.231]  parameter file (using a ball as obstacle and the box as domain) on 16 cores produces output like this: 
+
+[1.x.189] 
+
+
+
+The tables at the end of each cycle show information about computing time (these numbers are of course specific to the machine on which this output was produced) and the number of calls of different parts of the program like assembly or calculating the residual, for the most recent mesh refinement cycle. Some of the numbers above can be improved by transferring the solution from one mesh to the next, an option we have not exercised here. Of course, you can also make the program run faster, especially on the later refinement cycles, by just using more processors: the accompanying paper shows good scaling to at least 1000 cores. 
+
+In a typical run, you can observe that for every refinement step, the active set - the contact points - are iterated out at first. After that the Newton method has only to resolve the plasticity. For the finer meshes, quadratic convergence can be observed for the last 4 or 5 Newton iterations. 
+
+We will not discuss here in all detail what happens with each of the input files. Rather, let us just show pictures of the solution (the left half of the domain is omitted if cells have zero quadrature points at which the plastic inequality is active): 
+
+ [2.x.232]  
+
+The picture shows the adaptive refinement and as well how much a cell is plastified during the contact with the ball. Remember that we consider the norm of the deviator part of the stress in each quadrature point to see if there is elastic or plastic behavior. The blue color means that this cell contains only elastic quadrature points in contrast to the red cells in which all quadrature points are plastified. In the middle of the top surface - where the mesh is finest - a very close look shows the dimple caused by the obstacle. This is the result of the  [2.x.233]  function. However, because the indentation of the obstacles we consider here is so small, it is hard to discern this effect; one could play with displacing vertices of the mesh by a multiple of the computed displacement. 
+
+Further discussion of results that can be obtained using this program is provided in the publication mentioned at the very top of this page. 
+
+
+[1.x.190] [1.x.191][1.x.192] 
+
+
+There are, as always, multiple possibilities for extending this program. From an algorithmic perspective, this program goes about as far as one can at the time of writing, using the best available algorithms for the contact inequality, the plastic nonlinearity, and the linear solvers. However, there are things one would like to do with this program as far as more realistic situations are concerned:  [2.x.234]   [2.x.235]  Extend the program from a static to a quasi-static situation, perhaps by choosing a backward-Euler-scheme for the time discretization. Some theoretical results can be found in the PhD thesis by Jörg Frohne, [1.x.193], University of Siegen, Germany, 2011. 
+
+ [2.x.236]  It would also be an interesting advance to consider a contact problem with friction. In almost every mechanical process friction has a big influence.  To model this situation, we have to take into account tangential stresses at the contact surface. Friction also adds another inequality to our problem since body and obstacle will typically stick together as long as the tangential stress does not exceed a certain limit, beyond which the two bodies slide past each other. 
+
+ [2.x.237]  If we already simulate a frictional contact, the next step to consider is heat generation over the contact zone. The heat that is caused by friction between two bodies raises the temperature in the deformable body and entails an change of some material parameters. 
+
+ [2.x.238]  It might be of interest to implement more accurate, problem-adapted error estimators for contact as well as for the plasticity.  [2.x.239]  [1.x.194] [1.x.195]  [2.x.240]  
+
+ [2.x.241] 

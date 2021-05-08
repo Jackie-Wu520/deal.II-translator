@@ -1,0 +1,292 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] ,  [2.x.3] . 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5][1.x.6][1.x.7][1.x.8][1.x.9][1.x.10][1.x.11][1.x.12][1.x.13][1.x.14][1.x.15][1.x.16][1.x.17][1.x.18][1.x.19][1.x.20][1.x.21][1.x.22][1.x.23] 
+
+
+
+[1.x.24][1.x.25] 
+
+[1.x.26] [1.x.27][1.x.28] 
+
+
+This program demonstrates how to use the cell-based implementation of finite element operators with the MatrixFree class, first introduced in  [2.x.4] , to solve nonlinear partial differential equations. Moreover, we have another look at the handling of constraints within the matrix-free framework. Finally, we will use an explicit time-stepping method to solve the problem and introduce Gauss-Lobatto finite elements that are very convenient in this case since their mass matrix can be accurately approximated by a diagonal, and thus trivially invertible, matrix. The two ingredients to this property are firstly a distribution of the nodal points of Lagrange polynomials according to the point distribution of the Gauss-Lobatto quadrature rule. Secondly, the quadrature is done with the same Gauss-Lobatto quadrature rule. In this formula, the integrals  [2.x.5]  become zero whenever  [2.x.6] , because exactly one function  [2.x.7]  is one and all others zero in the points defining the Lagrange polynomials. Moreover, the Gauss-Lobatto distribution of nodes of Lagrange polynomials clusters the nodes towards the element boundaries. This results in a well-conditioned polynomial basis for high-order discretization methods. Indeed, the condition number of an FE_Q elements with equidistant nodes grows exponentially with the degree, which destroys any benefit for orders of about five and higher. For this reason, Gauss-Lobatto points are the default distribution for the FE_Q element (but at degrees one and two, those are equivalent to the equidistant points). 
+
+[1.x.29][1.x.30] 
+
+
+As an example, we choose to solve the sine-Gordon soliton equation [1.x.31] 
+
+that was already introduced in  [2.x.8] . As a simple explicit time integration method, we choose leap frog scheme using the second-order formulation of the equation. With this time stepping, the scheme reads in weak form 
+
+[1.x.32] where [1.x.33] denotes a test function and the index [1.x.34] stands for the time step number. 
+
+For the spatial discretization, we choose FE_Q elements with basis functions defined to interpolate the support points of the Gauss-Lobatto quadrature rule. Moreover, when we compute the integrals over the basis functions to form the mass matrix and the operator on the right hand side of the equation above, we use the Gauss-Lobatto quadrature rule with the same support points as the node points of the finite element to evaluate the integrals. Since the finite element is Lagrangian, this will yield a diagonal mass matrix on the left hand side of the equation, making the solution of the linear system in each time step trivial. 
+
+Using this quadrature rule, for a [1.x.35]th order finite element, we use a [1.x.36]th order accurate formula to evaluate the integrals. Since the product of two [1.x.37]th order basis functions when computing a mass matrix gives a function with polynomial degree [1.x.38] in each direction, the integrals are not computed exactly.  However, the overall convergence properties are not disturbed by the quadrature error on meshes with affine element shapes with L2 errors proportional to [1.x.39]. Note however that order reduction with sub-optimal convergence rates of the L2 error of [1.x.40] or even [1.x.41] for some 3D setups has been reported [1.x.42] on deformed (non-affine) element shapes for wave equations when the integrand is not a polynomial any more. 
+
+Apart from the fact that we avoid solving linear systems with this type of elements when using explicit time-stepping, they come with two other advantages. When we are using the sum-factorization approach to evaluate the finite element operator (cf.  [2.x.9] ), we have to evaluate the function at the quadrature points. In the case of Gauss-Lobatto elements, where quadrature points and node points of the finite element coincide, this operation is trivial since the value of the function at the quadrature points is given by its one-dimensional coefficients. In this way, the arithmetic work for the finite element operator evaluation is reduced by approximately a factor of two compared to the generic Gaussian quadrature. 
+
+To sum up the discussion, by using the right finite element and quadrature rule combination, we end up with a scheme where we only need to compute the right hand side vector corresponding to the formulation above and then multiply it by the inverse of the diagonal mass matrix in each time step. In practice, of course, we extract the diagonal elements and invert them only once at the beginning of the program. 
+
+[1.x.43][1.x.44] 
+
+
+The usual way to handle constraints in  [2.x.10]  is to use the AffineConstraints class that builds a sparse matrix storing information about which degrees of freedom (DoF) are constrained and how they are constrained. This format uses an unnecessarily large amount of memory since there are not so many different types of constraints: for example, in the case of hanging nodes when using linear finite element on every cell, most constraints have the form  [2.x.11]  where the coefficients  [2.x.12]  are always the same and only  [2.x.13]  are different. While storing this redundant information is not a problem in general because it is only needed once during matrix and right hand side assembly, it becomes a bottleneck in the matrix-free approach since there this information has to be accessed every time we apply the operator, and the remaining components of the operator evaluation are so fast. Thus, instead of an AffineConstraints object, MatrixFree uses a variable that we call  [2.x.14]  that collects the weights of the different constraints. Then, only an identifier of each constraint in the mesh instead of all the weights have to be stored. Moreover, the constraints are not applied in a pre- and postprocessing step but rather as we evaluate the finite element operator. Therefore, the constraint information is embedded into the variable  [2.x.15]  that is used to extract the cell information from the global vector. If a DoF is constrained, the  [2.x.16]  variable contains the global indices of the DoFs that it is constrained to. Then, we have another variable  [2.x.17]  at hand that holds, for each cell, the local indices of DoFs that are constrained as well as the identifier of the type of constraint. Fortunately, you will not see these data structures in the example program since the class  [2.x.18]  takes care of the constraints without user interaction. 
+
+In the presence of hanging nodes, the diagonal mass matrix obtained on the element level via the Gauss-Lobatto quadrature/node point procedure does not directly translate to a diagonal global mass matrix, as following the constraints on rows and columns would also add off-diagonal entries. As explained in [1.x.45], interpolating constraints on a vector, which maintains the diagonal shape of the mass matrix, is consistent with the equations up to an error of the same magnitude as the quadrature error. In the program below, we will simply assemble the diagonal of the mass matrix as if it were a vector to enable this approximation. 
+
+
+[1.x.46][1.x.47] 
+
+
+The MatrixFree class comes with the option to be parallelized on three levels: MPI parallelization on clusters of distributed nodes, thread parallelization scheduled by the Threading Building Blocks library, and finally with a vectorization by working on a batch of two (or more) cells via SIMD data type (sometimes called cross-element or external vectorization). As we have already discussed in  [2.x.19] , you will get best performance by using an instruction set specific to your system, e.g. with the cmake variable <tt>-DCMAKE_CXX_FLAGS="-march=native"</tt>. The MPI parallelization was already exploited in  [2.x.20] . Here, we additionally consider thread parallelization with TBB. This is fairly simple, as all we need to do is to tell the initialization of the MatrixFree object about the fact that we want to use a thread parallel scheme through the variable  [2.x.21]  During setup, a dependency graph is set up similar to the one described in the  [2.x.22]  , which allows to schedule the work of the  [2.x.23]  function on chunks of cells without several threads accessing the same vector indices. As opposed to the WorkStream loops, some additional clever tricks to avoid global synchronizations as described in [1.x.48] are also applied. 
+
+Note that this program is designed to be run with a distributed triangulation  [2.x.24]  which requires deal.II to be configured with [1.x.49] as described in the [1.x.50] file. However, a non-distributed triangulation is also supported, in which case the computation will be run in serial. 
+
+[1.x.51][1.x.52] 
+
+
+In our example, we choose the initial value to be [1.x.53] and solve the equation over the time interval [-10,10]. The constants are chosen to be  [2.x.25]  and [1.x.54]. As mentioned in  [2.x.26] , in one dimension [1.x.55] as a function of [1.x.56] is the exact solution of the sine-Gordon equation. For higher dimension, this is however not the case. [1.x.57] [1.x.58] 
+
+The necessary files from the deal.II library. 
+
+[1.x.59] 
+
+
+
+This includes the data structures for the efficient implementation of matrix-free methods. 
+
+[1.x.60] 
+
+
+
+We start by defining two global variables to collect all parameters subject to changes at one place: One for the dimension and one for the finite element degree. The dimension is used in the main function as a template argument for the actual classes (like in all other deal.II programs), whereas the degree of the finite element is more crucial, as it is passed as a template argument to the implementation of the Sine-Gordon operator. Therefore, it needs to be a compile-time constant. 
+
+[1.x.61] 
+
+
+
+
+[1.x.62]  [1.x.63] 
+
+
+
+
+The  [2.x.27]  class implements the cell-based operation that is needed in each time step. This nonlinear operation can be implemented straight-forwardly based on the  [2.x.28]  class, in the same way as a linear operation would be treated by this implementation of the finite element operator application. We apply two template arguments to the class, one for the dimension and one for the degree of the finite element. This is a difference to other functions in deal.II where only the dimension is a template argument. This is necessary to provide the inner loops in  [2.x.29]  with information about loop lengths etc., which is essential for efficiency. On the other hand, it makes it more challenging to implement the degree as a run-time parameter. 
+
+[1.x.64] 
+
+
+
+
+[1.x.65]  [1.x.66] 
+
+
+
+
+This is the constructor of the SineGordonOperation class. It receives a reference to the MatrixFree holding the problem information and the time step size as input parameters. The initialization routine sets up the mass matrix. Since we use Gauss-Lobatto elements, the mass matrix is a diagonal matrix and can be stored as a vector. The computation of the mass matrix diagonal is simple to achieve with the data structures provided by FEEvaluation: Just loop over all cell batches, i.e., collections of cells due to SIMD vectorization, and integrate over the function that is constant one on all quadrature points by using the  [2.x.30]  function with  [2.x.31]  argument at the slot for values. Finally, we invert the diagonal entries to have the inverse mass matrix directly available in each time step. 
+
+[1.x.67] 
+
+
+
+
+[1.x.68]  [1.x.69] 
+
+
+
+
+This operator implements the core operation of the program, the integration over a range of cells for the nonlinear operator of the Sine-Gordon problem. The implementation is based on the FEEvaluation class as in  [2.x.32] . Due to the special structure in Gauss-Lobatto elements, certain operations become simpler, in particular the evaluation of shape function values on quadrature points which is simply the injection of the values of cell degrees of freedom. The MatrixFree class detects possible structure of the finite element at quadrature points when initializing, which is then automatically used by FEEvaluation for selecting the most appropriate numerical kernel. 
+
+
+
+
+The nonlinear function that we have to evaluate for the time stepping routine includes the value of the function at the present time  [2.x.33]  as well as the value at the previous time step  [2.x.34]  Both values are passed to the operator in the collection of source vectors  [2.x.35]  which is simply a  [2.x.36]  of pointers to the actual solution vectors. This construct of collecting several source vectors into one is necessary as the cell loop in  [2.x.37]  takes exactly one source and one destination vector, even if we happen to use many vectors like the two in this case. Note that the cell loop accepts any valid class for input and output, which does not only include vectors but general data types.  However, only in case it encounters a  [2.x.38]  or a  [2.x.39]  collecting these vectors, it calls functions that exchange ghost data due to MPI at the beginning and the end of the loop. In the loop over the cells, we first have to read in the values in the vectors related to the local values.  Then, we evaluate the value and the gradient of the current solution vector and the values of the old vector at the quadrature points. Next, we combine the terms in the scheme in the loop over the quadrature points. Finally, we integrate the result against the test function and accumulate the result to the global solution vector @p dst. 
+
+[1.x.70] 
+
+
+
+
+[1.x.71]  [1.x.72] 
+
+
+
+
+This function performs the time stepping routine based on the cell-local strategy. Note that we need to set the destination vector to zero before we add the integral contributions of the current time step (via the  [2.x.40]  call). In this tutorial, we let the cell-loop do the zero operation via the fifth `true` argument passed to  [2.x.41]  The loop can schedule the zero operation closer to the operations on vector entries for supported vector entries, thereby possibly increasing data locality (the vector entries that first get zeroed are later re-used in the `distribute_local_to_global()` call). The structure of the cell loop is implemented in the cell finite element operator class. On each cell it applies the routine defined as the  [2.x.42]  method of the class  [2.x.43] . One could also provide a function with the same signature that is not part of a class. Finally, the result of the integration is multiplied by the inverse mass matrix. 
+
+[1.x.73] 
+
+
+
+
+[1.x.74]  [1.x.75] 
+
+
+
+
+We define a time-dependent function that is used as initial value. Different solutions can be obtained by varying the starting time. This function, taken from  [2.x.44] , would represent an analytic solution in 1D for all times, but is merely used for setting some starting solution of interest here. More elaborate choices that could test the convergence of this program are given in  [2.x.45] . 
+
+[1.x.76] 
+
+
+
+
+[1.x.77]  [1.x.78] 
+
+
+
+
+This is the main class that builds on the class in  [2.x.46] .  However, we replaced the SparseMatrix<double> class by the MatrixFree class to store the geometry data. Also, we use a distributed triangulation in this example. 
+
+[1.x.79] 
+
+
+
+
+[1.x.80]  [1.x.81] 
+
+
+
+
+This is the constructor of the SineGordonProblem class. The time interval and time step size are defined here. Moreover, we use the degree of the finite element that we defined at the top of the program to initialize a FE_Q finite element based on Gauss-Lobatto support points. These points are convenient because in conjunction with a QGaussLobatto quadrature rule of the same order they give a diagonal mass matrix without compromising accuracy too much (note that the integration is inexact, though), see also the discussion in the introduction. Note that FE_Q selects the Gauss-Lobatto nodal points by default due to their improved conditioning versus equidistant points. To make things more explicit, we state the selection of the nodal points nonetheless. 
+
+[1.x.82] 
+
+
+
+
+[1.x.83]  [1.x.84] 
+
+
+
+
+As in  [2.x.47]  this functions sets up a cube grid in  [2.x.48]  dimensions of extent  [2.x.49] . We refine the mesh more in the center of the domain since the solution is concentrated there. We first refine all cells whose center is within a radius of 11, and then refine once more for a radius 6.  This simple ad hoc refinement could be done better by adapting the mesh to the solution using error estimators during the time stepping as done in other example programs, and using  [2.x.50]  to transfer the solution to the new mesh. 
+
+[1.x.85] 
+
+
+
+We generate hanging node constraints for ensuring continuity of the solution. As in  [2.x.51] , we need to equip the constraint matrix with the IndexSet of locally relevant degrees of freedom to avoid it to consume too much memory for big problems. Next, the <code> MatrixFree </code> object for the problem is set up. Note that we specify a particular scheme for shared-memory parallelization (hence one would use multithreading for intra-node parallelism and not MPI; we here choose the standard option &mdash; if we wanted to disable shared memory parallelization even in case where there is more than one TBB thread available in the program, we would choose  [2.x.52]  Also note that, instead of using the default QGauss quadrature argument, we supply a QGaussLobatto quadrature formula to enable the desired behavior. Finally, three solution vectors are initialized. MatrixFree expects a particular layout of ghost indices (as it handles index access in MPI-local numbers that need to match between the vector and MatrixFree), so we just ask it to initialize the vectors to be sure the ghost exchange is properly handled. 
+
+[1.x.86] 
+
+
+
+
+[1.x.87]  [1.x.88] 
+
+
+
+
+This function prints the norm of the solution and writes the solution vector to a file. The norm is standard (except for the fact that we need to accumulate the norms over all processors for the parallel grid which we do via the  [2.x.53]  function), and the second is similar to what we did in  [2.x.54]  or  [2.x.55] . Note that we can use the same vector for output as the one used during computations: The vectors in the matrix-free framework always provide full information on all locally owned cells (this is what is needed in the local evaluations, too), including ghost vector entries on these cells. This is the only data that is needed in the  [2.x.56]  function as well as in DataOut. The only action to take at this point is to make sure that the vector updates its ghost values before we read from them, and to reset ghost values once done. This is a feature present only in the  [2.x.57]  class. Distributed vectors with PETSc and Trilinos, on the other hand, need to be copied to special vectors including ghost values (see the relevant section in  [2.x.58] ). If we also wanted to access all degrees of freedom on ghost cells (e.g. when computing error estimators that use the jump of solution over cell boundaries), we would need more information and create a vector initialized with locally relevant dofs just as in  [2.x.59] . Observe also that we need to distribute constraints for output - they are not filled during computations (rather, they are interpolated on the fly in the matrix-free method  [2.x.60]  
+
+[1.x.89] 
+
+
+
+
+[1.x.90]  [1.x.91] 
+
+
+
+
+This function is called by the main function and steps into the subroutines of the class.    
+
+
+After printing some information about the parallel setup, the first action is to set up the grid and the cell operator. Then, the time step is computed from the CFL number given in the constructor and the finest mesh size. The finest mesh size is computed as the diameter of the last cell in the triangulation, which is the last cell on the finest level of the mesh. This is only possible for meshes where all elements on a level have the same size, otherwise, one needs to loop over all cells. Note that we need to query all the processors for their finest cell since not all processors might hold a region where the mesh is at the finest level. Then, we readjust the time step a little to hit the final time exactly. 
+
+[1.x.92] 
+
+
+
+Next the initial value is set. Since we have a two-step time stepping method, we also need a value of the solution at time-time_step. For accurate results, one would need to compute this from the time derivative of the solution at initial time, but here we ignore this difficulty and just set it to the initial value function at that artificial time. 
+
+
+
+
+We then go on by writing the initial state to file and collecting the two starting solutions in a  [2.x.61]  of pointers that get later consumed by the  [2.x.62]  function. Next, an instance of the  [2.x.63]  based on the finite element degree specified at the top of this file is set up. 
+
+[1.x.93] 
+
+
+
+Now loop over the time steps. In each iteration, we shift the solution vectors by one and call the `apply` function of the `SineGordonOperator` class. Then, we write the solution to a file. We clock the wall times for the computational time needed as wall as the time needed to create the output and report the numbers when the time stepping is finished.      
+
+
+Note how this shift is implemented: We simply call the swap method on the two vectors which swaps only some pointers without the need to copy data around, a relatively expensive operation within an explicit time stepping method. Let us see what happens in more detail: First, we exchange  [2.x.64] , which means that  [2.x.65]  gets  [2.x.66] , which is what we expect. Similarly,  [2.x.67]  in the next step. After this,  [2.x.68]  holds  [2.x.69] , but that will be overwritten during this step. 
+
+[1.x.94] 
+
+
+
+
+[1.x.95]  [1.x.96] 
+
+
+
+
+As in  [2.x.70] , we initialize MPI at the start of the program. Since we will in general mix MPI parallelization with threads, we also set the third argument in MPI_InitFinalize that controls the number of threads to an invalid number, which means that the TBB library chooses the number of threads automatically, typically to the number of available cores in the system. As an alternative, you can also set this number manually if you want to set a specific number of threads (e.g. when MPI-only is required). 
+
+[1.x.97] 
+
+[1.x.98][1.x.99] 
+
+
+[1.x.100][1.x.101] 
+
+
+In order to demonstrate the gain in using the MatrixFree class instead of the standard  [2.x.71]  assembly routines for evaluating the information from old time steps, we study a simple serial run of the code on a nonadaptive mesh. Since much time is spent on evaluating the sine function, we do not only show the numbers of the full sine-Gordon equation but also for the wave equation (the sine-term skipped from the sine-Gordon equation). We use both second and fourth order elements. The results are summarized in the following table. 
+
+ [2.x.72]  
+
+It is apparent that the matrix-free code outperforms the standard assembly routines in deal.II by far. In 3D and for fourth order elements, one operator evaluation is also almost ten times as fast as a sparse matrix-vector product. 
+
+[1.x.102][1.x.103] 
+
+
+We start with the program output obtained on a workstation with 12 cores / 24 threads (one Intel Xeon E5-2687W v4 CPU running at 3.2 GHz, hyperthreading enabled), running the program in release mode: 
+
+[1.x.104] 
+
+
+
+In 3D, the respective output looks like 
+
+[1.x.105] 
+
+
+
+It takes 0.008 seconds for one time step with more than a million degrees of freedom (note that we would need many processors to reach such numbers when solving linear systems). 
+
+If we replace the thread-parallelization by a pure MPI parallelization, the timings change into: 
+
+[1.x.106] 
+
+
+
+We observe a dramatic speedup for the output (which makes sense, given that most code of the output is not parallelized via threads, whereas it is for MPI), but less than the theoretical factor of 12 we would expect from the parallelism. More interestingly, the computations also get faster when switching from the threads-only variant to the MPI-only variant. This is a general observation for the MatrixFree framework (as of updating this data in 2019). The main reason is that the decisions regarding work on conflicting cell batches made to enable execution in parallel are overly pessimistic: While they ensure that no work on neighboring cells is done on different threads at the same time, this conservative setting implies that data from neighboring cells is also evicted from caches by the time neighbors get touched. Furthermore, the current scheme is not able to provide a constant load for all 24 threads for the given mesh with 17,592 cells. 
+
+The current program allows to also mix MPI parallelization with thread parallelization. This is most beneficial when running programs on clusters with multiple nodes, using MPI for the inter-node parallelization and threads for the intra-node parallelization. On the workstation used above, we can run threads in the hyperthreading region (i.e., using 2 threads for each of the 12 MPI ranks). An important setting for mixing MPI with threads is to ensure proper binning of tasks to CPUs. On many clusters the placing is either automatically via the `mpirun/mpiexec` environment, or there can be manual settings. Here, we simply report the run times the plain version of the program (noting that things could be improved towards the timings of the MPI-only program when proper pinning is done): 
+
+[1.x.107] 
+
+
+
+
+
+
+[1.x.108][1.x.109] 
+
+
+There are several things in this program that could be improved to make it even more efficient (besides improved boundary conditions and physical stuff as discussed in  [2.x.73] ): 
+
+ [2.x.74]   [2.x.75]  [1.x.110] As becomes obvious   from the comparison of the plain wave equation and the sine-Gordon   equation above, the evaluation of the sine terms dominates the total   time for the finite element operator application. There are a few   reasons for this: Firstly, the deal.II sine computation of a   VectorizedArray field is not vectorized (as opposed to the rest of   the operator application). This could be cured by handing the sine   computation to a library with vectorized sine computations like   Intel's math kernel library (MKL). By using the function    [2.x.76]  in MKL, the program uses half the computing time   in 2D and 40 percent less time in 3D. On the other hand, the sine   computation is structurally much more complicated than the simple   arithmetic operations like additions and multiplications in the rest   of the local operation. 
+
+   [2.x.77]  [1.x.111] While the implementation allows for   arbitrary order in the spatial part (by adjusting the degree of the finite   element), the time stepping scheme is a standard second-order leap-frog   scheme. Since solutions in wave propagation problems are usually very   smooth, the error is likely dominated by the time stepping part. Of course,   this could be cured by using smaller time steps (at a fixed spatial   resolution), but it would be more efficient to use higher order time   stepping as well. While it would be straight-forward to do so for a   first-order system (use some Runge&ndash;Kutta scheme of higher order,   probably combined with adaptive time step selection like the [1.x.112]), it is more challenging for the second-order formulation. At   least in the finite difference community, people usually use the PDE to find   spatial correction terms that improve the temporal error. 
+
+ [2.x.78]  [1.x.113] [1.x.114]  [2.x.79]  
+
+ [2.x.80] 

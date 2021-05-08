@@ -1,0 +1,434 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] . 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5][1.x.6][1.x.7][1.x.8][1.x.9][1.x.10][1.x.11][1.x.12][1.x.13][1.x.14][1.x.15][1.x.16][1.x.17][1.x.18][1.x.19][1.x.20][1.x.21][1.x.22][1.x.23][1.x.24][1.x.25][1.x.26][1.x.27][1.x.28][1.x.29][1.x.30][1.x.31] 
+
+[1.x.32] 
+
+[1.x.33] [1.x.34][1.x.35] 
+
+This tutorial is an extension to  [2.x.3]  and demonstrates several ways to obtain more involved meshes than the ones shown there. 
+
+ [2.x.4]  This tutorial is also available as a Jupyter Python notebook that   uses the deal.II python interface. The notebook is available in the   same directory as the original C++ program. 
+
+Generating complex geometries is a challenging task, especially in three space dimensions. We will discuss several ways to do this, but this list is not exhaustive. Additionally, there is not one approach that fits all problems. 
+
+This example program shows some of ways to create and modify meshes for computations and outputs them as  [2.x.5]  files in much the same way as we do in  [2.x.6] . No other computations or adaptive refinements are done; the idea is that you can use the techniques used here as building blocks in other, more involved simulators. Please note that the example program does not show all the ways to generate meshes that are discussed in this introduction. 
+
+
+[1.x.36][1.x.37] 
+
+
+When you use adaptive mesh refinement, you definitely want the initial mesh to be as coarse as possible. The reason is that you can make it as fine as you want using adaptive refinement as long as you have memory and CPU time available. However, this requires that you don't waste mesh cells in parts of the domain where they don't pay off. As a consequence, you don't want to start with a mesh that is too fine to start with, because that takes up a good part of your cell budget already, and because you can't coarsen away cells that are in the initial mesh. 
+
+That said, your mesh needs to capture the given geometry adequately. 
+
+
+[1.x.38][1.x.39] 
+
+
+There are several ways to create an initial mesh. Meshes can be modified or combined in many ways as discussed later on. 
+
+[1.x.40][1.x.41] 
+
+
+The easiest way to generate meshes is to use the functions in namespace GridGenerator, as already discussed in  [2.x.7] .  There are many different helper functions available, including  [2.x.8]   [2.x.9]   [2.x.10]  and  [2.x.11]  
+
+
+[1.x.42][1.x.43] 
+
+
+If there is no good fit in the GridGenerator namespace for what you want to do, you can always create a Triangulation in your program "by hand". For that, you need a list of vertices with their coordinates and a list of cells referencing those vertices. You can find an example in the function <tt>create_coarse_grid()</tt> in  [2.x.12] . All the functions in GridGenerator are implemented in this fashion. 
+
+We are happy to accept more functions to be added to GridGenerator. So, if you end up writing a function that might be useful for a larger audience, please contribute it. 
+
+
+[1.x.44][1.x.45] 
+
+
+The class GridIn can read many different mesh formats from a file from disk. How this is done is explained in  [2.x.13]  and can be seen in the function  [2.x.14]  in this example, see the code below. 
+
+Meshes can be generated from different tools like [1.x.46], [1.x.47] and [1.x.48]. See the documentation of GridIn for more information. The problem is that deal.II needs meshes that only consist of quadrilaterals and hexahedra -- tetrahedral meshes won't work (this means tools like tetgen can not be used directly). 
+
+We will describe a possible workflow using %Gmsh. %Gmsh is the smallest and most quickly set up open source tool we are aware of. It can generate unstructured 2d quad meshes. In 3d, it can extrude 2d meshes to get hexahedral meshes; 3D meshing of unstructured geometry into hexahedra is possible, though there are some issues with the quality of these meshes that imply that these meshes only sometimes work in deal.II. 
+
+In %Gmsh, a mesh is fundamentally described in a text-based  [2.x.15]  file whose format can contain computations, loops, variables, etc. This format is quite flexible in allowing the description of complex geometries. The mesh is then generated from a surface representation, which is built from a list of line loops, which is built from a list of lines, which are in turn built from points. The  [2.x.16]  script can be written and edited by hand or it can be generated automatically by creating objects graphically inside %Gmsh. In many cases it is best to combine both approaches. The file can be easily reloaded by pressing "reload" under the "Geometry" tab if you want to write it by hand and see the effects in the graphical user interface of gmsh. 
+
+This tutorial contains an example  [2.x.17]  file that describes a box with two objects cut out in the interior. This is how  [2.x.18]  looks like in %Gmsh (displaying the boundary indicators as well as the mesh discussed further down below): 
+
+ [2.x.19]  
+
+You might want to open the  [2.x.20]  file in a text editor (it is located in the same directory as the <tt> [2.x.21] .cc</tt> source file) to see how it is structured. You can see how the boundary of the domain is composed of a number of lines and how later on we combine several lines into "physical lines" (or "physical surfaces") that list the logical lines' numbers. "Physical" object are the ones that carry information about the boundary indicator (see  [2.x.22]  "this glossary entry"). 
+
+ [2.x.23]  It is important that this file contain "physical lines" and "physical   surfaces". These give the boundary indicators and material ids for use   in deal.II. Without these physical entities, nothing will be imported into   deal.II. 
+
+deal.II's GridIn class can read the  [2.x.24]  format written by %Gmsh and that contains a mesh created for the geometry described by the  [2.x.25]  from the  [2.x.26]  by running the commands 
+
+[1.x.49] 
+
+
+
+on the command line, or by clicking "Mesh" and then "2D" inside %Gmsh after loading the file.  Now this is the mesh read from the  [2.x.27]  file and saved again by deal.II as an image (see the  [2.x.28]  function of the current program): 
+
+ [2.x.29]  
+
+ [2.x.30]  %Gmsh has a number of other interfaces by which one can describe   geometries to it. In particular, it has the ability to interface with   scripting languages like Python and Julia, but it can also be scripted   from C++. These interfaces are useful if one doesn't just want to generate   a mesh for a single geometry (in which case the graphical interface or,   in simple cases, a hand-written `.geo` file is probably the simplest   approach), but instead wants to do parametric studies over the geometry   for which it is necessary to generate many meshes for geometries that   differ in certain parameters. Another case where this is useful is if there   is already a CAD geometry for which one only needs a mesh; indeed, this   can be done from within deal.II using the    [2.x.31]  function. 
+
+
+[1.x.50][1.x.51] 
+
+
+After acquiring one (or several) meshes in the ways described above, there are many ways to manipulate them before using them in a finite element computation. 
+
+
+[1.x.52][1.x.53] 
+
+
+The GridTools namespace contains a collection of small functions to transform a given mesh in various ways. The usage of the functions  [2.x.32]   [2.x.33]   [2.x.34]  is fairly obvious, so we won't discuss those functions here. 
+
+The function  [2.x.35]  allows you to transform the vertices of a given mesh using a smooth function. An example of its use is also given in the results section of  [2.x.36]  but let us show a simpler example here: In the function  [2.x.37]  of the current program, we perturb the y coordinate of a mesh with a sine curve: 
+
+ [2.x.38]  
+
+Similarly, we can transform a regularly refined unit square to a wall-adapted mesh in y direction using the formula  [2.x.39] . This is done in  [2.x.40]  of this tutorial:  [2.x.41]  
+
+Finally, the function  [2.x.42]  allows you to move vertices in the mesh (optionally ignoring boundary nodes) by a random amount. This is demonstrated in  [2.x.43]  and the result is as follows: 
+
+ [2.x.44]  
+
+This function is primarily intended to negate some of the superconvergence effects one gets when studying convergence on regular meshes, as well as to suppress some optimizations in deal.II that can exploit the fact that cells are similar in shape. (Superconvergence refers to the fact that if a mesh has certain symmetries -- for example, if the edges running into a vertex are symmetric to this vertex, and if this is so for all vertices of a cell 
+
+-- that the solution is then often convergent with a higher order than one would have expected from the usual error analysis. In the end, this is a result of the fact that if one were to make a Taylor expansion of the error, the symmetry leads to the fact that the expected next term of the expansion happens to be zero, and the error order is determined by the *second next* term. A distorted mesh does not have these symmetries and consequently the error reflects what one will see when solving the equation on *any* kind of mesh, rather than showing something that is only reflective of a particular situation.) 
+
+
+[1.x.54][1.x.55] 
+
+
+The function  [2.x.45]  allows you to merge two given Triangulation objects into a single one.  For this to work, the vertices of the shared edge or face have to match exactly.  Lining up the two meshes can be achieved using  [2.x.46]  and  [2.x.47]   In the function  [2.x.48]  of this tutorial, we merge a square with a round hole (generated with  [2.x.49]  and a rectangle (generated with  [2.x.50]  The function  [2.x.51]  allows you to specify the number of repetitions and the positions of the corners, so there is no need to shift the triangulation manually here. You should inspect the mesh graphically to make sure that cells line up correctly and no unpaired nodes exist in the merged Triangulation. 
+
+These are the input meshes and the output mesh: 
+
+ [2.x.52]  
+
+
+[1.x.56][1.x.57] 
+
+
+The function  [2.x.53]  demonstrates the ability to pick individual vertices and move them around in an existing mesh. Note that this has the potential to produce degenerate or inverted cells and you shouldn't expect anything useful to come of using such meshes. Here, we create a box with a cylindrical hole that is not exactly centered by moving the top vertices upwards: 
+
+ [2.x.54]  
+
+For the exact way how this is done, see the code below. 
+
+
+[1.x.58][1.x.59] 
+
+
+If you need a 3d mesh that can be created by extruding a given 2d mesh (that can be created in any of the ways given above), you can use the function  [2.x.55]  See the  [2.x.56]  function in this tutorial for an example. Note that for this particular case, the given result could also be achieved using the 3d version of  [2.x.57]  The main usage is a 2d mesh, generated for example with %Gmsh, that is read in from a  [2.x.58]  file as described above. This is the output from grid_4(): 
+
+ [2.x.59]  
+
+
+[1.x.60][1.x.61] 
+
+
+Creating a coarse mesh using the methods discussed above is only the first step. When you have it, it will typically serve as the basis for further mesh refinement. This is not difficult &mdash; in fact, there is nothing else to do &mdash; if your geometry consists of only straight faces. However, this is often not the case if you have a more complex geometry and more steps than just creating the mesh are necessary. We will go over some of these steps in the [1.x.62] below. [1.x.63] [1.x.64] 
+
+This tutorial program is odd in the sense that, unlike for most other steps, the introduction already provides most of the information on how to use the various strategies to generate meshes. Consequently, there is little that remains to be commented on here, and we intersperse the code with relatively little text. In essence, the code here simply provides a reference implementation of what has already been described in the introduction. 
+
+
+
+
+
+[1.x.65]  [1.x.66] 
+
+
+
+
+
+
+
+[1.x.67] 
+
+
+
+
+[1.x.68]  [1.x.69] 
+
+
+
+
+The following function generates some output for any of the meshes we will be generating in the remainder of this program. In particular, it generates the following information: 
+
+
+
+
+- Some general information about the number of space dimensions in which this mesh lives and its number of cells. 
+
+- The number of boundary faces that use each boundary indicator, so that it can be compared with what we expect. 
+
+
+
+
+Finally, the function outputs the mesh in VTU format that can easily be visualized in Paraview or VisIt. 
+
+[1.x.70] 
+
+
+
+Next loop over all faces of all cells and find how often each boundary indicator is used (recall that if you access an element of a  [2.x.60]  object that doesn't exist, it is implicitly created and default initialized -- to zero, in the current case -- before we then increment it): 
+
+[1.x.71] 
+
+
+
+Finally, produce a graphical representation of the mesh to an output file: 
+
+[1.x.72] 
+
+
+
+
+[1.x.73]  [1.x.74] 
+
+
+
+
+
+[1.x.75]  [1.x.76] 
+
+
+
+
+In this first example, we show how to load the mesh for which we have discussed in the introduction how to generate it. This follows the same pattern as used in  [2.x.61]  to load a mesh, although there it was written in a different file format (UCD instead of MSH). 
+
+[1.x.77] 
+
+
+
+
+[1.x.78]  [1.x.79] 
+
+
+
+
+Here, we first create two triangulations and then merge them into one.  As discussed in the introduction, it is important to ensure that the vertices at the common interface are located at the same coordinates. 
+
+[1.x.80] 
+
+
+
+
+[1.x.81]  [1.x.82] 
+
+
+
+
+In this function, we move vertices of a mesh. This is simpler than one usually expects: if you ask a cell using  [2.x.62]  for the coordinates of its  [2.x.63] th vertex, it doesn't just provide the location of this vertex but in fact a reference to the location where these coordinates are stored. We can then modify the value stored there. 
+
+
+
+
+So this is what we do in the first part of this function: We create a square of geometry  [2.x.64]  with a circular hole with radius 0.25 located at the origin. We then loop over all cells and all vertices and if a vertex has a  [2.x.65]  coordinate equal to one, we move it upward by 0.5. 
+
+
+
+
+Note that this sort of procedure does not usually work this way because one will typically encounter the same vertices multiple times and may move them more than once. It works here because we select the vertices we want to use based on their geometric location, and a vertex moved once will fail this test in the future. A more general approach to this problem would have been to keep a  [2.x.66]  of those vertex indices that we have already moved (which we can obtain using  [2.x.67]  and only move those vertices whose index isn't in the set yet. 
+
+[1.x.83] 
+
+
+
+In the second step we will refine the mesh twice. To do this correctly, we should place new points on the interior boundary along the surface of a circle centered at the origin. Fortunately,  [2.x.68]  already attaches a Manifold object to the interior boundary, so we do not need to do anything but refine the mesh (see the [1.x.84] for a fully worked example where we  [2.x.69] do [2.x.70]  attach a Manifold object). 
+
+[1.x.85] 
+
+
+
+There is one snag to doing things as shown above: If one moves the nodes on the boundary as shown here, one often ends up with cells in the interior that are badly distorted since the interior nodes were not moved around. This is not that much of a problem in the current case since the mesh did not contain any internal nodes when the nodes were moved -- it was the coarse mesh and it so happened that all vertices are at the boundary. It's also the case that the movement we had here was, compared to the average cell size not overly dramatic. Nevertheless, sometimes one does want to move vertices by a significant distance, and in that case one needs to move internal nodes as well. One way to do that automatically is to call the function  [2.x.71]  that takes a set of transformed vertex coordinates and moves all of the other vertices in such a way that the resulting mesh has, in some sense, a small distortion. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1.x.86]  [1.x.87] 
+
+
+
+
+This example takes the initial grid from the previous function and simply extrudes it into the third space dimension: 
+
+[1.x.88] 
+
+
+
+
+[1.x.89]  [1.x.90] 
+
+
+
+
+This and the next example first create a mesh and then transform it by moving every node of the mesh according to a function that takes a point and returns a mapped point. In this case, we transform  [2.x.72] . 
+
+
+
+
+ [2.x.73]  takes a triangulation and an argument that can be called like a function taking a Point and returning a Point. There are different ways of providing such an argument: It could be a pointer to a function; it could be an object of a class that has an `operator()`; it could be a lambda function; or it could be anything that is described via a  [2.x.74]  object. 
+
+
+
+
+Decidedly the more modern way is to use a lambda function that takes a Point and returns a Point, and that is what we do in the following: 
+
+[1.x.91] 
+
+
+
+
+[1.x.92]  [1.x.93] 
+
+
+
+
+In this second example of transforming points from an original to a new mesh, we will use the mapping  [2.x.75] . To make things more interesting, rather than doing so in a single function as in the previous example, we here create an object with an  [2.x.76]  that will be called by  [2.x.77]  Of course, this object may in reality be much more complex: the object may have member variables that play a role in computing the new locations of vertices. 
+
+[1.x.94] 
+
+
+
+
+[1.x.95]  [1.x.96] 
+
+
+
+
+In this last example, we create a mesh and then distort its (interior) vertices by a random perturbation. This is not something you want to do for production computations (because results are generally better on meshes with "nicely shaped" cells than on the deformed cells produced by  [2.x.78]  but it is a useful tool for testing discretizations and codes to make sure they don't work just by accident because the mesh happens to be uniformly structured and supporting superconvergence properties. 
+
+[1.x.97] 
+
+
+
+
+[1.x.98]  [1.x.99] 
+
+
+
+
+Finally, the main function. There isn't much to do here, only to call all the various functions we wrote above. 
+
+[1.x.100] 
+
+[1.x.101][1.x.102] 
+
+
+The program produces a series of  [2.x.79]  files of the triangulations. The methods are discussed above. 
+
+
+[1.x.103][1.x.104] 
+
+
+As mentioned in the introduction, creating a coarse mesh using the methods discussed here is only the first step. In order to refine a mesh, the Triangulation needs to know where to put new vertices on the mid-points of edges, faces, and cells. By default, these new points will be placed at the arithmetic mean of the surrounding points, but this isn't what you want if you need curved boundaries that aren't already adequately resolved by the coarse mesh. For example, for this mesh the central hole is supposed to be round: 
+
+ [2.x.80]  
+
+If you simply refine it, the Triangulation class can not know whether you wanted the hole to be round or to be an octagon. The default is to place new points along existing straight lines. After two mesh refinement steps, this would yield the following mesh, which is not what we wanted: 
+
+ [2.x.81]  
+
+What needs to happen is that you tell the triangulation that you in fact want to use a curved geometry. The way to do this requires three steps: 
+
+- Create an object that describes the desired geometry. This object will be   queried when refining the Triangulation for new point placement. It will also   be used to calculate shape function values if a high degree mapping, like   MappingQ or MappingQGeneric, is used during system assembly.   In deal.II the Manifold class and classes inheriting from it (e.g.,   PolarManifold and FlatManifold) perform these calculations. 
+
+- Notify the Triangulation object which Manifold classes to use. By default, a   Triangulation uses FlatManifold to do all geometric calculations,   which assumes that all cell edges are straight lines and all quadrilaterals   are flat. You can attach Manifold classes to a Triangulation by calling    [2.x.82]  function, which associates a    [2.x.83]  with a Manifold object. For more information on this   see the  [2.x.84]  "glossary entry on this topic". 
+
+- Finally, you must mark cells and cell faces with the correct    [2.x.85] . For example, you could get an annular sector with   curved cells in Cartesian coordinates (but rectangles in polar coordinates)   by doing the following:   [1.x.105] 
+
+  Now, when the grid is refined, all cell splitting calculations will be done in   polar coordinates. 
+
+All functions in the GridGenerator namespace which create a mesh where some cells should be curved also attach the correct Manifold object to the provided Triangulation: i.e., for those functions we get the correct behavior by default. For a hand-generated mesh, however, the situation is much more interesting. 
+
+To illustrate this process in more detail, let us consider an example created by Yuhan Zhou as part of a 2013 semester project at Texas A&amp;M University. The goal was to generate (and use) a geometry that describes a microstructured electric device. In a CAD program, the geometry looks like this: 
+
+ [2.x.86]  
+
+In the following, we will walk you through the entire process of creating a mesh for this geometry, including a number of common pitfalls by showing the things that can go wrong. 
+
+The first step in getting there was to create a coarse mesh, which was done by creating a 2d coarse mesh for each of cross sections, extruding them into the third direction, and gluing them together. The following code does this, using the techniques previously described: 
+
+[1.x.106] 
+
+
+
+This creates the following mesh: 
+
+<img src="https://www.dealii.org/images/steps/developer/ [2.x.87] .yuhan.8.png"      alt="" width="400" height="355"> 
+
+This mesh has the right general shape, but the top cells are now polygonal: their edges are no longer along circles and we do not have a very accurate representation of the original geometry. The next step is to teach the top part of the domain that it should be curved. Put another way, all calculations done on the top boundary cells should be done in cylindrical coordinates rather than Cartesian coordinates. We can do this by creating a CylindricalManifold object and associating it with the cells above  [2.x.88] . This way, when we refine the cells on top, we will place new points along concentric circles instead of straight lines. 
+
+In deal.II we describe all geometries with classes that inherit from Manifold. The default geometry is Cartesian and is implemented in the FlatManifold class. As the name suggests, Manifold and its inheriting classes provide a way to describe curves and curved cells in a general way with ideas and terminology from differential geometry: for example, CylindricalManifold inherits from ChartManifold, which describes a geometry through pull backs and push forwards. In general, one should think that the Triangulation class describes the topology of a domain (in addition, of course, to storing the locations of the vertices) while the Manifold classes describe the geometry of a domain (e.g., whether or not a pair of vertices lie along a circular arc or a straight line). A Triangulation will refine cells by doing computations with the Manifold associated with that cell regardless of whether or not the cell is on the boundary. Put another way: the Manifold classes do not need any information about where the boundary of the Triangulation actually is: it is up to the Triangulation to query the right Manifold for calculations on a cell. Most Manifold functions (e.g.,  [2.x.89]  know nothing about the domain itself and just assume that the points given to it lie along a geodesic. In this case, with the CylindricalManifold constructed below, the geodesics are arcs along circles orthogonal to the  [2.x.90] -axis centered along the line  [2.x.91] . 
+
+Since all three top parts of the domain use the same geodesics, we will mark all cells with centers above the  [2.x.92]  line as being cylindrical in nature: 
+
+[1.x.107] 
+
+
+
+With this code, we get a mesh that looks like this: 
+
+<img src="https://www.dealii.org/images/steps/developer/ [2.x.93] .yuhan.9.png"      alt="" width="400" height="355"> 
+
+This change fixes the boundary but creates a new problem: the cells adjacent to the cylinder's axis are badly distorted. We should use Cartesian coordinates for calculations on these central cells to avoid this issue. The cells along the center line all have a face that touches the line  [2.x.94]  so, to implement this, we go back and overwrite the  [2.x.95] s on these cells to be zero (which is the default): 
+
+[1.x.108] 
+
+
+
+This gives us the following grid: 
+
+<img src="https://www.dealii.org/images/steps/developer/ [2.x.96] .yuhan.10.png"      alt="" width="400" height="355"> 
+
+This gives us a good mesh, where cells at the center of each circle are still Cartesian and cells around the boundary lie along a circle. We can really see the nice detail of the boundary fitted mesh if we refine two more times: 
+
+<img src="https://www.dealii.org/images/steps/developer/ [2.x.97] .yuhan.11.png"      alt="" width="400" height="355"> 
+
+
+[1.x.109][1.x.110] 
+
+
+[1.x.111][1.x.112] 
+
+
+It is often useful to assign different boundary ids to a mesh that is generated in one form or another as described in this tutorial to apply different boundary conditions. 
+
+For example, you might want to apply a different boundary condition for the right boundary of the first grid in this program. To do this, iterate over the cells and their faces and identify the correct faces (for example using `cell->center()` to query the coordinates of the center of a cell as we do in  [2.x.98] , or using `cell->face(f)->get_boundary_id()` to query the current boundary indicator of the  [2.x.99] th face of the cell). You can then use `cell->face(f)->set_boundary_id()` to set the boundary id to something different. You can take a look back at  [2.x.100]  how iteration over the meshes is done there. 
+
+[1.x.113][1.x.114] 
+
+
+Computations on manifolds, like they are done in  [2.x.101] , require a surface mesh embedded into a higher dimensional space. While some can be constructed using the GridGenerator namespace or loaded from a file, it is sometimes useful to extract a surface mesh from a volume mesh. 
+
+Use the function  [2.x.102]  to extract the surface elements of a mesh. Using the function on a 3d mesh (a `Triangulation<3,3>`, for example from `grid_4()`), this will return a `Triangulation<2,3>` that you can use in  [2.x.103] .  Also try extracting the boundary mesh of a `Triangulation<2,2>`. 
+
+
+<!-- 
+
+Possible Extensions for this tutorial: 
+
+- Database of unstructured meshes for convergence studies 
+
+- how to remove or disable a cell inside a mesh 
+
+--> [1.x.115] [1.x.116]  [2.x.104]  
+
+ [2.x.105] 

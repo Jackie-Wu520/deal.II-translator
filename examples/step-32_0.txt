@@ -1,0 +1,1069 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] ,  [2.x.3] . 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5][1.x.6][1.x.7][1.x.8][1.x.9][1.x.10][1.x.11][1.x.12][1.x.13][1.x.14][1.x.15][1.x.16][1.x.17][1.x.18][1.x.19][1.x.20][1.x.21][1.x.22][1.x.23][1.x.24][1.x.25][1.x.26][1.x.27][1.x.28][1.x.29][1.x.30][1.x.31][1.x.32][1.x.33][1.x.34][1.x.35][1.x.36][1.x.37][1.x.38][1.x.39][1.x.40][1.x.41][1.x.42][1.x.43][1.x.44][1.x.45] 
+
+ [2.x.4]  
+
+[1.x.46][1.x.47][1.x.48][1.x.49][1.x.50] 
+
+
+[1.x.51] [1.x.52][1.x.53] 
+
+
+This program does pretty much exactly what  [2.x.5]  already does: it solves the Boussinesq equations that describe the motion of a fluid whose temperature is not in equilibrium. As such, all the equations we have described in  [2.x.6]  still hold: we solve the same general partial differential equation (with only minor modifications to adjust for more realism in the problem setting), using the same finite element scheme, the same time stepping algorithm, and more or less the same stabilization method for the temperature advection-diffusion equation. As a consequence, you may first want to understand that program &mdash; and its implementation &mdash; before you work on the current one. 
+
+The difference between  [2.x.7]  and the current program is that here we want to do things in %parallel, using both the availability of many machines in a cluster (with parallelization based on MPI) as well as many processor cores within a single machine (with parallelization based on threads). This program's main job is therefore to introduce the changes that are necessary to utilize the availability of these %parallel compute resources. In this regard, it builds on the  [2.x.8]  program that first introduces the necessary classes for much of the %parallel functionality, and on  [2.x.9]  that shows how this is done for a vector-valued problem. 
+
+In addition to these changes, we also use a slightly different preconditioner, and we will have to make a number of changes that have to do with the fact that we want to solve a [1.x.54] problem here, not a model problem. The latter, in particular, will require that we think about scaling issues as well as what all those parameters and coefficients in the equations under consideration actually mean. We will discuss first the issues that affect changes in the mathematical formulation and solver structure, then how to parallelize things, and finally the actual testcase we will consider. 
+
+
+[1.x.55][1.x.56] 
+
+
+In  [2.x.10] , we used the following Stokes model for the velocity and pressure field: [1.x.57] 
+
+The right hand side of the first equation appears a wee bit unmotivated. Here's how things should really be. We need the external forces that act on the fluid, which we assume are given by gravity only. In the current case, we assume that the fluid does expand slightly for the purposes of this gravity force, but not enough that we need to modify the incompressibility condition (the second equation). What this means is that for the purpose of the right hand side, we can assume that  [2.x.11] . An assumption that may not be entirely justified is that we can assume that the changes of density as a function of temperature are small, leading to an expression of the form  [2.x.12] , i.e., the density equals  [2.x.13]  at reference temperature and decreases linearly as the temperature increases (as the material expands). The force balance equation then looks properly written like this: [1.x.58] 
+
+Now note that the gravity force results from a gravity potential as  [2.x.14] , so that we can re-write this as follows: [1.x.59] 
+
+The second term on the right is time independent, and so we could introduce a new "dynamic" pressure  [2.x.15]  with which the Stokes equations would read: [1.x.60] 
+
+This is exactly the form we used in  [2.x.16] , and it was appropriate to do so because all changes in the fluid flow are only driven by the dynamic pressure that results from temperature differences. (In other words: Any contribution to the right hand side that results from taking the gradient of a scalar field have no effect on the velocity field.) 
+
+On the other hand, we will here use the form of the Stokes equations that considers the total pressure instead: [1.x.61] 
+
+There are several advantages to this: 
+
+- This way we can plot the pressure in our program in such a way that it   actually shows the total pressure that includes the effects of   temperature differences as well as the static pressure of the   overlying rocks. Since the pressure does not appear any further in any   of the other equations, whether to use one or the other is more a   matter of taste than of correctness. The flow field is exactly the   same, but we get a pressure that we can now compare with values that   are given in geophysical books as those that hold at the bottom of the   earth mantle, for example. 
+
+- If we wanted to make the model even more realistic, we would have to take   into account that many of the material parameters (e.g. the viscosity, the   density, etc) not only depend on the temperature but also the   [1.x.62] pressure. 
+
+- The model above assumed a linear dependence  [2.x.17]  and assumed that  [2.x.18]  is small. In   practice, this may not be so. In fact, realistic models are   certainly not linear, and  [2.x.19]  may also not be small for at least   part of the temperature range because the density's behavior is   substantially dependent not only on thermal expansion but by phase   changes. 
+
+- A final reason to do this is discussed in the results section and   concerns possible extensions to the model we use here. It has to do   with the fact that the temperature equation (see below) we use here does not   include a term that contains the pressure. It should, however:   rock, like gas, heats up as you compress it. Consequently,   material that rises up cools adiabatically, and cold material that   sinks down heats adiabatically. We discuss this further below. 
+
+ [2.x.20]  There is, however, a downside to this procedure. In the earth, the dynamic pressure is several orders of magnitude smaller than the total pressure. If we use the equations above and solve all variables to, say, 4 digits of accuracy, then we may be able to get the velocity and the total pressure right, but we will have no accuracy at all if we compute the dynamic pressure by subtracting from the total pressure the static part  [2.x.21] . If, for example, the dynamic pressure is six orders of magnitude smaller than the static pressure, then we need to solve the overall pressure to at least seven digits of accuracy to get anything remotely accurate. That said, in practice this turns out not to be a limiting factor. 
+
+
+
+
+[1.x.63][1.x.64] 
+
+
+Remember that we want to solve the following set of equations: [1.x.65] 
+
+augmented by appropriate boundary and initial conditions. As discussed in  [2.x.22] , we will solve this set of equations by solving for a Stokes problem first in each time step, and then moving the temperature equation forward by one time interval. 
+
+The problem under consideration in this current section is with the Stokes problem: if we discretize it as usual, we get a linear system [1.x.66] 
+
+which in this program we will solve with a FGMRES solver. This solver iterates until the residual of these linear equations is below a certain tolerance, i.e., until [1.x.67] This does not make any sense from the viewpoint of physical units: the quantities involved here have physical units so that the first part of the residual has units  [2.x.23]  (most easily established by considering the term  [2.x.24]  and considering that the pressure has units  [2.x.25]  and the integration yields a factor of  [2.x.26] ), whereas the second part of the residual has units  [2.x.27] . Taking the norm of this residual vector would yield a quantity with units  [2.x.28] . This, quite obviously, does not make sense, and we should not be surprised that doing so is eventually going to come back hurting us. 
+
+So why is this an issue here, but not in  [2.x.29] ? The reason back there is that everything was nicely balanced: velocities were on the order of one, the pressure likewise, the viscosity was one, and the domain had a diameter of  [2.x.30] . As a result, while nonsensical, nothing bad happened. On the other hand, as we will explain below, things here will not be that simply scaled:  [2.x.31]  will be around  [2.x.32] , velocities on the order of  [2.x.33] , pressure around  [2.x.34] , and the diameter of the domain is  [2.x.35] . In other words, the order of magnitude for the first equation is going to be  [2.x.36] , whereas the second equation will be around  [2.x.37] . Well, so what this will lead to is this: if the solver wants to make the residual small, it will almost entirely focus on the first set of equations because they are so much bigger, and ignore the divergence equation that describes mass conservation. That's exactly what happens: unless we set the tolerance to extremely small values, the resulting flow field is definitely not divergence free. As an auxiliary problem, it turns out that it is difficult to find a tolerance that always works; in practice, one often ends up with a tolerance that requires 30 or 40 iterations for most time steps, and 10,000 for some others. 
+
+So what's a numerical analyst to do in a case like this? The answer is to start at the root and first make sure that everything is mathematically consistent first. In our case, this means that if we want to solve the system of Stokes equations jointly, we have to scale them so that they all have the same physical dimensions. In our case, this means multiplying the second equation by something that has units  [2.x.38] ; one choice is to multiply with  [2.x.39]  where  [2.x.40]  is a typical lengthscale in our domain (which experiments show is best chosen to be the diameter of plumes &mdash; around 10 km &mdash; rather than the diameter of the domain). Using these %numbers for  [2.x.41]  and  [2.x.42] , this factor is around  [2.x.43] . So, we now get this for the Stokes system: [1.x.68] 
+
+The trouble with this is that the result is not symmetric any more (we have  [2.x.44]  at the bottom left, but not its transpose operator at the top right). This, however, can be cured by introducing a scaled pressure  [2.x.45] , and we get the scaled equations [1.x.69] 
+
+This is now symmetric. Obviously, we can easily recover the original pressure  [2.x.46]  from the scaled pressure  [2.x.47]  that we compute as a result of this procedure. 
+
+In the program below, we will introduce a factor  [2.x.48]  that corresponds to  [2.x.49] , and we will use this factor in the assembly of the system matrix and preconditioner. Because it is annoying and error prone, we will recover the unscaled pressure immediately following the solution of the linear system, i.e., the solution vector's pressure component will immediately be unscaled to retrieve the physical pressure. Since the solver uses the fact that we can use a good initial guess by extrapolating the previous solutions, we also have to scale the pressure immediately [1.x.70] solving. 
+
+
+
+
+[1.x.71][1.x.72] 
+
+
+In this tutorial program, we apply a variant of the preconditioner used in  [2.x.50] . That preconditioner was built to operate on the system matrix  [2.x.51]  in block form such that the product matrix [1.x.73] 
+
+is of a form that Krylov-based iterative solvers like GMRES can solve in a few iterations. We then replaced the exact inverse of  [2.x.52]  by the action of an AMG preconditioner  [2.x.53]  based on a vector Laplace matrix, approximated the Schur complement  [2.x.54]  by a mass matrix  [2.x.55]  on the pressure space and wrote an <tt>InverseMatrix</tt> class for implementing the action of  [2.x.56]  on vectors. In the InverseMatrix class, we used a CG solve with an incomplete Cholesky (IC) preconditioner for performing the inner solves. 
+
+An observation one can make is that we use just the action of a preconditioner for approximating the velocity inverse  [2.x.57]  (and the outer GMRES iteration takes care of the approximate character of the inverse), whereas we use a more or less [1.x.74] inverse for  [2.x.58] , realized by a fully converged CG solve. This appears unbalanced, but there's system to this madness: almost all the effort goes into the upper left block to which we apply the AMG preconditioner, whereas even an exact inversion of the pressure mass matrix costs basically nothing. Consequently, if it helps us reduce the overall number of iterations somewhat, then this effort is well spent. 
+
+That said, even though the solver worked well for  [2.x.59] , we have a problem here that is a bit more complicated (cells are deformed, the pressure varies by orders of magnitude, and we want to plan ahead for more complicated physics), and so we'll change a few things slightly: 
+
+- For more complex problems, it turns out that using just a single AMG V-cycle   as preconditioner is not always sufficient. The outer solver converges just   fine most of the time in a reasonable number of iterations (say, less than   50) but there are the occasional time step where it suddenly takes 700 or   so. What exactly is going on there is hard to determine, but the problem can   be avoided by using a more accurate solver for the top left   block. Consequently, we'll want to use a CG iteration to invert the top left   block of the preconditioner matrix, and use the AMG as a preconditioner for   the CG solver. 
+
+- The downside of this is that, of course, the Stokes preconditioner becomes   much more expensive (approximately 10 times more expensive than when we just   use a single V-cycle). Our strategy then is this: let's do up to 30 GMRES   iterations with just the V-cycle as a preconditioner and if that doesn't   yield convergence, then take the best approximation of the Stokes solution   obtained after this first round of iterations and use that as the starting   guess for iterations where we use the full inner solver with a rather   lenient tolerance as preconditioner. In all our experiments this leads to   convergence in only a few additional iterations. 
+
+- One thing we need to pay attention to is that when using a CG with a lenient   tolerance in the preconditioner, then  [2.x.60]  is no longer a   linear function of  [2.x.61]  (it is, of course, if we have a very stringent   tolerance in our solver, or if we only apply a single V-cycle). This is a   problem since now our preconditioner is no longer a linear operator; in   other words, every time GMRES uses it the preconditioner looks   different. The standard GMRES solver can't deal with this, leading to slow   convergence or even breakdown, but the F-GMRES variant is designed to deal   with exactly this kind of situation and we consequently use it. 
+
+- On the other hand, once we have settled on using F-GMRES we can relax the   tolerance used in inverting the preconditioner for  [2.x.62] . In  [2.x.63] , we ran a   preconditioned CG method on  [2.x.64]  until the residual had been reduced   by 7 orders of magnitude. Here, we can again be more lenient because we know   that the outer preconditioner doesn't suffer. 
+
+- In  [2.x.65] , we used a left preconditioner in which we first invert the top   left block of the preconditioner matrix, then apply the bottom left   (divergence) one, and then invert the bottom right. In other words, the   application of the preconditioner acts as a lower left block triangular   matrix. Another option is to use a right preconditioner that here would be   upper right block triangulation, i.e., we first invert the bottom right   Schur complement, apply the top right (gradient) operator and then invert   the elliptic top left block. To a degree, which one to choose is a matter of   taste. That said, there is one significant advantage to a right   preconditioner in GMRES-type solvers: the residual with which we determine   whether we should stop the iteration is the true residual, not the norm of   the preconditioned equations. Consequently, it is much simpler to compare it   to the stopping criterion we typically use, namely the norm of the right   hand side vector. In writing this code we found that the scaling issues we   discussed above also made it difficult to determine suitable stopping   criteria for left-preconditioned linear systems, and consequently this   program uses a right preconditioner. 
+
+- In  [2.x.66] , we used an IC (incomplete Cholesky) preconditioner for the   pressure mass matrix in the Schur complement preconditioner and for the   solution of the temperature system. Here, we could in principle do the same,   but we do choose an even simpler preconditioner, namely a Jacobi   preconditioner for both systems. This is because here we target at massively   %parallel computations, where the decompositions for IC/ILU would have to be   performed block-wise for the locally owned degrees of freedom on each   processor. This means, that the preconditioner gets more like a Jacobi   preconditioner anyway, so we rather start from that variant straight   away. Note that we only use the Jacobi preconditioners for CG solvers with   mass matrices, where they give optimal ([1.x.75]-independent) convergence   anyway, even though they usually require about twice as many iterations as   an IC preconditioner. 
+
+As a final note, let us remark that in  [2.x.67]  we computed the Schur complement  [2.x.68]  by approximating  [2.x.69] . Now, however, we have re-scaled the  [2.x.70]  and  [2.x.71]  operators. So  [2.x.72]  should now approximate  [2.x.73] . We use the discrete form of the right hand side of this as our approximation  [2.x.74]  to  [2.x.75] . 
+
+
+[1.x.76][1.x.77] 
+
+
+Similarly to  [2.x.76] , we will use an artificial viscosity for stabilization based on a residual of the equation.  As a difference to  [2.x.77] , we will provide two slightly different definitions of the stabilization parameter. For  [2.x.78] , we use the same definition as in  [2.x.79] : [1.x.78] 
+
+where we compute the viscosity from a residual  [2.x.80]  of the equation, limited by a diffusion proportional to the mesh size  [2.x.81]  in regions where the residual is large (around steep gradients). This definition has been shown to work well for the given case,  [2.x.82]  in  [2.x.83] , but it is usually less effective as the diffusion for  [2.x.84] . For that case, we choose a slightly more readable definition of the viscosity, [1.x.79] 
+
+where the first term gives again the maximum dissipation (similarly to a first order upwind scheme), [1.x.80] 
+
+and the entropy viscosity is defined as [1.x.81] 
+
+
+
+This formula is described in the article [1.x.82] Compared to the case  [2.x.85] , the residual is computed from the temperature entropy,  [2.x.86]  with  [2.x.87]  an average temperature (we choose the mean between the maximum and minimum temperature in the computation), which gives the following formula [1.x.83] 
+
+The denominator in the formula for  [2.x.88]  is computed as the global deviation of the entropy from the space-averaged entropy  [2.x.89] . As in  [2.x.90] , we evaluate the artificial viscosity from the temperature and velocity at two previous time levels, in order to avoid a nonlinearity in its definition. 
+
+The above definitions of the viscosity are simple, but depend on two parameters, namely  [2.x.91]  and  [2.x.92] .  For the current program, we want to go about this issue a bit more systematically for both parameters in the case  [2.x.93] , using the same line of reasoning with which we chose two other parameters in our discretization,  [2.x.94]  and  [2.x.95] , in the results section of  [2.x.96] . In particular, remember that we would like to make the artificial viscosity as small as possible while keeping it as large as necessary. In the following, let us describe the general strategy one may follow. The computations shown here were done with an earlier version of the program and so the actual numerical values you get when running the program may no longer match those shown here; that said, the general approach remains valid and has been used to find the values of the parameters actually used in the program. 
+
+To see what is happening, note that below we will impose boundary conditions for the temperature between 973 and 4273 Kelvin, and initial conditions are also chosen in this range; for these considerations, we run the program without %internal heat sources or sinks, and consequently the temperature should always be in this range, barring any %internal oscillations. If the minimal temperature drops below 973 Kelvin, then we need to add stabilization by either increasing  [2.x.97]  or decreasing  [2.x.98] . 
+
+As we did in  [2.x.99] , we first determine an optimal value of  [2.x.100]  by using the "traditional" formula [1.x.84] 
+
+which we know to be stable if only  [2.x.101]  is large enough. Doing a couple hundred time steps (on a coarser mesh than the one shown in the program, and with a different viscosity that affects transport velocities and therefore time step sizes) in 2d will produce the following graph: 
+
+ [2.x.102]  
+
+As can be seen, values  [2.x.103]  are too small whereas  [2.x.104]  appears to work, at least to the time horizon shown here. As a remark on the side, there are at least two questions one may wonder here: First, what happens at the time when the solution becomes unstable? Looking at the graphical output, we can see that with the unreasonably coarse mesh chosen for these experiments, around time  [2.x.105]  seconds the plumes of hot material that have been rising towards the cold outer boundary and have then spread sideways are starting to get close to each other, squeezing out the cold material in-between. This creates a layer of cells into which fluids flows from two opposite sides and flows out toward a third, apparently a scenario that then produce these instabilities without sufficient stabilization. Second: In  [2.x.106] , we used  [2.x.107] ; why does this not work here? The answer to this is not entirely clear -- stabilization parameters are certainly known to depend on things like the shape of cells, for which we had squares in  [2.x.108]  but have trapezoids in the current program. Whatever the exact cause, we at least have a value of  [2.x.109] , namely 0.052 for 2d, that works for the current program. A similar set of experiments can be made in 3d where we find that  [2.x.110]  is a good choice &mdash; neatly leading to the formula  [2.x.111] . 
+
+With this value fixed, we can go back to the original formula for the viscosity  [2.x.112]  and play with the constant  [2.x.113] , making it as large as possible in order to make  [2.x.114]  as small as possible. This gives us a picture like this: 
+
+ [2.x.115]  
+
+Consequently,  [2.x.116]  would appear to be the right value here. While this graph has been obtained for an exponent  [2.x.117] , in the program we use  [2.x.118]  instead, and in that case one has to re-tune the parameter (and observe that  [2.x.119]  appears in the numerator and not in the denominator). It turns out that  [2.x.120]  works with  [2.x.121] . 
+
+
+[1.x.85][1.x.86] 
+
+
+The standard Taylor-Hood discretization for Stokes, using the  [2.x.122]  element, is globally conservative, i.e.  [2.x.123] . This can easily be seen: the weak form of the divergence equation reads  [2.x.124] . Because the pressure space does contain the function  [2.x.125] , we get 
+
+[1.x.87] 
+
+by the divergence theorem. This property is important: if we want to use the velocity field  [2.x.126]  to transport along other quantities (such as the temperature in the current equations, but it could also be concentrations of chemical substances or entirely artificial tracer quantities) then the conservation property guarantees that the amount of the quantity advected remains constant. 
+
+That said, there are applications where this [1.x.88] property is not enough. Rather, we would like that it holds [1.x.89], on every cell. This can be achieved by using the space  [2.x.127]  for discretization, where we have replaced the [1.x.90] space of tensor product polynomials of degree  [2.x.128]  for the pressure by the [1.x.91] space of the complete polynomials of the same degree. (Note that tensor product polynomials in 2d contain the functions  [2.x.129] , whereas the complete polynomials only have the functions  [2.x.130] .) This space turns out to be stable for the Stokes equation. 
+
+Because the space is discontinuous, we can now in particular choose the test function  [2.x.131] , i.e. the characteristic function of cell  [2.x.132] . We then get in a similar fashion as above 
+
+[1.x.92] 
+
+showing the conservation property for cell  [2.x.133] . This clearly holds for each cell individually. 
+
+There are good reasons to use this discretization. As mentioned above, this element guarantees conservation of advected quantities on each cell individually. A second advantage is that the pressure mass matrix we use as a preconditioner in place of the Schur complement becomes block diagonal and consequently very easy to invert. However, there are also downsides. For one, there are now more pressure variables, increasing the overall size of the problem, although this doesn't seem to cause much harm in practice. More importantly, though, the fact that now the divergence integrated over each cell is zero when it wasn't before does not guarantee that the divergence is pointwise smaller. In fact, as one can easily verify, the  [2.x.134]  norm of the divergence is [1.x.93] for this than for the standard Taylor-Hood discretization. (However, both converge at the same rate to zero, since it is easy to see that  [2.x.135] .) It is therefore not a priori clear that the error is indeed smaller just because we now have more degrees of freedom. 
+
+Given these considerations, it remains unclear which discretization one should prefer. Consequently, we leave that up to the user and make it a parameter in the input file which one to use. 
+
+
+[1.x.94][1.x.95] 
+
+
+In the program, we will use a spherical shell as domain. This means that the inner and outer boundary of the domain are no longer "straight" (by which we usually mean that they are bilinear surfaces that can be represented by the FlatManifold class). Rather, they are curved and it seems prudent to use a curved approximation in the program if we are already using higher order finite elements for the velocity. Consequently, we will introduce a member variable of type MappingQ that denotes such a mapping ( [2.x.136]  and  [2.x.137]  introduce such mappings for the first time) and that we will use in all computations on cells that are adjacent to the boundary. Since this only affects a relatively small fraction of cells, the additional effort is not very large and we will take the luxury of using a quartic mapping for these cells. 
+
+
+[1.x.96][1.x.97] 
+
+
+Running convection codes in 3d with significant Rayleigh numbers requires a lot of computations &mdash; in the case of whole earth simulations on the order of one or several hundred million unknowns. This can obviously not be done with a single machine any more (at least not in 2010 when we started writing this code). Consequently, we need to parallelize it. Parallelization of scientific codes across multiple machines in a cluster of computers is almost always done using the Message Passing Interface (MPI). This program is no exception to that, and it follows the general spirit of the  [2.x.138]  and  [2.x.139]  programs in this though in practice it borrows more from  [2.x.140]  in which we first introduced the classes and strategies we use when we want to [1.x.98] distribute all computations, and  [2.x.141]  that shows how to do that for  [2.x.142]  "vector-valued problems": including, for example, splitting the mesh up into a number of parts so that each processor only stores its own share plus some ghost cells, and using strategies where no processor potentially has enough memory to hold the entries of the combined solution vector locally. The goal is to run this code on hundreds or maybe even thousands of processors, at reasonable scalability. 
+
+ [2.x.143]  Even though it has a larger number,  [2.x.144]  comes logically before the current program. The same is true for  [2.x.145] . You will probably want to look at these programs before you try to understand what we do here. 
+
+MPI is a rather awkward interface to program with. It is a semi-object oriented set of functions, and while one uses it to send data around a network, one needs to explicitly describe the data types because the MPI functions insist on getting the address of the data as  [2.x.146]  objects rather than deducing the data type automatically through overloading or templates. We've already seen in  [2.x.147]  and  [2.x.148]  how to avoid almost all of MPI by putting all the communication necessary into either the deal.II library or, in those programs, into PETSc. We'll do something similar here: like in  [2.x.149]  and  [2.x.150] , deal.II and the underlying p4est library are responsible for all the communication necessary for distributing the mesh, and we will let the Trilinos library (along with the wrappers in namespace TrilinosWrappers) deal with parallelizing the linear algebra components. We have already used Trilinos in  [2.x.151] , and will do so again here, with the difference that we will use its %parallel capabilities. 
+
+Trilinos consists of a significant number of packages, implementing basic %parallel linear algebra operations (the Epetra package), different solver and preconditioner packages, and on to things that are of less importance to deal.II (e.g., optimization, uncertainty quantification, etc). deal.II's Trilinos interfaces encapsulate many of the things Trilinos offers that are of relevance to PDE solvers, and provides wrapper classes (in namespace TrilinosWrappers) that make the Trilinos matrix, vector, solver and preconditioner classes look very much the same as deal.II's own implementations of this functionality. However, as opposed to deal.II's classes, they can be used in %parallel if we give them the necessary information. As a consequence, there are two Trilinos classes that we have to deal with directly (rather than through wrappers), both of which are part of Trilinos' Epetra library of basic linear algebra and tool classes:  [2.x.152]   [2.x.153]  The Epetra_Comm class is an abstraction of an MPI "communicator", i.e.,   it describes how many and which machines can communicate with each other.   Each distributed object, such as a sparse matrix or a vector for which we   may want to store parts on different machines, needs to have a communicator   object to know how many parts there are, where they can be found, and how   they can be accessed. 
+
+  In this program, we only really use one communicator object -- based on the   MPI variable  [2.x.154]  -- that encompasses [1.x.99]   processes that work together. It would be perfectly legitimate to start a   process on  [2.x.155]  machines but only store vectors on a subset of these by   producing a communicator object that only encompasses this subset of   machines; there is really no compelling reason to do so here, however. 
+
+ [2.x.156]  The IndexSet class is used to describe which elements of a vector or which   rows of a matrix should reside on the current machine that is part of a   communicator. To create such an object, you need to know (i) the total   number of elements or rows, (ii) the indices of the elements you want to   store locally. We will set up these  [2.x.157]  in the    [2.x.158]  function below and then hand   it to every %parallel object we create. 
+
+  Unlike PETSc, Trilinos makes no assumption that the elements of a vector   need to be partitioned into contiguous chunks. At least in principle, we   could store all elements with even indices on one processor and all odd ones   on another. That's not very efficient, of course, but it's   possible. Furthermore, the elements of these partitionings do not   necessarily be mutually exclusive. This is important because when   postprocessing solutions, we need access to all locally relevant or at least   the locally active degrees of freedom (see the module on  [2.x.159]    for a definition, as well as the discussion in  [2.x.160] ). Which elements the   Trilinos vector considers as locally owned is not important to us then. All   we care about is that it stores those elements locally that we need.  [2.x.161]  
+
+There are a number of other concepts relevant to distributing the mesh to a number of processors; you may want to take a look at the  [2.x.162]  module and  [2.x.163]  or  [2.x.164]  before trying to understand this program.  The rest of the program is almost completely agnostic about the fact that we don't store all objects completely locally. There will be a few points where we have to limit loops over all cells to those that are locally owned, or where we need to distinguish between vectors that store only locally owned elements and those that store everything that is locally relevant (see  [2.x.165]  "this glossary entry"), but by and large the amount of heavy lifting necessary to make the program run in %parallel is well hidden in the libraries upon which this program builds. In any case, we will comment on these locations as we get to them in the program code. 
+
+
+[1.x.100][1.x.101] 
+
+
+The second strategy to parallelize a program is to make use of the fact that most computers today have more than one processor that all have access to the same memory. In other words, in this model, we don't explicitly have to say which pieces of data reside where -- all of the data we need is directly accessible and all we have to do is split [1.x.102] this data between the available processors. We will then couple this with the MPI parallelization outlined above, i.e., we will have all the processors on a machine work together to, for example, assemble the local contributions to the global matrix for the cells that this machine actually "owns" but not for those cells that are owned by other machines. We will use this strategy for four kinds of operations we frequently do in this program: assembly of the Stokes and temperature matrices, assembly of the matrix that forms the Stokes preconditioner, and assembly of the right hand side of the temperature system. 
+
+All of these operations essentially look as follows: we need to loop over all cells for which  [2.x.166]  equals the index our machine has within the communicator object used for all communication (i.e.,  [2.x.167] , as explained above). The test we are actually going to use for this, and which describes in a concise way why we test this condition, is  [2.x.168] . On each such cell we need to assemble the local contributions to the global matrix or vector, and then we have to copy each cell's contribution into the global matrix or vector. Note that the first part of this (the loop) defines a range of iterators on which something has to happen. The second part, assembly of local contributions is something that takes the majority of CPU time in this sequence of steps, and is a typical example of things that can be done in %parallel: each cell's contribution is entirely independent of all other cells' contributions. The third part, copying into the global matrix, must not happen in %parallel since we are modifying one object and so several threads can not at the same time read an existing matrix element, add their contribution, and write the sum back into memory without danger of producing a [1.x.103]. 
+
+deal.II has a class that is made for exactly this workflow: WorkStream, first discussed in  [2.x.169]  and  [2.x.170] . Its use is also extensively documented in the module on  [2.x.171]  (in the section on  [2.x.172]  "the WorkStream class") and we won't repeat here the rationale and detailed instructions laid out there, though you will want to read through this module to understand the distinction between scratch space and per-cell data. Suffice it to mention that we need the following: 
+
+- An iterator range for those cells on which we are supposed to work. This is   provided by the FilteredIterator class which acts just like every other cell   iterator in deal.II with the exception that it skips all cells that do not   satisfy a particular predicate (i.e., a criterion that evaluates to true or   false). In our case, the predicate is whether a cell is locally owned. 
+
+- A function that does the work on each cell for each of the tasks identified   above, i.e., functions that assemble the local contributions to Stokes matrix   and preconditioner, temperature matrix, and temperature right hand   side. These are the    [2.x.173] ,    [2.x.174] ,    [2.x.175] , and    [2.x.176]  functions in   the code below. These four functions can all have several instances   running in %parallel at the same time. 
+
+- %Functions that copy the result of the previous ones into the global object   and that run sequentially to avoid race conditions. These are the    [2.x.177] ,    [2.x.178] ,    [2.x.179] , and    [2.x.180]    functions. 
+
+We will comment on a few more points in the actual code, but in general their structure should be clear from the discussion in  [2.x.181] . 
+
+The underlying technology for WorkStream identifies "tasks" that need to be worked on (e.g. assembling local contributions on a cell) and schedules these tasks automatically to available processors. WorkStream creates these tasks automatically, by splitting the iterator range into suitable chunks. 
+
+ [2.x.182]  Using multiple threads within each MPI process only makes sense if you have fewer MPI processes running on each node of your cluster than there are processor cores on this machine. Otherwise, MPI will already keep your processors busy and you won't get any additional speedup from using threads. For example, if your cluster nodes have 8 cores as they often have at the time of writing this, and if your batch scheduler puts 8 MPI processes on each node, then using threads doesn't make the program any faster. Consequently, you probably want to either configure your deal.II without threads, or set the number of threads in  [2.x.183]  to 1 (third argument), or "export DEAL_II_NUM_THREADS=1" before running. That said, at the time of writing this, we only use the WorkStream class for assembling (parts of) linear systems, while 75% or more of the run time of the program is spent in the linear solvers that are not parallelized &mdash; in other words, the best we could hope is to parallelize the remaining 25%. 
+
+
+[1.x.104][1.x.105] 
+
+
+The setup for this program is mildly reminiscent of the problem we wanted to solve in the first place (see the introduction of  [2.x.184] ): convection in the earth mantle. As a consequence, we choose the following data, all of which appears in the program in units of meters and seconds (the SI system) even if we list them here in other units. We do note, however, that these choices are essentially still only exemplary, and not meant to result in a completely realistic description of convection in the earth mantle: for that, more and more difficult physics would have to be implemented, and several other aspects are currently missing from this program as well. We will come back to this issue in the results section again, but state for now that providing a realistic description is a goal of the [1.x.106] code in development at the time of writing this. 
+
+As a reminder, let us again state the equations we want to solve are these: [1.x.107] 
+
+augmented by boundary and initial conditions. We then have to choose data for the following quantities:  [2.x.185]     [2.x.186] The domain is an annulus (in 2d) or a spherical shell (in 3d) with inner   and outer radii that match that of the earth: the total radius of the earth   is 6371km, with the mantle starting at a depth of around 35km (just under   the solid earth [1.x.108] composed of   [1.x.109] and [1.x.110]) to a depth of 2890km (where the   [1.x.111] starts). The radii are therefore  [2.x.187] . This domain is conveniently generated using the    [2.x.188]  function. 
+
+   [2.x.189] At the interface between crust and mantle, the temperature is between   500 and 900 degrees Celsius, whereas at its bottom it is around 4000 degrees   Celsius (see, for example, [1.x.112]). In Kelvin, we therefore choose  [2.x.190] ,    [2.x.191]  as boundary conditions at the inner and outer edge. 
+
+  In addition to this, we also have to specify some initial conditions for   the temperature field. The real temperature field of the earth is quite   complicated as a consequence of the convection that has been going on for   more than four billion years -- in fact, it is the properties of this   temperature distribution that we want to explore with programs like   this. As a consequence, we   don't really have anything useful to offer here, but we can hope that if we   start with something and let things run for a while that the exact initial   conditions don't matter that much any more &mdash; as is in fact suggested   by looking at the pictures shown in the [1.x.113]. The initial temperature field we use here is given in terms of   the radius by   [1.x.114] 
+
+  where   [1.x.115] 
+
+  This complicated function is essentially a perturbation of a linear profile   between the inner and outer temperatures. In 2d, the function    [2.x.192]  looks like this (I got the picture from   [1.x.116]): 
+
+   [2.x.193]  
+
+  The point of this profile is that if we had used  [2.x.194]  instead of  [2.x.195]  in   the definition of  [2.x.196]  then it would simply be a linear   interpolation.  [2.x.197]  has the same function values as  [2.x.198]  on the inner and   outer boundaries (zero and one, respectively), but it stretches the   temperature profile a bit depending on the angle and the  [2.x.199]  value in 3d,   producing an angle-dependent perturbation of the linearly interpolating   field. We will see in the results section that this is an   entirely unphysical temperature field (though it will make for   interesting images) as the equilibrium state for the temperature   will be an almost constant temperature with boundary layers at the   inner and outer boundary. 
+
+   [2.x.200] The right hand side of the temperature equation contains the rate of   %internal heating  [2.x.201] . The earth does heat naturally through several mechanisms:   radioactive decay, chemical separation (heavier elements sink to the bottom,   lighter ones rise to the top; the countercurrents dissipate energy equal to   the loss of potential energy by this separation process); heat release   by crystallization of liquid metal as the solid inner core of the earth   grows; and heat dissipation from viscous friction as the fluid moves. 
+
+  Chemical separation is difficult to model since it requires modeling mantle   material as multiple phases; it is also a relatively small   effect. Crystallization heat is even more difficult since it is confined to   areas where temperature and pressure allow for phase changes, i.e., a   discontinuous process. Given the difficulties in modeling these two   phenomena, we will neglect them. 
+
+  The other two are readily handled and, given the way we scaled the   temperature equation, lead to the equation   [1.x.117]   where  [2.x.202]  is the radiogenic heating in  [2.x.203] , and the second   term in the enumerator is viscous friction heating.  [2.x.204]  is the density   and  [2.x.205]  is the specific heat. The literature provides the following   approximate values:  [2.x.206] .   The other parameters are discussed elsewhere in this section. 
+
+  We neglect one internal heat source, namely adiabatic heating here,   which will lead to a surprising temperature field. This point is   commented on in detail in the results section below. 
+
+   [2.x.207] For the velocity we choose as boundary conditions  [2.x.208]  at the   inner radius (i.e., the fluid sticks to the earth core) and    [2.x.209]  at the outer radius (i.e., the fluid flows   tangentially along the bottom of the earth crust). Neither of these is   physically overly correct: certainly, on both boundaries, fluids can flow   tangentially, but they will incur a shear stress through friction against   the medium at the other side of the interface (the metallic core and the   crust, respectively). Such a situation could be modeled by a Robin-type   boundary condition for the tangential velocity; in either case, the normal (vertical)   velocity would be zero, although even that is not entirely correct since   continental plates also have vertical motion (see, for example, the   phenomenon of [1.x.118]). But to already make things worse for the tangential velocity,   the medium on the other side is in motion as well, so the shear stress   would, in the simplest case, be proportional to the [1.x.119], leading to a boundary condition of the form   [1.x.120] 
+
+  with a proportionality constant  [2.x.210] . Rather than going down this route,   however, we go with the choice of zero (stick) and tangential   flow boundary conditions. 
+
+  As a side note of interest, we may also have chosen tangential flow   conditions on both inner and outer boundary. That has a significant   drawback, however: it leaves the velocity not uniquely defined. The reason   is that all velocity fields  [2.x.211]  that correspond to a solid   body rotation around the center of the domain satisfy  [2.x.212] , and    [2.x.213] . As a consequence, if  [2.x.214]    satisfies equations and boundary conditions, then so does  [2.x.215] . That's certainly not a good situation that we would like   to avoid. The traditional way to work around this is to pick an arbitrary   point on the boundary and call this your fixed point by choosing the   velocity to be zero in all components there. (In 3d one has to choose two   points.) Since this program isn't meant to be too realistic to begin with,   we avoid this complication by simply fixing the velocity along the entire   interior boundary. 
+
+   [2.x.216] To first order, the gravity vector always points downward. The question for   a body as big as the earth is just: where is "up". The naive answer of course is   "radially inward, towards the center of the earth". So at the surface of the   earth, we have   [1.x.121]   where  [2.x.217]  happens to be the average gravity   acceleration at the earth surface. But in the earth interior, the question   becomes a bit more complicated: at the (bary-)center of the earth, for   example, you have matter pulling equally hard in all directions, and so    [2.x.218] . In between, the net force is described as follows: let us   define the [1.x.122] by   [1.x.123]   then  [2.x.219] . If we assume that   the density  [2.x.220]  is constant throughout the earth, we can produce an   analytical expression for the gravity vector (don't try to integrate above   equation somehow -- it leads to elliptic integrals; a simpler way is to   notice that  [2.x.221]  and solving this   partial differential equation in all of  [2.x.222]  exploiting the   radial symmetry):   [1.x.124]   The factor  [2.x.223]  is the unit vector pointing   radially inward. Of course, within this problem, we are only interested in   the branch that pertains to within the earth, i.e.,  [2.x.224] . We would therefore only consider the expression   [1.x.125]   where we can infer the last expression because we know Earth's gravity at   the surface (where  [2.x.225] ). 
+
+  One can derive a more general expression by integrating the   differential equation for  [2.x.226]  in the case that the density   distribution is radially symmetric, i.e.,  [2.x.227] . In that case, one would get   [1.x.126] 
+
+
+  There are two problems with this, however: (i) The Earth is not homogeneous,   i.e., the density  [2.x.228]  depends on  [2.x.229] ; in fact it is not even a   function that only depends on the radius  [2.x.230] . In reality, gravity therefore   does not always decrease as we get deeper: because the earth core is so much   denser than the mantle, gravity actually peaks at around  [2.x.231]  at the core mantle boundary (see [1.x.127]). (ii) The density, and by   consequence the gravity vector, is not even constant in time: after all, the   problem we want to solve is the time dependent upwelling of hot, less dense   material and the downwelling of cold dense material. This leads to a gravity   vector that varies with space and time, and does not always point straight   down. 
+
+  In order to not make the situation more complicated than necessary, we could   use the approximation that at the inner boundary of the mantle,   gravity is  [2.x.232]  and at the outer   boundary it is  [2.x.233] , in each case   pointing radially inward, and that in between gravity varies   linearly with the radial distance from the earth center. That said, it isn't   that hard to actually be slightly more realistic and assume (as we do below)   that the earth mantle has constant density. In that case, the equation above   can be integrated and we get an expression for  [2.x.234]  where we   can fit constants to match the gravity at the top and bottom of the earth   mantle to obtain   [1.x.128] 
+
+   [2.x.235] The density of the earth mantle varies spatially, but not by very   much.  [2.x.236]  is a relatively good average   value for the density at reference temperature  [2.x.237]  Kelvin. 
+
+   [2.x.238] The thermal expansion coefficient  [2.x.239]  also varies with depth   (through its dependence on temperature and pressure). Close to the surface,   it appears to be on the order of  [2.x.240] ,   whereas at the core mantle boundary, it may be closer to  [2.x.241] . As a reasonable value, let us choose    [2.x.242] . The density as a function   of temperature is then    [2.x.243] . 
+
+   [2.x.244] The second to last parameter we need to specify is the viscosity    [2.x.245] . This is a tough one, because rocks at the temperatures and pressure   typical for the earth mantle flow so slowly that the viscosity can not be   determined accurately in the laboratory. So how do we know about the   viscosity of the mantle? The most commonly used route is to consider that   during and after ice ages, ice shields form and disappear on time scales   that are shorter than the time scale of flow in the mantle. As a   consequence, continents slowly sink into the earth mantle under the added   weight of an ice shield, and they rise up again slowly after the ice shield   has disappeared again (this is called [1.x.129][1.x.130]). By measuring the speed of this rebound, we can infer the   viscosity of the material that flows into the area vacated under the   rebounding continental plates. 
+
+  Using this technique, values around  [2.x.246]  have been found as the most   likely, though the error bar on this is at least one order of magnitude. 
+
+  While we will use this value, we again have to caution that there are many   physical reasons to assume that this is not the correct value. First, it   should really be made dependent on temperature: hotter material is most   likely to be less viscous than colder material. In reality, however, the   situation is even more complex. Most rocks in the mantle undergo phase   changes as temperature and pressure change: depending on temperature and   pressure, different crystal configurations are thermodynamically favored   over others, even if the chemical composition of the mantle were   homogeneous. For example, the common mantle material MgSiO<sub>3</sub> exists   in its [1.x.131] throughout most of the mantle, but in the lower mantle the   same substance is stable only as [1.x.132]. Clearly,   to compute realistic viscosities, we would not only need to know the exact   chemical composition of the mantle and the viscosities of all materials, but   we would also have to compute the thermodynamically most stable   configurations for all materials at each quadrature point. This is at the   time of writing this program not a feasible suggestion. 
+
+   [2.x.247] Our last material parameter is the thermal diffusivity  [2.x.248] , which   is defined as  [2.x.249]  where  [2.x.250]  is the thermal   conductivity,  [2.x.251]  the density, and  [2.x.252]  the specific heat. For   this, the literature indicates that it increases from around  [2.x.253]  in the   upper mantle to around  [2.x.254]  in the lower   mantle, though the exact value   is not really all that important: heat transport through convection is   several orders of magnitude more important than through thermal   conduction. It may be of interest to know that perovskite, the most abundant   material in the earth mantle, appears to become transparent at pressures   above around 120 GPa (see, for example, J. Badro et al., Science 305,   383-386 (2004)); in the lower mantle, it may therefore be that heat   transport through radiative transfer is more efficient than through thermal   conduction. 
+
+  In view of these considerations, let us choose    [2.x.255]    for the purpose of this program.  [2.x.256]  
+
+All of these pieces of equation data are defined in the program in the  [2.x.257]  namespace. When run, the program produces long-term maximal velocities around 10-40 centimeters per year (see the results section below), approximately the physically correct order of magnitude. We will set the end time to 1 billion years. 
+
+ [2.x.258]  The choice of the constants and material parameters above follows in large part the comprehensive book "Mantle Convection in the Earth and Planets, Part 1" by G. Schubert and D. L. Turcotte and P. Olson (Cambridge, 2001). It contains extensive discussion of ways to make the program more realistic. 
+
+
+[1.x.133][1.x.134] 
+
+
+Compared to  [2.x.259] , this program has a number of noteworthy differences: 
+
+- The  [2.x.260]  namespace is significantly larger, reflecting   the fact that we now have much more physics to deal with. That said, most of   this additional physical detail is rather self-contained in functions in   this one namespace, and does not proliferate throughout the rest of the   program. 
+
+- Of more obvious visibility is the fact that we have put a good number of   parameters into an input file handled by the ParameterHandler class (see,   for example,  [2.x.261] , for ways to set up run-time parameter files with this   class). This often makes sense when one wants to avoid re-compiling the   program just because one wants to play with a single parameter (think, for   example, of parameter studies determining the best values of the   stabilization constants discussed above), in particular given that it takes   a nontrivial amount of time to re-compile programs of the current size. To   just give an overview of the kinds of parameters we have moved from fixed   values into the input file, here is a listing of a typical    [2.x.262]  file:   [1.x.135] 
+
+
+
+- There are, obviously, a good number of changes that have to do with the fact   that we want to run our program on a possibly very large number of   machines. Although one may suspect that this requires us to completely   re-structure our code, that isn't in fact the case (although the classes   that implement much of this functionality in deal.II certainly look very   different from an implementation viewpoint, but this doesn't reflect in   their public interface). Rather, the changes are mostly subtle, and the   overall structure of the main class is pretty much unchanged. That said, the   devil is in the detail: getting %parallel computing right, without   deadlocks, ensuring that the right data is available at the right place   (see, for example, the discussion on fully distributed vectors vs. vectors   with ghost elements), and avoiding bottlenecks is difficult and discussions   on this topic will appear in a good number of places in this program. 
+
+
+[1.x.136][1.x.137] 
+
+
+This is a tutorial program. That means that at least most of its focus needs to lie on demonstrating ways of using deal.II and associated libraries, and not diluting this teaching lesson by focusing overly much on physical details. Despite the lengthy section above on the choice of physical parameters, the part of the program devoted to this is actually quite short and self contained. 
+
+That said, both  [2.x.263]  and the current  [2.x.264]  have not come about by chance but are certainly meant as wayposts along the path to a more comprehensive program that will simulate convection in the earth mantle. We call this code [1.x.138] (short for [1.x.139]); its development is funded by the [1.x.140] initiative with support from the National Science Foundation. More information on [1.x.141] is available at its [1.x.142]. [1.x.143] [1.x.144] 
+
+
+[1.x.145]  [1.x.146] 
+
+
+
+
+The first task as usual is to include the functionality of these well-known deal.II library files and some C++ header files. 
+
+[1.x.147] 
+
+
+
+This is the only include file that is new: It introduces the  [2.x.265]  equivalent of the  [2.x.266]  class to take a solution from on mesh to the next one upon mesh refinement, but in the case of parallel distributed triangulations: 
+
+[1.x.148] 
+
+
+
+The following classes are used in parallel distributed computations and have all already been introduced in  [2.x.267] : 
+
+[1.x.149] 
+
+
+
+The next step is like in all previous tutorial programs: We put everything into a namespace of its own and then import the deal.II classes and functions into it: 
+
+[1.x.150] 
+
+
+
+
+[1.x.151]  [1.x.152] 
+
+
+
+
+In the following namespace, we define the various pieces of equation data that describe the problem. This corresponds to the various aspects of making the problem at least slightly realistic and that were exhaustively discussed in the description of the testcase in the introduction.    
+
+
+We start with a few coefficients that have constant values (the comment after the value indicates its physical units): 
+
+[1.x.153] 
+
+
+
+The next set of definitions are for functions that encode the density as a function of temperature, the gravity vector, and the initial values for the temperature. Again, all of these (along with the values they compute) are discussed in the introduction: 
+
+[1.x.154] 
+
+
+
+As mentioned in the introduction we need to rescale the pressure to avoid the relative ill-conditioning of the momentum and mass conservation equations. The scaling factor is  [2.x.268]  where  [2.x.269]  was a typical length scale. By experimenting it turns out that a good length scale is the diameter of plumes, which is around 10 km: 
+
+[1.x.155] 
+
+
+
+The final number in this namespace is a constant that denotes the number of seconds per (average, tropical) year. We use this only when generating screen output: internally, all computations of this program happen in SI units (kilogram, meter, seconds) but writing geological times in seconds yields numbers that one can't relate to reality, and so we convert to years using the factor defined here: 
+
+[1.x.156] 
+
+
+
+
+[1.x.157]  [1.x.158] 
+
+
+
+
+This namespace implements the preconditioner. As discussed in the introduction, this preconditioner differs in a number of key portions from the one used in  [2.x.270] . Specifically, it is a right preconditioner, implementing the matrix 
+
+[1.x.159] 
+
+where the two inverse matrix operations are approximated by linear solvers or, if the right flag is given to the constructor of this class, by a single AMG V-cycle for the velocity block. The three code blocks of the  [2.x.271]  function implement the multiplications with the three blocks of this preconditioner matrix and should be self explanatory if you have read through  [2.x.272]  or the discussion of composing solvers in  [2.x.273] . 
+
+[1.x.160] 
+
+
+
+
+[1.x.161]  [1.x.162]    
+
+
+As described in the introduction, we will use the WorkStream mechanism discussed in the  [2.x.274]  module to parallelize operations among the processors of a single machine. The WorkStream class requires that data is passed around in two kinds of data structures, one for scratch data and one to pass data from the assembly function to the function that copies local contributions into global objects.    
+
+
+The following namespace (and the two sub-namespaces) contains a collection of data structures that serve this purpose, one pair for each of the four operations discussed in the introduction that we will want to parallelize. Each assembly routine gets two sets of data: a Scratch array that collects all the classes and arrays that are used for the calculation of the cell contribution, and a CopyData array that keeps local matrices and vectors which will be written into the global matrix. Whereas CopyData is a container for the final data that is written into the global matrices and vector (and, thus, absolutely necessary), the Scratch arrays are merely there for performance reasons &mdash; it would be much more expensive to set up a FEValues object on each cell, than creating it only once and updating some derivative data.    
+
+
+ [2.x.275]  had four assembly routines: One for the preconditioner matrix of the Stokes system, one for the Stokes matrix and right hand side, one for the temperature matrices and one for the right hand side of the temperature equation. We here organize the scratch arrays and CopyData objects for each of those four assembly components using a  [2.x.276]  environment (since we consider these as temporary objects we pass around, rather than classes that implement functionality of their own, though this is a more subjective point of view to distinguish between  [2.x.277] es).    
+
+
+Regarding the Scratch objects, each struct is equipped with a constructor that creates an  [2.x.278]  object using the  [2.x.279] , Quadrature,  [2.x.280]  (which describes the interpolation of curved boundaries), and  [2.x.281]  instances. Moreover, we manually implement a copy constructor (since the FEValues class is not copyable by itself), and provide some additional vector fields that are used to hold intermediate data during the computation of local contributions.    
+
+
+Let us start with the scratch arrays and, specifically, the one used for assembly of the Stokes preconditioner: 
+
+[1.x.163] 
+
+
+
+The next one is the scratch object used for the assembly of the full Stokes system. Observe that we derive the StokesSystem scratch class from the StokesPreconditioner class above. We do this because all the objects that are necessary for the assembly of the preconditioner are also needed for the actual matrix system and right hand side, plus some extra data. This makes the program more compact. Note also that the assembly of the Stokes system and the temperature right hand side further down requires data from temperature and velocity, respectively, so we actually need two FEValues objects for those two cases. 
+
+[1.x.164] 
+
+
+
+After defining the objects used in the assembly of the Stokes system, we do the same for the assembly of the matrices necessary for the temperature system. The general structure is very similar: 
+
+[1.x.165] 
+
+
+
+The final scratch object is used in the assembly of the right hand side of the temperature system. This object is significantly larger than the ones above because a lot more quantities enter the computation of the right hand side of the temperature equation. In particular, the temperature values and gradients of the previous two time steps need to be evaluated at the quadrature points, as well as the velocities and the strain rates (i.e. the symmetric gradients of the velocity) that enter the right hand side as friction heating terms. Despite the number of terms, the following should be rather self explanatory: 
+
+[1.x.166] 
+
+
+
+The CopyData objects are even simpler than the Scratch objects as all they have to do is to store the results of local computations until they can be copied into the global matrix or vector objects. These structures therefore only need to provide a constructor, a copy operation, and some arrays for local matrix, local vectors and the relation between local and global degrees of freedom (a.k.a.  [2.x.282] ). Again, we have one such structure for each of the four operations we will parallelize using the WorkStream class: 
+
+[1.x.167] 
+
+
+
+
+[1.x.168]  [1.x.169]    
+
+
+This is the declaration of the main class. It is very similar to  [2.x.283]  but there are a number differences we will comment on below.    
+
+
+The top of the class is essentially the same as in  [2.x.284] , listing the public methods and a set of private functions that do the heavy lifting. Compared to  [2.x.285]  there are only two additions to this section: the function  [2.x.286]  that computes the maximum CFL number over all cells which we then compute the global time step from, and the function  [2.x.287]  that is used in the computation of the entropy stabilization. It is akin to the  [2.x.288]  we have used in  [2.x.289]  for this purpose, but works on the entropy instead of the temperature instead. 
+
+[1.x.170] 
+
+
+
+The first significant new component is the definition of a struct for the parameters according to the discussion in the introduction. This structure is initialized by reading from a parameter file during construction of this object. 
+
+[1.x.171] 
+
+
+
+The  [2.x.290]  (for [1.x.172]) object is used to simplify writing output: each MPI process can use this to generate output as usual, but since each of these processes will (hopefully) produce the same output it will just be replicated many times over; with the ConditionalOStream class, only the output generated by one MPI process will actually be printed to screen, whereas the output by all the other threads will simply be forgotten. 
+
+[1.x.173] 
+
+
+
+The following member variables will then again be similar to those in  [2.x.291]  (and to other tutorial programs). As mentioned in the introduction, we fully distribute computations, so we will have to use the  [2.x.292]  class (see  [2.x.293] ) but the remainder of these variables is rather standard with two exceptions: 
+
+     
+
+
+
+
+- The  [2.x.294]  variable is used to denote a higher-order polynomial mapping. As mentioned in the introduction, we use this mapping when forming integrals through quadrature for all cells that are adjacent to either the inner or outer boundaries of our domain where the boundary is curved. 
+
+     
+
+
+
+
+- In a bit of naming confusion, you will notice below that some of the variables from namespace TrilinosWrappers are taken from namespace  [2.x.295]  (such as the right hand side vectors) whereas others are not (such as the various matrices). This is due to legacy reasons. We will frequently have to query velocities and temperatures at arbitrary quadrature points; consequently, rather than importing ghost information of a vector whenever we need access to degrees of freedom that are relevant locally but owned by another processor, we solve linear systems in %parallel but then immediately initialize a vector including ghost entries of the solution for further processing. The various  [2.x.296]  vectors are therefore filled immediately after solving their respective linear system in %parallel and will always contain values for all  [2.x.297]  "locally relevant degrees of freedom"; the fully distributed vectors that we obtain from the solution process and that only ever contain the  [2.x.298]  "locally owned degrees of freedom" are destroyed immediately after the solution process and after we have copied the relevant values into the member variable vectors. 
+
+[1.x.174] 
+
+
+
+The next member variable,  [2.x.299]  is used to conveniently account for compute time spent in certain "sections" of the code that are repeatedly entered. For example, we will enter (and leave) sections for Stokes matrix assembly and would like to accumulate the run time spent in this section over all time steps. Every so many time steps as well as at the end of the program (through the destructor of the TimerOutput class) we will then produce a nice summary of the times spent in the different sections into which we categorize the run-time of this program. 
+
+[1.x.175] 
+
+
+
+After these member variables we have a number of auxiliary functions that have been broken out of the ones listed above. Specifically, there are first three functions that we call from  [2.x.300]  and then the ones that do the assembling of linear systems: 
+
+[1.x.176] 
+
+
+
+Following the  [2.x.301]  "task-based parallelization" paradigm, we split all the assembly routines into two parts: a first part that can do all the calculations on a certain cell without taking care of other threads, and a second part (which is writing the local data into the global matrices and vectors) which can be entered by only one thread at a time. In order to implement that, we provide functions for each of those two steps for all the four assembly routines that we use in this program. The following eight functions do exactly this: 
+
+[1.x.177] 
+
+
+
+Finally, we forward declare a member class that we will define later on and that will be used to compute a number of quantities from our solution vectors that we'd like to put into the output files for visualization. 
+
+[1.x.178] 
+
+
+
+
+[1.x.179]  [1.x.180] 
+
+
+
+
+
+[1.x.181]  [1.x.182]    
+
+
+Here comes the definition of the parameters for the Stokes problem. We allow to set the end time for the simulation, the level of refinements (both global and adaptive, which in the sum specify what maximum level the cells are allowed to have), and the interval between refinements in the time stepping.    
+
+
+Then, we let the user specify constants for the stabilization parameters (as discussed in the introduction), the polynomial degree for the Stokes velocity space, whether to use the locally conservative discretization based on FE_DGP elements for the pressure or not (FE_Q elements for pressure), and the polynomial degree for the temperature interpolation.    
+
+
+The constructor checks for a valid input file (if not, a file with default parameters for the quantities is written), and eventually parses the parameters. 
+
+[1.x.183] 
+
+
+
+Next we have a function that declares the parameters that we expect in the input file, together with their data types, default values and a description: 
+
+[1.x.184] 
+
+
+
+And then we need a function that reads the contents of the ParameterHandler object we get by reading the input file and puts the results into variables that store the values of the parameters we have previously declared: 
+
+[1.x.185] 
+
+
+
+
+[1.x.186]  [1.x.187]    
+
+
+The constructor of the problem is very similar to the constructor in  [2.x.302] . What is different is the %parallel communication: Trilinos uses a message passing interface (MPI) for data distribution. When entering the BoussinesqFlowProblem class, we have to decide how the parallelization is to be done. We choose a rather simple strategy and let all processors that are running the program work together, specified by the communicator  [2.x.303] . Next, we create the output stream (as we already did in  [2.x.304] ) that only generates output on the first MPI process and is completely forgetful on all others. The implementation of this idea is to check the process number when  [2.x.305]  gets a true argument, and it uses the  [2.x.306]  stream for output. If we are one processor five, for instance, then we will give a  [2.x.307] , which means that the output of that processor will not be printed. With the exception of the mapping object (for which we use polynomials of degree 4) all but the final member variable are exactly the same as in  [2.x.308] .    
+
+
+This final object, the TimerOutput object, is then told to restrict output to the  [2.x.309]  stream (processor 0), and then we specify that we want to get a summary table at the end of the program which shows us wallclock times (as opposed to CPU times). We will manually also request intermediate summaries every so many time steps in the  [2.x.310]  function below. 
+
+[1.x.188] 
+
+
+
+
+[1.x.189]  [1.x.190] 
+
+[1.x.191]  [1.x.192] 
+
+
+
+
+Except for two small details, the function to compute the global maximum of the velocity is the same as in  [2.x.311] . The first detail is actually common to all functions that implement loops over all cells in the triangulation: When operating in %parallel, each processor can only work on a chunk of cells since each processor only has a certain part of the entire triangulation. This chunk of cells that we want to work on is identified via a so-called  [2.x.312] , as we also did in  [2.x.313] . All we need to change is hence to perform the cell-related operations only on cells that are owned by the current process (as opposed to ghost or artificial cells), i.e. for which the subdomain id equals the number of the process ID. Since this is a commonly used operation, there is a shortcut for this operation: we can ask whether the cell is owned by the current processor using  [2.x.314] .    
+
+
+The second difference is the way we calculate the maximum value. Before, we could simply have a  [2.x.315]  variable that we checked against on each quadrature point for each cell. Now, we have to be a bit more careful since each processor only operates on a subset of cells. What we do is to first let each processor calculate the maximum among its cells, and then do a global communication operation  [2.x.316]  that computes the maximum value among all the maximum values of the individual processors. MPI provides such a call, but it's even simpler to use the respective function in namespace  [2.x.317]  using the MPI communicator object since that will do the right thing even if we work without MPI and on a single machine only. The call to  [2.x.318]  needs two arguments, namely the local maximum (input) and the MPI communicator, which is MPI_COMM_WORLD in this example. 
+
+[1.x.193] 
+
+
+
+
+[1.x.194]  [1.x.195] 
+
+
+
+
+The next function does something similar, but we now compute the CFL number, i.e., maximal velocity on a cell divided by the cell diameter. This number is necessary to determine the time step size, as we use a semi-explicit time stepping scheme for the temperature equation (see  [2.x.319]  for a discussion). We compute it in the same way as above: Compute the local maximum over all locally owned cells, then exchange it via MPI to find the global maximum. 
+
+[1.x.196] 
+
+
+
+
+[1.x.197]  [1.x.198] 
+
+
+
+
+Next comes the computation of the global entropy variation  [2.x.320]  where the entropy  [2.x.321]  is defined as discussed in the introduction.  This is needed for the evaluation of the stabilization in the temperature equation as explained in the introduction. The entropy variation is actually only needed if we use  [2.x.322]  as a power in the residual computation. The infinity norm is computed by the maxima over quadrature points, as usual in discrete computations.    
+
+
+In order to compute this quantity, we first have to find the space-average  [2.x.323]  and then evaluate the maximum. However, that means that we would need to perform two loops. We can avoid the overhead by noting that  [2.x.324] , i.e., the maximum out of the deviation from the average entropy in positive and negative directions. The four quantities we need for the latter formula (maximum entropy, minimum entropy, average entropy, area) can all be evaluated in the same loop over all cells, so we choose this simpler variant. 
+
+[1.x.199] 
+
+
+
+In the two functions above we computed the maximum of numbers that were all non-negative, so we knew that zero was certainly a lower bound. On the other hand, here we need to find the maximum deviation from the average value, i.e., we will need to know the maximal and minimal values of the entropy for which we don't a priori know the sign.      
+
+
+To compute it, we can therefore start with the largest and smallest possible values we can store in a double precision number: The minimum is initialized with a bigger and the maximum with a smaller number than any one that is going to appear. We are then guaranteed that these numbers will be overwritten in the loop on the first cell or, if this processor does not own any cells, in the communication step at the latest. The following loop then computes the minimum and maximum local entropy as well as keeps track of the area/volume of the part of the domain we locally own and the integral over the entropy on it: 
+
+[1.x.200] 
+
+
+
+Now we only need to exchange data between processors: we need to sum the two integrals ( [2.x.325] ), and get the extrema for maximum and minimum. We could do this through four different data exchanges, but we can it with two:  [2.x.326]  also exists in a variant that takes an array of values that are all to be summed up. And we can also utilize the  [2.x.327]  function by realizing that forming the minimum over the minimal entropies equals forming the negative of the maximum over the negative of the minimal entropies; this maximum can then be combined with forming the maximum over the maximal entropies. 
+
+[1.x.201] 
+
+
+
+Having computed everything this way, we can then compute the average entropy and find the  [2.x.328]  norm by taking the larger of the deviation of the maximum or minimum from the average: 
+
+[1.x.202] 
+
+
+
+
+[1.x.203]  [1.x.204] 
+
+
+
+
+The next function computes the minimal and maximal value of the extrapolated temperature over the entire domain. Again, this is only a slightly modified version of the respective function in  [2.x.329] . As in the function above, we collect local minima and maxima and then compute the global extrema using the same trick as above.    
+
+
+As already discussed in  [2.x.330] , the function needs to distinguish between the first and all following time steps because it uses a higher order temperature extrapolation scheme when at least two previous time steps are available. 
+
+[1.x.205] 
+
+
+
+
+[1.x.206]  [1.x.207] 
+
+
+
+
+The function that calculates the viscosity is purely local and so needs no communication at all. It is mostly the same as in  [2.x.331]  but with an updated formulation of the viscosity if  [2.x.332]  is chosen: 
+
+[1.x.208] 
+
+
+
+
+[1.x.209]  [1.x.210] 
+
+
+
+
+The following three functions set up the Stokes matrix, the matrix used for the Stokes preconditioner, and the temperature matrix. The code is mostly the same as in  [2.x.333] , but it has been broken out into three functions of their own for simplicity.    
+
+
+The main functional difference between the code here and that in  [2.x.334]  is that the matrices we want to set up are distributed across multiple processors. Since we still want to build up the sparsity pattern first for efficiency reasons, we could continue to build the [1.x.211] sparsity pattern as a BlockDynamicSparsityPattern, as we did in  [2.x.335] . However, that would be inefficient: every processor would build the same sparsity pattern, but only initialize a small part of the matrix using it. It also violates the principle that every processor should only work on those cells it owns (and, if necessary the layer of ghost cells around it).    
+
+
+Rather, we use an object of type  [2.x.336]  which is (obviously) a wrapper around a sparsity pattern object provided by Trilinos. The advantage is that the Trilinos sparsity pattern class can communicate across multiple processors: if this processor fills in all the nonzero entries that result from the cells it owns, and every other processor does so as well, then at the end after some MPI communication initiated by the  [2.x.337]  call, we will have the globally assembled sparsity pattern available with which the global matrix can be initialized.    
+
+
+There is one important aspect when initializing Trilinos sparsity patterns in parallel: In addition to specifying the locally owned rows and columns of the matrices via the  [2.x.338]  index set, we also supply information about all the rows we are possibly going to write into when assembling on a certain processor. The set of locally relevant rows contains all such rows (possibly also a few unnecessary ones, but it is difficult to find the exact row indices before actually getting indices on all cells and resolving constraints). This additional information allows to exactly determine the structure for the off-processor data found during assembly. While Trilinos matrices are able to collect this information on the fly as well (when initializing them from some other reinit method), it is less efficient and leads to problems when assembling matrices with multiple threads. In this program, we pessimistically assume that only one processor at a time can write into the matrix while assembly (whereas the computation is parallel), which is fine for Trilinos matrices. In practice, one can do better by hinting WorkStream at cells that do not share vertices, allowing for parallelism among those cells (see the graph coloring algorithms and WorkStream with colored iterators argument). However, that only works when only one MPI processor is present because Trilinos' internal data structures for accumulating off-processor data on the fly are not thread safe. With the initialization presented here, there is no such problem and one could safely introduce graph coloring for this algorithm.    
+
+
+The only other change we need to make is to tell the  [2.x.339]  function that it is only supposed to work on a subset of cells, namely the ones whose  [2.x.340]  equals the number of the current processor, and to ignore all other cells.    
+
+
+This strategy is replicated across all three of the following functions.    
+
+
+Note that Trilinos matrices store the information contained in the sparsity patterns, so we can safely release the  [2.x.341]  variable once the matrix has been given the sparsity structure. 
+
+[1.x.212] 
+
+
+
+The remainder of the setup function (after splitting out the three functions above) mostly has to deal with the things we need to do for parallelization across processors. Because setting all of this up is a significant compute time expense of the program, we put everything we do here into a timer group so that we can get summary information about the fraction of time spent in this part of the program at its end.    
+
+
+At the top as usual we enumerate degrees of freedom and sort them by component/block, followed by writing their numbers to the screen from processor zero. The  [2.x.342]  function, when applied to a  [2.x.343]  object, sorts degrees of freedom in such a way that all degrees of freedom associated with subdomain zero come before all those associated with subdomain one, etc. For the Stokes part, this entails, however, that velocities and pressures become intermixed, but this is trivially solved by sorting again by blocks; it is worth noting that this latter operation leaves the relative ordering of all velocities and pressures alone, i.e. within the velocity block we will still have all those associated with subdomain zero before all velocities associated with subdomain one, etc. This is important since we store each of the blocks of this matrix distributed across all processors and want this to be done in such a way that each processor stores that part of the matrix that is roughly equal to the degrees of freedom located on those cells that it will actually work on.    
+
+
+When printing the numbers of degrees of freedom, note that these numbers are going to be large if we use many processors. Consequently, we let the stream put a comma separator in between every three digits. The state of the stream, using the locale, is saved from before to after this operation. While slightly opaque, the code works because the default locale (which we get using the constructor call  [2.x.344] ) implies printing numbers with a comma separator for every third digit (i.e., thousands, millions, billions).    
+
+
+In this function as well as many below, we measure how much time we spend here and collect that in a section called "Setup dof systems" across function invocations. This is done using an  [2.x.345]  object that gets a timer going in the section with above name of the `computing_timer` object upon construction of the local variable; the timer is stopped again when the destructor of the `timing_section` variable is called.  This, of course, happens either at the end of the function, or if we leave the function through a `return` statement or when an exception is thrown somewhere -- in other words, whenever we leave this function in any way. The use of such "scope" objects therefore makes sure that we do not have to manually add code that tells the timer to stop at every location where this function may be left. 
+
+[1.x.213] 
+
+
+
+After this, we have to set up the various partitioners (of type  [2.x.346] , see the introduction) that describe which parts of each matrix or vector will be stored where, then call the functions that actually set up the matrices, and at the end also resize the various vectors we keep around in this program. 
+
+[1.x.214] 
+
+
+
+Following this, we can compute constraints for the solution vectors, including hanging node constraints and homogeneous and inhomogeneous boundary values for the Stokes and temperature fields. Note that as for everything else, the constraint objects can not hold [1.x.215] constraints on every processor. Rather, each processor needs to store only those that are actually necessary for correctness given that it only assembles linear systems on cells it owns. As discussed in the  [2.x.347]  "this paper", the set of constraints we need to know about is exactly the set of constraints on all locally relevant degrees of freedom, so this is what we use to initialize the constraint objects. 
+
+[1.x.216] 
+
+
+
+All this done, we can then initialize the various matrix and vector objects to their proper sizes. At the end, we also record that all matrices and preconditioners have to be re-computed at the beginning of the next time step. Note how we initialize the vectors for the Stokes and temperature right hand sides: These are writable vectors (last boolean argument set to  [2.x.348]  that have the correct one-to-one partitioning of locally owned elements but are still given the relevant partitioning for means of figuring out the vector entries that are going to be set right away. As for matrices, this allows for writing local contributions into the vector with multiple threads (always assuming that the same vector entry is not accessed by multiple threads at the same time). The other vectors only allow for read access of individual elements, including ghosts, but are not suitable for solvers. 
+
+[1.x.217] 
+
+
+
+
+[1.x.218]  [1.x.219]    
+
+
+Following the discussion in the introduction and in the  [2.x.349]  module, we split the assembly functions into different parts:    
+
+
+ [2.x.350]   [2.x.351]  The local calculations of matrices and right hand sides, given a certain cell as input (these functions are named  [2.x.352]  below). The resulting function is, in other words, essentially the body of the loop over all cells in  [2.x.353] . Note, however, that these functions store the result from the local calculations in variables of classes from the CopyData namespace.    
+
+
+ [2.x.354] These objects are then given to the second step which writes the local data into the global data structures (these functions are named  [2.x.355]  below). These functions are pretty trivial.    
+
+
+ [2.x.356] These two subfunctions are then used in the respective assembly routine (called  [2.x.357]  below), where a WorkStream object is set up and runs over all the cells that belong to the processor's subdomain.   [2.x.358]  
+
+
+
+
+
+[1.x.220]  [1.x.221]    
+
+
+Let us start with the functions that builds the Stokes preconditioner. The first two of these are pretty trivial, given the discussion above. Note in particular that the main point in using the scratch data object is that we want to avoid allocating any objects on the free space each time we visit a new cell. As a consequence, the assembly function below only has automatic local variables, and everything else is accessed through the scratch data object, which is allocated only once before we start the loop over all cells: 
+
+[1.x.222] 
+
+
+
+Now for the function that actually puts things together, using the WorkStream functions.   [2.x.359]  needs a start and end iterator to enumerate the cells it is supposed to work on. Typically, one would use  [2.x.360]  and  [2.x.361]  for that but here we actually only want the subset of cells that in fact are owned by the current processor. This is where the FilteredIterator class comes into play: you give it a range of cells and it provides an iterator that only iterates over that subset of cells that satisfy a certain predicate (a predicate is a function of one argument that either returns true or false). The predicate we use here is  [2.x.362]  i.e., it returns true exactly if the cell is owned by the current processor. The resulting iterator range is then exactly what we need.    
+
+
+With this obstacle out of the way, we call the  [2.x.363]  function with this set of cells, scratch and copy objects, and with pointers to two functions: the local assembly and copy-local-to-global function. These functions need to have very specific signatures: three arguments in the first and one argument in the latter case (see the documentation of the  [2.x.364]  function for the meaning of these arguments). Note how we use a lambda functions to create a function object that satisfies this requirement. It uses function arguments for the local assembly function that specify cell, scratch data, and copy data, as well as function argument for the copy function that expects the data to be written into the global matrix (also see the discussion in  [2.x.365] 's  [2.x.366]  function). On the other hand, the implicit zeroth argument of member functions (namely the  [2.x.367]  pointer of the object on which that member function is to operate on) is [1.x.223] to the  [2.x.368]  pointer of the current function and is captured. The  [2.x.369]  function, as a consequence, does not need to know anything about the object these functions work on.    
+
+
+When the WorkStream is executed, it will create several local assembly routines of the first kind for several cells and let some available processors work on them. The function that needs to be synchronized, i.e., the write operation into the global matrix, however, is executed by only one thread at a time in the prescribed order. Of course, this only holds for the parallelization on a single MPI process. Different MPI processes will have their own WorkStream objects and do that work completely independently (and in different memory spaces). In a distributed calculation, some data will accumulate at degrees of freedom that are not owned by the respective processor. It would be inefficient to send data around every time we encounter such a dof. What happens instead is that the Trilinos sparse matrix will keep that data and send it to the owner at the end of assembly, by calling the  [2.x.370]  command. 
+
+[1.x.224] 
+
+
+
+The final function in this block initiates assembly of the Stokes preconditioner matrix and then in fact builds the Stokes preconditioner. It is mostly the same as in the serial case. The only difference to  [2.x.371]  is that we use a Jacobi preconditioner for the pressure mass matrix instead of IC, as discussed in the introduction. 
+
+[1.x.225] 
+
+
+
+
+[1.x.226]  [1.x.227] 
+
+
+
+
+The next three functions implement the assembly of the Stokes system, again split up into a part performing local calculations, one for writing the local data into the global matrix and vector, and one for actually running the loop over all cells with the help of the WorkStream class. Note that the assembly of the Stokes matrix needs only to be done in case we have changed the mesh. Otherwise, just the (temperature-dependent) right hand side needs to be calculated here. Since we are working with distributed matrices and vectors, we have to call the respective  [2.x.372]  functions in the end of the assembly in order to send non-local data to the owner process. 
+
+[1.x.228] 
+
+
+
+
+[1.x.229]  [1.x.230] 
+
+
+
+
+The task to be performed by the next three functions is to calculate a mass matrix and a Laplace matrix on the temperature system. These will be combined in order to yield the semi-implicit time stepping matrix that consists of the mass matrix plus a time  [2.x.373] dependent weight factor times the Laplace matrix. This function is again essentially the body of the loop over all cells from  [2.x.374] .    
+
+
+The two following functions perform similar services as the ones above. 
+
+[1.x.231] 
+
+
+
+
+[1.x.232]  [1.x.233] 
+
+
+
+
+This is the last assembly function. It calculates the right hand side of the temperature system, which includes the convection and the stabilization terms. It includes a lot of evaluations of old solutions at the quadrature points (which are necessary for calculating the artificial viscosity of stabilization), but is otherwise similar to the other assembly functions. Notice, once again, how we resolve the dilemma of having inhomogeneous boundary conditions, by just making a right hand side at this point (compare the comments for the  [2.x.375]  function above): We create some matrix columns with exactly the values that would be entered for the temperature stiffness matrix, in case we have inhomogeneously constrained dofs. That will account for the correct balance of the right hand side vector with the matrix system of temperature. 
+
+[1.x.234] 
+
+
+
+In the function that runs the WorkStream for actually calculating the right hand side, we also generate the final matrix. As mentioned above, it is a sum of the mass matrix and the Laplace matrix, times some time  [2.x.376] dependent weight. This weight is specified by the BDF-2 time integration scheme, see the introduction in  [2.x.377] . What is new in this tutorial program (in addition to the use of MPI parallelization and the WorkStream class), is that we now precompute the temperature preconditioner as well. The reason is that the setup of the Jacobi preconditioner takes a noticeable time compared to the solver because we usually only need between 10 and 20 iterations for solving the temperature system (this might sound strange, as Jacobi really only consists of a diagonal, but in Trilinos it is derived from more general framework for point relaxation preconditioners which is a bit inefficient). Hence, it is more efficient to precompute the preconditioner, even though the matrix entries may slightly change because the time step might change. This is not too big a problem because we remesh every few time steps (and regenerate the preconditioner then). 
+
+[1.x.235] 
+
+
+
+The next part is computing the right hand side vectors.  To do so, we first compute the average temperature  [2.x.378]  that we use for evaluating the artificial viscosity stabilization through the residual  [2.x.379] . We do this by defining the midpoint between maximum and minimum temperature as average temperature in the definition of the entropy viscosity. An alternative would be to use the integral average, but the results are not very sensitive to this choice. The rest then only requires calling  [2.x.380]  again, binding the arguments to the  [2.x.381]  function that are the same in every call to the correct values: 
+
+[1.x.236] 
+
+
+
+
+[1.x.237]  [1.x.238] 
+
+
+
+
+This function solves the linear systems in each time step of the Boussinesq problem. First, we work on the Stokes system and then on the temperature system. In essence, it does the same things as the respective function in  [2.x.382] . However, there are a few changes here.    
+
+
+The first change is related to the way we store our solution: we keep the vectors with locally owned degrees of freedom plus ghost nodes on each MPI node. When we enter a solver which is supposed to perform matrix-vector products with a distributed matrix, this is not the appropriate form, though. There, we will want to have the solution vector to be distributed in the same way as the matrix, i.e. without any ghosts. So what we do first is to generate a distributed vector called  [2.x.383]  and put only the locally owned dofs into that, which is neatly done by the  [2.x.384]  of the Trilinos vector.    
+
+
+Next, we scale the pressure solution (or rather, the initial guess) for the solver so that it matches with the length scales in the matrices, as discussed in the introduction. We also immediately scale the pressure solution back to the correct units after the solution is completed.  We also need to set the pressure values at hanging nodes to zero. This we also did in  [2.x.385]  in order not to disturb the Schur complement by some vector entries that actually are irrelevant during the solve stage. As a difference to  [2.x.386] , here we do it only for the locally owned pressure dofs. After solving for the Stokes solution, each processor copies the distributed solution back into the solution vector that also includes ghost elements.    
+
+
+The third and most obvious change is that we have two variants for the Stokes solver: A fast solver that sometimes breaks down, and a robust solver that is slower. This is what we already discussed in the introduction. Here is how we realize it: First, we perform 30 iterations with the fast solver based on the simple preconditioner based on the AMG V-cycle instead of an approximate solve (this is indicated by the  [2.x.387]  argument to the  [2.x.388]  object). If we converge, everything is fine. If we do not converge, the solver control object will throw an exception  [2.x.389]  Usually, this would abort the program because we don't catch them in our usual  [2.x.390]  functions. This is certainly not what we want to happen here. Rather, we want to switch to the strong solver and continue the solution process with whatever vector we got so far. Hence, we catch the exception with the C++ try/catch mechanism. We then simply go through the same solver sequence again in the  [2.x.391]  clause, this time passing the  [2.x.392]  flag to the preconditioner for the strong solver, signaling an approximate CG solve. 
+
+[1.x.239] 
+
+
+
+Now let's turn to the temperature part: First, we compute the time step size. We found that we need smaller time steps for 3D than for 2D for the shell geometry. This is because the cells are more distorted in that case (it is the smallest edge length that determines the CFL number). Instead of computing the time step from maximum velocity and minimal mesh size as in  [2.x.393] , we compute local CFL numbers, i.e., on each cell we compute the maximum velocity times the mesh size, and compute the maximum of them. Hence, we need to choose the factor in front of the time step slightly smaller.      
+
+
+After temperature right hand side assembly, we solve the linear system for temperature (with fully distributed vectors without any ghosts), apply constraints and copy the vector back to one with ghosts.      
+
+
+In the end, we extract the temperature range similarly to  [2.x.394]  to produce some output (for example in order to help us choose the stabilization constants, as discussed in the introduction). The only difference is that we need to exchange maxima over all processors. 
+
+[1.x.240] 
+
+
+
+
+[1.x.241]  [1.x.242] 
+
+
+
+
+Next comes the function that generates the output. The quantities to output could be introduced manually like we did in  [2.x.395] . An alternative is to hand this task over to a class PostProcessor that inherits from the class DataPostprocessor, which can be attached to DataOut. This allows us to output derived quantities from the solution, like the friction heating included in this example. It overloads the virtual function  [2.x.396]  which is then internally called from  [2.x.397]  We have to give it values of the numerical solution, its derivatives, normals to the cell, the actual evaluation points and any additional quantities. This follows the same procedure as discussed in  [2.x.398]  and other programs. 
+
+[1.x.243] 
+
+
+
+Here we define the names for the variables we want to output. These are the actual solution values for velocity, pressure, and temperature, as well as the friction heating and to each cell the number of the processor that owns it. This allows us to visualize the partitioning of the domain among the processors. Except for the velocity, which is vector-valued, all other quantities are scalar. 
+
+[1.x.244] 
+
+
+
+Now we implement the function that computes the derived quantities. As we also did for the output, we rescale the velocity from its SI units to something more readable, namely cm/year. Next, the pressure is scaled to be between 0 and the maximum pressure. This makes it more easily comparable -- in essence making all pressure variables positive or zero. Temperature is taken as is, and the friction heating is computed as  [2.x.399] .    
+
+
+The quantities we output here are more for illustration, rather than for actual scientific value. We come back to this briefly in the results section of this program and explain what one may in fact be interested in. 
+
+[1.x.245] 
+
+
+
+The  [2.x.400]  function has a similar task to the one in  [2.x.401] . However, here we are going to demonstrate a different technique on how to merge output from different DoFHandler objects. The way we're going to achieve this recombination is to create a joint DoFHandler that collects both components, the Stokes solution and the temperature solution. This can be nicely done by combining the finite elements from the two systems to form one FESystem, and let this collective system define a new DoFHandler object. To be sure that everything was done correctly, we perform a sanity check that ensures that we got all the dofs from both Stokes and temperature even in the combined system. We then combine the data vectors. Unfortunately, there is no straight-forward relation that tells us how to sort Stokes and temperature vector into the joint vector. The way we can get around this trouble is to rely on the information collected in the FESystem. For each dof on a cell, the joint finite element knows to which equation component (velocity component, pressure, or temperature) it belongs – that's the information we need! So we step through all cells (with iterators into all three DoFHandlers moving in sync), and for each joint cell dof, we read out that component using the  [2.x.402]  function (see there for a description of what the various parts of its return value contain). We also need to keep track whether we're on a Stokes dof or a temperature dof, which is contained in joint_fe.system_to_base_index(i).first.first. Eventually, the dof_indices data structures on either of the three systems tell us how the relation between global vector and local dofs looks like on the present cell, which concludes this tedious work. We make sure that each processor only works on the subdomain it owns locally (and not on ghost or artificial cells) when building the joint solution vector. The same will then have to be done in  [2.x.403]  but that function does so automatically.    
+
+
+What we end up with is a set of patches that we can write using the functions in DataOutBase in a variety of output formats. Here, we then have to pay attention that what each processor writes is really only its own part of the domain, i.e. we will want to write each processor's contribution into a separate file. This we do by adding an additional number to the filename when we write the solution. This is not really new, we did it similarly in  [2.x.404] . Note that we write in the compressed format  [2.x.405]  instead of plain vtk files, which saves quite some storage.    
+
+
+All the rest of the work is done in the PostProcessor class. 
+
+[1.x.246] 
+
+
+
+
+[1.x.247]  [1.x.248] 
+
+
+
+
+This function isn't really new either. Since the  [2.x.406]  function that we call in the middle has its own timer section, we split timing this function into two sections. It will also allow us to easily identify which of the two is more expensive.    
+
+
+One thing of note, however, is that we only want to compute error indicators on the locally owned subdomain. In order to achieve this, we pass one additional argument to the  [2.x.407]  function. Note that the vector for error estimates is resized to the number of active cells present on the current process, which is less than the total number of active cells on all processors (but more than the number of locally owned active cells); each processor only has a few coarse cells around the locally owned ones, as also explained in  [2.x.408] .    
+
+
+The local error estimates are then handed to a %parallel version of GridRefinement (in namespace  [2.x.409]  see also  [2.x.410] ) which looks at the errors and finds the cells that need refinement by comparing the error values across processors. As in  [2.x.411] , we want to limit the maximum grid level. So in case some cells have been marked that are already at the finest level, we simply clear the refine flags. 
+
+[1.x.249] 
+
+
+
+With all flags marked as necessary, we can then tell the  [2.x.412]  objects to get ready to transfer data from one mesh to the next, which they will do when notified by Triangulation as part of the  [2.x.413]  call. The syntax is similar to the non-%parallel solution transfer (with the exception that here a pointer to the vector entries is enough). The remainder of the function further down below is then concerned with setting up the data structures again after mesh refinement and restoring the solution vectors on the new mesh. 
+
+[1.x.250] 
+
+
+
+enforce constraints to make the interpolated solution conforming on the new mesh: 
+
+[1.x.251] 
+
+
+
+enforce constraints to make the interpolated solution conforming on the new mesh: 
+
+[1.x.252] 
+
+
+
+
+[1.x.253]  [1.x.254] 
+
+
+
+
+This is the final and controlling function in this class. It, in fact, runs the entire rest of the program and is, once more, very similar to  [2.x.414] . The only substantial difference is that we use a different mesh now (a  [2.x.415]  instead of a simple cube geometry). 
+
+[1.x.255] 
+
+
+
+ [2.x.416]  supports parallel vector classes with most standard finite elements via deal.II's own native MatrixFree framework: since we use standard Lagrange elements of moderate order this function works well here. 
+
+[1.x.256] 
+
+
+
+Having so computed the current temperature field, let us set the member variable that holds the temperature nodes. Strictly speaking, we really only need to set  [2.x.417]  since the first thing we will do is to compute the Stokes solution that only requires the previous time step's temperature field. That said, nothing good can come from not initializing the other vectors as well (especially since it's a relatively cheap operation and we only have to do it once at the beginning of the program) if we ever want to extend our numerical method or physical model, and so we initialize  [2.x.418]  and  [2.x.419]  as well. The assignment makes sure that the vectors on the left hand side (which where initialized to contain ghost elements as well) also get the correct ghost elements. In other words, the assignment here requires communication between processors: 
+
+[1.x.257] 
+
+
+
+In order to speed up linear solvers, we extrapolate the solutions from the old time levels to the new one. This gives a very good initial guess, cutting the number of iterations needed in solvers by more than one half. We do not need to extrapolate in the last iteration, so if we reached the final time, we stop here.          
+
+
+As the last thing during a time step (before actually bumping up the number of the time step), we check whether the current time step number is divisible by 100, and if so we let the computing timer print a summary of CPU times spent so far. 
+
+[1.x.258] 
+
+
+
+Trilinos sadd does not like ghost vectors even as input. Copy into distributed vectors for now: 
+
+[1.x.259] 
+
+
+
+If we are generating graphical output, do so also for the last time step unless we had just done so before we left the do-while loop 
+
+[1.x.260] 
+
+
+
+
+[1.x.261]  [1.x.262] 
+
+
+
+
+The main function is short as usual and very similar to the one in  [2.x.420] . Since we use a parameter file which is specified as an argument in the command line, we have to read it in here and pass it on to the Parameters class for parsing. If no filename is given in the command line, we simply use the  [2.x.421]  file which is distributed together with the program. 
+
+
+
+
+Because 3d computations are simply very slow unless you throw a lot of processors at them, the program defaults to 2d. You can get the 3d version by changing the constant dimension below to 3. 
+
+[1.x.263] 
+
+[1.x.264][1.x.265] 
+
+
+When run, the program simulates convection in 3d in much the same way as  [2.x.422]  did, though with an entirely different testcase. 
+
+
+[1.x.266][1.x.267] 
+
+
+Before we go to this testcase, however, let us show a few results from a slightly earlier version of this program that was solving exactly the testcase we used in  [2.x.423] , just that we now solve it in parallel and with much higher resolution. We show these results mainly for comparison. 
+
+Here are two images that show this higher resolution if we choose a 3d computation in  [2.x.424]  and if we set  [2.x.425]  and  [2.x.426] . At the time steps shown, the meshes had around 72,000 and 236,000 cells, for a total of 2,680,000 and 8,250,000 degrees of freedom, respectively, more than an order of magnitude more than we had available in  [2.x.427] : 
+
+ [2.x.428]  
+
+The computation was done on a subset of 50 processors of the Brazos cluster at Texas A&amp;M University. 
+
+
+[1.x.268][1.x.269] 
+
+
+Next, we will run  [2.x.429]  with the parameter file in the directory with one change: we increase the final time to 1e9. Here we are using 16 processors. The command to launch is (note that  [2.x.430] .prm is the default): 
+
+<code> <pre> \ [2.x.431]  mpirun -np 16 ./ [2.x.432]  Number of active cells: 12,288 (on 6 levels) Number of degrees of freedom: 186,624 (99,840+36,864+49,920) 
+
+Timestep 0:  t=0 years 
+
+   Rebuilding Stokes preconditioner...    Solving Stokes system... 41 iterations.    Maximal velocity: 60.4935 cm/year    Time step: 18166.9 years    17 CG iterations for temperature    Temperature range: 973 4273.16 
+
+Number of active cells: 15,921 (on 7 levels) Number of degrees of freedom: 252,723 (136,640+47,763+68,320) 
+
+Timestep 0:  t=0 years 
+
+   Rebuilding Stokes preconditioner...    Solving Stokes system... 50 iterations.    Maximal velocity: 60.3223 cm/year    Time step: 10557.6 years    19 CG iterations for temperature    Temperature range: 973 4273.16 
+
+Number of active cells: 19,926 (on 8 levels) Number of degrees of freedom: 321,246 (174,312+59,778+87,156) 
+
+Timestep 0:  t=0 years 
+
+   Rebuilding Stokes preconditioner...    Solving Stokes system... 50 iterations.    Maximal velocity: 57.8396 cm/year    Time step: 5453.78 years    18 CG iterations for temperature    Temperature range: 973 4273.16 
+
+Timestep 1:  t=5453.78 years 
+
+   Solving Stokes system... 49 iterations.    Maximal velocity: 59.0231 cm/year    Time step: 5345.86 years    18 CG iterations for temperature    Temperature range: 973 4273.16 
+
+Timestep 2:  t=10799.6 years 
+
+   Solving Stokes system... 24 iterations.    Maximal velocity: 60.2139 cm/year    Time step: 5241.51 years    17 CG iterations for temperature    Temperature range: 973 4273.16 
+
+[...] 
+
+Timestep 100:  t=272151 years 
+
+   Solving Stokes system... 21 iterations.    Maximal velocity: 161.546 cm/year    Time step: 1672.96 years    17 CG iterations for temperature    Temperature range: 973 4282.57 
+
+Number of active cells: 56,085 (on 8 levels) Number of degrees of freedom: 903,408 (490,102+168,255+245,051) 
+
+
+
+
++---------------------------------------------+------------+------------+ | Total wallclock time elapsed since start    |       115s |            | |                                             |            |            | | Section                         | no. calls |  wall time | % of total | +---------------------------------+-----------+------------+------------+ | Assemble Stokes system          |       103 |      2.82s |       2.5% | | Assemble temperature matrices   |        12 |     0.452s |      0.39% | | Assemble temperature rhs        |       103 |      11.5s |        10% | | Build Stokes preconditioner     |        12 |      2.09s |       1.8% | | Solve Stokes system             |       103 |      90.4s |        79% | | Solve temperature system        |       103 |      1.53s |       1.3% | | Postprocessing                  |         3 |     0.532s |      0.46% | | Refine mesh structure, part 1   |        12 |      0.93s |      0.81% | | Refine mesh structure, part 2   |        12 |     0.384s |      0.33% | | Setup dof systems               |        13 |      2.96s |       2.6% | +---------------------------------+-----------+------------+------------+ 
+
+[...] 
+
++---------------------------------------------+------------+------------+ | Total wallclock time elapsed since start    |  9.14e+04s |            | |                                             |            |            | | Section                         | no. calls |  wall time | % of total | +---------------------------------+-----------+------------+------------+ | Assemble Stokes system          |     47045 |  2.05e+03s |       2.2% | | Assemble temperature matrices   |      4707 |       310s |      0.34% | | Assemble temperature rhs        |     47045 |   8.7e+03s |       9.5% | | Build Stokes preconditioner     |      4707 |  1.48e+03s |       1.6% | | Solve Stokes system             |     47045 |  7.34e+04s |        80% | | Solve temperature system        |     47045 |  1.46e+03s |       1.6% | | Postprocessing                  |      1883 |       222s |      0.24% | | Refine mesh structure, part 1   |      4706 |       641s |       0.7% | | Refine mesh structure, part 2   |      4706 |       259s |      0.28% | | Setup dof systems               |      4707 |  1.86e+03s |         2% | +---------------------------------+-----------+------------+------------+ </pre> </code> 
+
+The simulation terminates when the time reaches the 1 billion years selected in the input file.  You can extrapolate from this how long a simulation would take for a different final time (the time step size ultimately settles on somewhere around 20,000 years, so computing for two billion years will take 100,000 time steps, give or take 20%).  As can be seen here, we spend most of the compute time in assembling linear systems and &mdash; above all &mdash; in solving Stokes systems. 
+
+
+To demonstrate the output we show the output from every 1250th time step here:  [2.x.433]  
+
+The last two images show the grid as well as the partitioning of the mesh for the same computation with 16 subdomains and 16 processors. The full dynamics of this simulation are really only visible by looking at an animation, for example the one [1.x.270]. This image is well worth watching due to its artistic quality and entrancing depiction of the evolution of the magma plumes. 
+
+If you watch the movie, you'll see that the convection pattern goes through several stages: First, it gets rid of the instable temperature layering with the hot material overlain by the dense cold material. After this great driver is removed and we have a sort of stable situation, a few blobs start to separate from the hot boundary layer at the inner ring and rise up, with a few cold fingers also dropping down from the outer boundary layer. During this phase, the solution remains mostly symmetric, reflecting the 12-fold symmetry of the original mesh. In a final phase, the fluid enters vigorous chaotic stirring in which all symmetries are lost. This is a pattern that then continues to dominate flow. 
+
+These different phases can also be identified if we look at the maximal velocity as a function of time in the simulation: 
+
+ [2.x.434]  
+
+Here, the velocity (shown in centimeters per year) becomes very large, to the order of several meters per year) at the beginning when the temperature layering is instable. It then calms down to relatively small values before picking up again in the chaotic stirring regime. There, it remains in the range of 10-40 centimeters per year, quite within the physically expected region. 
+
+
+[1.x.271][1.x.272] 
+
+
+3d computations are very expensive computationally. Furthermore, as seen above, interesting behavior only starts after quite a long time requiring more CPU hours than is available on a typical cluster. Consequently, rather than showing a complete simulation here, let us simply show a couple of pictures we have obtained using the successor to this program, called [1.x.273] (short for [1.x.274]), that is being developed independently of deal.II and that already incorporates some of the extensions discussed below. The following two pictures show isocontours of the temperature and the partition of the domain (along with the mesh) onto 512 processors: 
+
+ [2.x.435]  
+
+
+[1.x.275] [1.x.276][1.x.277] 
+
+
+There are many directions in which this program could be extended. As mentioned at the end of the introduction, most of these are under active development in the [1.x.278] (short for [1.x.279]) code at the time this tutorial program is being finished. Specifically, the following are certainly topics that one should address to make the program more useful: 
+
+ [2.x.436]     [2.x.437]  [1.x.280]   The temperature field we get in our simulations after a while   is mostly constant with boundary layers at the inner and outer   boundary, and streamers of cold and hot material mixing   everything. Yet, this doesn't match our expectation that things   closer to the earth core should be hotter than closer to the   surface. The reason is that the energy equation we have used does   not include a term that describes adiabatic cooling and heating:   rock, like gas, heats up as you compress it. Consequently, material   that rises up cools adiabatically, and cold material that sinks down   heats adiabatically. The correct temperature equation would   therefore look somewhat like this:   [1.x.281] 
+
+  or, expanding the advected derivative  [2.x.438] :   [1.x.282] 
+
+  In other words, as pressure increases in a rock volume   ( [2.x.439] ) we get an additional heat source, and vice   versa. 
+
+  The time derivative of the pressure is a bit awkward to   implement. If necessary, one could approximate using the fact   outlined in the introduction that the pressure can be decomposed   into a dynamic component due to temperature differences and the   resulting flow, and a static component that results solely from the   static pressure of the overlying rock. Since the latter is much   bigger, one may approximate  [2.x.440] , and consequently    [2.x.441] .   In other words, if the fluid is moving in the direction of gravity   (downward) it will be compressed and because in that case  [2.x.442]  we get a positive heat source. Conversely, the   fluid will cool down if it moves against the direction of gravity. 
+
+ [2.x.443]  [1.x.283]   As already hinted at in the temperature model above,   mantle rocks are not incompressible. Rather, given the enormous pressures in   the earth mantle (at the core-mantle boundary, the pressure is approximately   140 GPa, equivalent to 1,400,000 times atmospheric pressure), rock actually   does compress to something around 1.5 times the density it would have   at surface pressure. Modeling this presents any number of   difficulties. Primarily, the mass conservation equation is no longer    [2.x.444]  but should read    [2.x.445]  where the density  [2.x.446]  is now no longer   spatially constant but depends on temperature and pressure. A consequence is   that the model is now no longer linear; a linearized version of the Stokes   equation is also no longer symmetric requiring us to rethink preconditioners   and, possibly, even the discretization. We won't go into detail here as to   how this can be resolved. 
+
+ [2.x.447]  [1.x.284] As already hinted at in various places,   material parameters such as the density, the viscosity, and the various   thermal parameters are not constant throughout the earth mantle. Rather,   they nonlinearly depend on the pressure and temperature, and in the case of   the viscosity on the strain rate  [2.x.448] . For complicated   models, the only way to solve such models accurately may be to actually   iterate this dependence out in each time step, rather than simply freezing   coefficients at values extrapolated from the previous time step(s). 
+
+ [2.x.449]  [1.x.285] Running this program in 2d on a number of   processors allows solving realistic models in a day or two. However, in 3d,   compute times are so large that one runs into two typical problems: (i) On   most compute clusters, the queuing system limits run times for individual   jobs are to 2 or 3 days; (ii) losing the results of a computation due to   hardware failures, misconfigurations, or power outages is a shame when   running on hundreds of processors for a couple of days. Both of these   problems can be addressed by periodically saving the state of the program   and, if necessary, restarting the program at this point. This technique is   commonly called [1.x.286] and it requires that the entire   state of the program is written to a permanent storage location (e.g. a hard   drive). Given the complexity of the data structures of this program, this is   not entirely trivial (it may also involve writing gigabytes or more of   data), but it can be made easier by realizing that one can save the state   between two time steps where it essentially only consists of the mesh and   solution vectors; during restart one would then first re-enumerate degrees   of freedom in the same way as done before and then re-assemble   matrices. Nevertheless, given the distributed nature of the data structures   involved here, saving and restoring the state of a program is not   trivial. An additional complexity is introduced by the fact that one may   want to change the number of processors between runs, for example because   one may wish to continue computing on a mesh that is finer than the one used   to precompute a starting temperature field at an intermediate time. 
+
+ [2.x.450]  [1.x.287] The point of computations like this is   not simply to solve the equations. Rather, it is typically the exploration   of different physical models and their comparison with things that we can   measure at the earth surface, in order to find which models are realistic   and which are contradicted by reality. To this end, we need to compute   quantities from our solution vectors that are related to what we can   observe. Among these are, for example, heatfluxes at the surface of the   earth, as well as seismic velocities throughout the mantle as these affect   earthquake waves that are recorded by seismographs. 
+
+ [2.x.451]  [1.x.288] As can be seen above for the 3d case, the mesh in 3d is primarily refined along the inner boundary. This is because the boundary layer there is stronger than any other transition in the domain, leading us to refine there almost exclusively and basically not at all following the plumes. One certainly needs better refinement criteria to track the parts of the solution we are really interested in better than the criterion used here, namely the KellyErrorEstimator applied to the temperature, is able to.  [2.x.452]  
+
+
+There are many other ways to extend the current program. However, rather than discussing them here, let us point to the much larger open source code ASPECT (see https://aspect.geodynamics.org/ ) that constitutes the further development of  [2.x.453]  and that already includes many such possible extensions. [1.x.289] [1.x.290]  [2.x.454]  
+
+ [2.x.455] 

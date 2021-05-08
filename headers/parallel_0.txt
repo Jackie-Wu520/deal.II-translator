@@ -1,0 +1,28 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ [2.x.0]  @defgroup Parallel Parallel computing @brief A module discussing the use of multiple processors. This module contains information on %parallel computing. It is subdivided into parts on  [2.x.1]  and on  [2.x.2] .   [2.x.3]  
+
+
+ [2.x.4]  A namespace in which we define classes and algorithms that deal with running in %parallel on shared memory machines when deal.II is configured to use multiple threads (see  [2.x.5] ), as well as running things in %parallel on %distributed memory machines (see  [2.x.6] ). @ingroup threads @author Wolfgang Bangerth, 2008, 2009   [2.x.7]  namespace parallel { }

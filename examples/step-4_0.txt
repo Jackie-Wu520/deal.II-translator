@@ -1,0 +1,395 @@
+ [2.x.0]   [2.x.1]  
+
+This tutorial depends on  [2.x.2] . 
+
+[1.x.0][1.x.1][1.x.2][1.x.3][1.x.4][1.x.5][1.x.6][1.x.7][1.x.8][1.x.9][1.x.10][1.x.11][1.x.12][1.x.13][1.x.14][1.x.15][1.x.16][1.x.17][1.x.18] 
+
+[1.x.19] [1.x.20][1.x.21] 
+
+
+ [2.x.3]  
+
+deal.II has a unique feature which we call ``dimension independent programming''. You may have noticed in the previous examples that many classes had a number in angle brackets suffixed to them. This is to indicate that for example the triangulation in two and three space dimensions are different, but related data %types. We could as well have called them  [2.x.4]  instead of  [2.x.5]  and  [2.x.6]  to name the two classes, but this has an important drawback: assume you have a function which does exactly the same functionality, but on 2d or 3d triangulations, depending on which dimension we would like to solve the equation in presently (if you don't believe that it is the common case that a function does something that is the same in all dimensions, just take a look at the code below - there are almost no distinctions between 2d and 3d!). We would have to write the same function twice, once working on  [2.x.7]  and once working with a  [2.x.8] . This is an unnecessary obstacle in programming and leads to a nuisance to keep the two function in sync (at best) or difficult to find errors if the two versions get out of sync (at worst; this would probably the more common case). 
+
+
+
+
+
+Such obstacles can be circumvented by using some template magic as provided by the C++ language: templatized classes and functions are not really classes or functions but only a pattern depending on an as-yet undefined data type parameter or on a numerical value which is also unknown at the point of definition. However, the compiler can build proper classes or functions from these templates if you provide it with the information that is needed for that. Of course, parts of the template can depend on the template parameters, and they will be resolved at the time of compilation for a specific template parameter. For example, consider the following piece of code: 
+
+[1.x.22] 
+
+
+
+
+
+
+At the point where the compiler sees this function, it does not know anything about the actual value of  [2.x.9] . The only thing the compiler has is a template, i.e. a blueprint, to generate functions  [2.x.10]  if given a particular value of  [2.x.11]  has an unknown value, there is no code the compiler can generate for the moment. 
+
+
+
+
+However, if later down the compiler would encounter code that looks, for example, like this, 
+
+[1.x.23] 
+
+then the compiler will deduce that the function  [2.x.12]  for  [2.x.13]  was requested and will compile the template above into a function with dim replaced by 2 everywhere, i.e. it will compile the function as if it were defined as 
+
+[1.x.24] 
+
+
+
+
+
+
+However, it is worth to note that the function  [2.x.14]  depends on the dimension as well, so in this case, the compiler will call the function  [2.x.15]  while if dim were 3, it would call  [2.x.16]  which might be (and actually is) a totally unrelated  function. 
+
+
+
+
+The same can be done with member variables. Consider the following function, which might in turn call the above one: 
+
+[1.x.25] 
+
+This function has a member variable of type  [2.x.17] . Again, the compiler can't compile this function until it knows for which dimension. If you call this function for a specific dimension as above, the compiler will take the template, replace all occurrences of dim by the dimension for which it was called, and compile it. If you call the function several times for different dimensions, it will compile it several times, each time calling the right  [2.x.18]  function and reserving the right amount of memory for the member variable; note that the size of a  [2.x.19]  might, and indeed does, depend on the space dimension. 
+
+
+
+
+The deal.II library is built around this concept of dimension-independent programming, and therefore allows you to program in a way that will not need to distinguish between the space dimensions. It should be noted that in only a very few places is it necessary to actually compare the dimension using  [2.x.20] es. However, since the compiler has to compile each function for each dimension separately, even there it knows the value of  [2.x.21]  at the time of compilation and will therefore be able to optimize away the  [2.x.22]  statement along with the unused branch. 
+
+
+
+
+In this example program, we will show how to program dimension independently (which in fact is even simpler than if you had to take care about the dimension) and we will extend the Laplace problem of the last example to a program that runs in two and three space dimensions at the same time. Other extensions are the use of a non-constant right hand side function and of non-zero boundary values. 
+
+
+
+
+ [2.x.23]  When using templates, C++ imposes all sorts of syntax constraints that make it sometimes a bit difficult to understand why exactly something has to be written this way. A typical example is the need to use the keyword  [2.x.24]  in so many places. If you are not entirely familiar with this already, then several of these difficulties are explained in the deal.II Frequently Asked Questions (FAQ) linked to from the [1.x.26]. 
+
+<!--We need a blank line to end the above block properly.--> [1.x.27] [1.x.28] 
+
+
+[1.x.29]  [1.x.30] 
+
+
+
+
+The first few (many?) include files have already been used in the previous example, so we will not explain their meaning here again. 
+
+[1.x.31] 
+
+
+
+This is new, however: in the previous example we got some unwanted output from the linear solvers. If we want to suppress it, we have to include this file and add a single line somewhere to the program (see the main() function below for that): 
+
+[1.x.32] 
+
+
+
+The final step, as in previous programs, is to import all the deal.II class and function names into the global namespace: 
+
+[1.x.33] 
+
+
+
+
+[1.x.34]  [1.x.35] 
+
+
+
+
+This is again the same  [2.x.25]  class as in the previous example. The only difference is that we have now declared it as a class with a template parameter, and the template parameter is of course the spatial dimension in which we would like to solve the Laplace equation. Of course, several of the member variables depend on this dimension as well, in particular the Triangulation class, which has to represent quadrilaterals or hexahedra, respectively. Apart from this, everything is as before. 
+
+[1.x.36] 
+
+
+
+
+[1.x.37]  [1.x.38] 
+
+
+
+
+In the following, we declare two more classes denoting the right hand side and the non-homogeneous Dirichlet boundary values. Both are functions of a dim-dimensional space variable, so we declare them as templates as well. 
+
+
+
+
+Each of these classes is derived from a common, abstract base class Function, which declares the common interface which all functions have to follow. In particular, concrete classes have to overload the  [2.x.26]  function, which takes a point in dim-dimensional space as parameters and returns the value at that point as a  [2.x.27]  variable. 
+
+
+
+
+The  [2.x.28]  function takes a second argument, which we have here named  [2.x.29] : This is only meant for vector-valued functions, where you may want to access a certain component of the vector at the point  [2.x.30] . However, our functions are scalar, so we need not worry about this parameter and we will not use it in the implementation of the functions. Inside the library's header files, the Function base class's declaration of the  [2.x.31]  function has a default value of zero for the component, so we will access the  [2.x.32]  function of the right hand side with only one parameter, namely the point where we want to evaluate the function. A value for the component can then simply be omitted for scalar functions. 
+
+
+
+
+Function objects are used in lots of places in the library (for example, in  [2.x.33]  we used a  [2.x.34]  instance as an argument to  [2.x.35]  and this is the first tutorial where we define a new class that inherits from Function. Since we only ever call  [2.x.36]  we could get away with just a plain function (and this is what is done in  [2.x.37] ), but since this is a tutorial we inherit from Function for the sake of example. 
+
+[1.x.39] 
+
+
+
+If you are not familiar with what the keywords `virtual` and `override` in the function declarations above mean, you will probably want to take a look at your favorite C++ book or an online tutorial such as http://www.cplusplus.com/doc/tutorial/polymorphism/ . In essence, what is happening here is that Function<dim> is an "abstract" base class that declares a certain "interface" -- a set of functions one can call on objects of this kind. But it does not actually *implement* these functions: it just says "this is how Function objects look like", but what kind of function it actually is, is left to derived classes that implement the `value()` function. 
+
+
+
+
+Deriving one class from another is often called an "is-a" relationship function. Here, the `RightHandSide` class "is a" Function class because it implements the interface described by the Function base class. (The actual implementation of the `value()` function is in the code block below.) The `virtual` keyword then means "Yes, the function here is one that can be overridden by derived classes", and the `override` keyword means "Yes, this is in fact a function we know has been declared as part of the base class". The `override` keyword is not strictly necessary, but is an insurance against typos: If we get the name of the function or the type of one argument wrong, the compiler will warn us by stating "You say that this function overrides one in a base class, but I don't actually know any such function with this name and these arguments." 
+
+
+
+
+But back to the concrete case here: For this tutorial, we choose as right hand side the function  [2.x.38]  in 2D, or  [2.x.39]  in 3D. We could write this distinction using an if-statement on the space dimension, but here is a simple way that also allows us to use the same function in 1D (or in 4D, if you should desire to do so), by using a short loop.  Fortunately, the compiler knows the size of the loop at compile time (remember that at the time when you define the template, the compiler doesn't know the value of  [2.x.40] , but when it later encounters a statement or declaration  [2.x.41] , it will take the template, replace all occurrences of dim by 2 and compile the resulting function).  In other words, at the time of compiling this function, the number of times the body will be executed is known, and the compiler can minimize the overhead needed for the loop; the result will be as fast as if we had used the formulas above right away. 
+
+
+
+
+The last thing to note is that a  [2.x.42]  denotes a point in dim-dimensional space, and its individual components (i.e.  [2.x.43] ,  [2.x.44] , ... coordinates) can be accessed using the () operator (in fact, the [] operator will work just as well) with indices starting at zero as usual in C and C++. 
+
+[1.x.40] 
+
+
+
+As boundary values, we choose  [2.x.45]  in 2D, and  [2.x.46]  in 3D. This happens to be equal to the square of the vector from the origin to the point at which we would like to evaluate the function, irrespective of the dimension. So that is what we return: 
+
+[1.x.41] 
+
+
+
+
+[1.x.42]  [1.x.43] 
+
+
+
+
+Next for the implementation of the class template that makes use of the functions above. As before, we will write everything as templates that have a formal parameter  [2.x.47]  that we assume unknown at the time we define the template functions. Only later, the compiler will find a declaration of  [2.x.48]  function, actually) and compile the entire class with  [2.x.49]  replaced by 2, a process referred to as `instantiation of a template'. When doing so, it will also replace instances of  [2.x.50]  by  [2.x.51]  and instantiate the latter class from the class template. 
+
+
+
+
+In fact, the compiler will also find a declaration  [2.x.52]  in  [2.x.53] . This will cause it to again go back to the general  [2.x.54]  template, replace all occurrences of  [2.x.55] , this time by 3, and compile the class a second time. Note that the two instantiations  [2.x.56]  and  [2.x.57]  are completely independent classes; their only common feature is that they are both instantiated from the same general template, but they are not convertible into each other, for example, and share no code (both instantiations are compiled completely independently). 
+
+
+
+
+
+
+
+
+
+
+[1.x.44]  [1.x.45] 
+
+
+
+
+After this introduction, here is the constructor of the  [2.x.58]  class. It specifies the desired polynomial degree of the finite elements and associates the DoFHandler to the triangulation just as in the previous example program,  [2.x.59] : 
+
+[1.x.46] 
+
+
+
+
+[1.x.47]  [1.x.48] 
+
+
+
+
+Grid creation is something inherently dimension dependent. However, as long as the domains are sufficiently similar in 2D or 3D, the library can abstract for you. In our case, we would like to again solve on the square  [2.x.60]  in 2D, or on the cube  [2.x.61]  in 3D; both can be termed  [2.x.62]  so we may use the same function in whatever dimension we are. Of course, the functions that create a hypercube in two and three dimensions are very much different, but that is something you need not care about. Let the library handle the difficult things. 
+
+[1.x.49] 
+
+
+
+
+[1.x.50]  [1.x.51] 
+
+
+
+
+This function looks exactly like in the previous example, although it performs actions that in their details are quite different if  [2.x.63]  happens to be 3. The only significant difference from a user's perspective is the number of cells resulting, which is much higher in three than in two space dimensions! 
+
+[1.x.52] 
+
+
+
+
+[1.x.53]  [1.x.54] 
+
+
+
+
+Unlike in the previous example, we would now like to use a non-constant right hand side function and non-zero boundary values. Both are tasks that are readily achieved with only a few new lines of code in the assemblage of the matrix and right hand side. 
+
+
+
+
+More interesting, though, is the way we assemble matrix and right hand side vector dimension independently: there is simply no difference to the two-dimensional case. Since the important objects used in this function (quadrature formula, FEValues) depend on the dimension by way of a template parameter as well, they can take care of setting up properly everything for the dimension for which this function is compiled. By declaring all classes which might depend on the dimension using a template parameter, the library can make nearly all work for you and you don't have to care about most things. 
+
+[1.x.55] 
+
+
+
+We wanted to have a non-constant right hand side, so we use an object of the class declared above to generate the necessary data. Since this right hand side object is only used locally in the present function, we declare it here as a local variable: 
+
+[1.x.56] 
+
+
+
+Compared to the previous example, in order to evaluate the non-constant right hand side function we now also need the quadrature points on the cell we are presently on (previously, we only required values and gradients of the shape function from the FEValues object, as well as the quadrature weights,  [2.x.64]  ). We can tell the FEValues object to do for us by also giving it the #update_quadrature_points flag: 
+
+[1.x.57] 
+
+
+
+We then again define the same abbreviation as in the previous program. The value of this variable of course depends on the dimension which we are presently using, but the FiniteElement class does all the necessary work for you and you don't have to care about the dimension dependent parts: 
+
+[1.x.58] 
+
+
+
+Next, we again have to loop over all cells and assemble local contributions.  Note, that a cell is a quadrilateral in two space dimensions, but a hexahedron in 3D. In fact, the  [2.x.65]  data type is something different, depending on the dimension we are in, but to the outside world they look alike and you will probably never see a difference. In any case, the real type is hidden by using `auto`: 
+
+[1.x.59] 
+
+
+
+Now we have to assemble the local matrix and right hand side. This is done exactly like in the previous example, but now we revert the order of the loops (which we can safely do since they are independent of each other) and merge the loops for the local matrix and the local vector as far as possible to make things a bit faster.        
+
+
+Assembling the right hand side presents the only significant difference to how we did things in  [2.x.66] : Instead of using a constant right hand side with value 1, we use the object representing the right hand side and evaluate it at the quadrature points: 
+
+[1.x.60] 
+
+
+
+As a final remark to these loops: when we assemble the local contributions into  [2.x.67] , we have to multiply the gradients of shape functions  [2.x.68]  and  [2.x.69]  at point number q_index and multiply it with the scalar weights JxW. This is what actually happens:  [2.x.70]  returns a  [2.x.71]  dimensional vector, represented by a  [2.x.72]  object, and the operator* that multiplies it with the result of  [2.x.73]  makes sure that the  [2.x.74]  components of the two vectors are properly contracted, and the result is a scalar floating point number that then is multiplied with the weights. Internally, this operator* makes sure that this happens correctly for all  [2.x.75]  components of the vectors, whether  [2.x.76]  be 2, 3, or any other space dimension; from a user's perspective, this is not something worth bothering with, however, making things a lot simpler if one wants to write code dimension independently. 
+
+
+
+
+With the local systems assembled, the transfer into the global matrix and right hand side is done exactly as before, but here we have again merged some loops for efficiency: 
+
+[1.x.61] 
+
+
+
+As the final step in this function, we wanted to have non-homogeneous boundary values in this example, unlike the one before. This is a simple task, we only have to replace the  [2.x.77]  used there by an object of the class which describes the boundary values we would like to use (i.e. the  [2.x.78]  class declared above):    
+
+
+The function  [2.x.79]  will only work on faces that have been marked with boundary indicator 0 (because that's what we say the function should work on with the second argument below). If there are faces with boundary id other than 0, then the function interpolate_boundary_values will do nothing on these faces. For the Laplace equation doing nothing is equivalent to assuming that on those parts of the boundary a zero Neumann boundary condition holds. 
+
+[1.x.62] 
+
+
+
+
+[1.x.63]  [1.x.64] 
+
+
+
+
+Solving the linear system of equations is something that looks almost identical in most programs. In particular, it is dimension independent, so this function is copied verbatim from the previous example. 
+
+[1.x.65] 
+
+
+
+We have made one addition, though: since we suppress output from the linear solvers, we have to print the number of iterations by hand. 
+
+[1.x.66] 
+
+
+
+
+[1.x.67]  [1.x.68] 
+
+
+
+
+This function also does what the respective one did in  [2.x.80] . No changes here for dimension independence either. 
+
+
+
+
+Since the program will run both 2d and 3d versions of the Laplace solver, we use the dimension in the filename to generate distinct filenames for each run (in a better program, one would check whether  [2.x.81]  can have other values than 2 or 3, but we neglect this here for the sake of brevity). 
+
+[1.x.69] 
+
+
+
+
+[1.x.70]  [1.x.71] 
+
+
+
+
+This is the function which has the top-level control over everything. Apart from one line of additional output, it is the same as for the previous example. 
+
+[1.x.72] 
+
+
+
+
+[1.x.73]  [1.x.74] 
+
+
+
+
+And this is the main function. It also looks mostly like in  [2.x.82] , but if you look at the code below, note how we first create a variable of type  [2.x.83]  (forcing the compiler to compile the class template with  [2.x.84] ) and run a 2d simulation, and then we do the whole thing over in 3d. 
+
+
+
+
+In practice, this is probably not what you would do very frequently (you probably either want to solve a 2d problem, or one in 3d, but not both at the same time). However, it demonstrates the mechanism by which we can simply change which dimension we want in a single place, and thereby force the compiler to recompile the dimension independent class templates for the dimension we request. The emphasis here lies on the fact that we only need to change a single place. This makes it rather trivial to debug the program in 2d where computations are fast, and then switch a single place to a 3 to run the much more computing intensive program in 3d for `real' computations. 
+
+
+
+
+Each of the two blocks is enclosed in braces to make sure that the  [2.x.85]  variable goes out of scope (and releases the memory it holds) before we move on to allocate memory for the 3d case. Without the additional braces, the  [2.x.86]  variable would only be destroyed at the end of the function, i.e. after running the 3d problem, and would needlessly hog memory while the 3d run could actually use it. 
+
+[1.x.75] 
+
+[1.x.76][1.x.77] 
+
+
+
+
+The output of the program looks as follows (the number of iterations may vary by one or two, depending on your computer, since this is often dependent on the round-off accuracy of floating point operations, which differs between processors): 
+
+[1.x.78] 
+
+It is obvious that in three spatial dimensions the number of cells and therefore also the number of degrees of freedom is much higher. What cannot be seen here, is that besides this higher number of rows and columns in the matrix, there are also significantly more entries per row of the matrix in three space dimensions. Together, this leads to a much higher numerical effort for solving the system of equation, which you can feel in the run time of the two solution steps when you actually run the program. 
+
+
+
+
+The program produces two files:  [2.x.87]  and  [2.x.88] , which can be viewed using the programs VisIt or Paraview (in case you do not have these programs, you can easily change the output format in the program to something which you can view more easily). Visualizing solutions is a bit of an art, but it can also be fun, so you should play around with your favorite visualization tool to get familiar with its functionality. Here's what I have come up with for the 2d solution: 
+
+ [2.x.89]  
+
+( [2.x.90]  The picture shows the solution of the problem under consideration as a 3D plot. As can be seen, the solution is almost flat in the interior of the domain and has a higher curvature near the boundary. This, of course, is due to the fact that for Laplace's equation the curvature of the solution is equal to the right hand side and that was chosen as a quartic polynomial which is nearly zero in the interior and is only rising sharply when approaching the boundaries of the domain; the maximal values of the right hand side function are at the corners of the domain, where also the solution is moving most rapidly. It is also nice to see that the solution follows the desired quadratic boundary values along the boundaries of the domain. It can also be useful to verify a computed solution against an analytical solution. For an explanation of this technique, see  [2.x.91] . 
+
+On the other hand, even though the picture does not show the mesh lines explicitly, you can see them as little kinks in the solution. This clearly indicates that the solution hasn't been computed to very high accuracy and that to get a better solution, we may have to compute on a finer mesh. 
+
+In three spatial dimensions, visualization is a bit more difficult. The left picture shows the solution and the mesh it was computed on on the surface of the domain. This is nice, but it has the drawback that it completely hides what is happening on the inside. The picture on the right is an attempt at visualizing the interior as well, by showing surfaces where the solution has constant values (as indicated by the legend at the top left). Isosurface pictures look best if one makes the individual surfaces slightly transparent so that it is possible to see through them and see what's behind. 
+
+ [2.x.92]  
+
+ [2.x.93]  A final remark on visualization: the idea of visualization is to give insight, which is not the same as displaying information. In particular, it is easy to overload a picture with information, but while it shows more information it makes it also more difficult to glean insight. As an example, the program I used to generate these pictures, VisIt, by default puts tick marks on every axis, puts a big fat label "X Axis" on the  [2.x.94]  axis and similar for the other axes, shows the file name from which the data was taken in the top left and the name of the user doing so and the time and date on the bottom right. None of this is important here: the axes are equally easy to make out because the tripod at the bottom left is still visible, and we know from the program that the domain is  [2.x.95] , so there is no need for tick marks. As a consequence, I have switched off all the extraneous stuff in the picture: the art of visualization is to reduce the picture to those parts that are important to see what one wants to see, but no more. 
+
+
+
+
+[1.x.79] [1.x.80][1.x.81] 
+
+
+
+
+Essentially the possibilities for playing around with the program are the same as for the previous one, except that they will now also apply to the 3d case. For inspiration read up on [1.x.82]. [1.x.83] [1.x.84]  [2.x.96]  
+
+ [2.x.97] 
