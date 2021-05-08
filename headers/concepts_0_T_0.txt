@@ -1,0 +1,120 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   [2.x.0]     @defgroup Concepts Concepts, or expectations on template parameters  
+
+ Sometimes imposing constraints on the type of an object without requiring  it to belong to a specific inheritance hierarchy is useful. These are  usually referred to as    [2.x.1]   concepts   [2.x.2]    in the C++ community. This module  lists the concepts commonly used in deal.II with brief descriptions of  their intent. The convention in deal.II for listing constraints on a type  is to provide the name of the concept as a    [2.x.3]    in a  template: for example, the type of a Vector depends on the type of the  underlying field, and so it is defined as a  template:  [1.x.0]  
+
+ The point here is that you are creating a vector that can store  elements of type    [2.x.4]    But there are some underlying  assumptions on this. For example, the deal.II Vector class is not  intended to be used just as a collection (unlike     [2.x.5]   ) but defines vector space operations such  as addition of vectors, or the norm of vectors. Consequently, the  data type users can specify for    [2.x.6]    must satisfy certain  conditions (i.e., it must conform to or "model" a "concept"):  Specifically, the type must denote objects that represent the  elements of what mathematically call a "field" (which you can think  of as, well, "numbers": things we can add, multiply, divide, take  the absolute value of, etc). The point of a concept is then to  describe    [2.x.7]   what conditions a type must satisfy   [2.x.8]    to be a valid  template argument in a given context.  
+
+ This page describes these conditions for a number of concepts used  throughout deal.II. Specifically, in the example above, the     [2.x.9]    "Number concept" discussed below describes the  types that could be used as argument for the Vector class.  
+
+ Concepts have been proposed as a language  extension to C++ for a long time already. They would allow us to  describe that a class or function has certain properties in order  to be a qualified template argument. For example, it would allow us  to express in C++ code that the first argument to, say,     [2.x.10]    must have a type that represents  an actual mesh -- which we can currently only describe in words,  see below. Using C++ concepts would allow us to describe this in  code and trying to call such a function with an object as first  argument that is not, in fact, a mesh would yield a compiler error  that makes the mismatch clear.  
+
+ Unfortunately, these proposals to C++ have never made it into any  official C++ standard; they are proposed for C++20 however. We may  start to use them once the vast majority of our users have  compilers that support this standard.  
+
+ More information on the topic can be found at  [1.x.1].  
+
+
+ <dl>  
+
+ <dt class="concepts">@anchor ConceptDoFHandlerType [1.x.2][1.x.3]</dt>  
+
+ <dd>  deal.II includes both DoFHandler and    [2.x.11]    as objects which manage  degrees of freedom on a mesh. Though the two do not share any sort of  inheritance relationship, they are similar enough that many functions just  need something which resembles a DoFHandler to work correctly.  </dd>  
+
+ <dt class="concepts">@anchor ConceptMatrixType [1.x.4][1.x.5]</dt>  
+
+ <dd>  Many functions and classes in deal.II require an object which knows how to  calculate matrix-vector products (the member function    [2.x.12]   , but an object should  implement all four member functions if the template requires a MatrixType  argument. Writing classes that satisfy these conditions is a sufficiently  common occurrence that the LinearOperator class was written to make things  easier; see    [2.x.13]    for more information.  
+
+ One way to think of    [2.x.14]    is to pretend it is a base  class with the following signature (this is nearly the interface provided  by SparseMatrix):  
+
+ [1.x.6]  
+
+
+
+
+ Template functions in C++ cannot be virtual (which is the main reason why  this approach is not used in deal.II), so implementing this interface with  inheritance will not work, but it is still a good way to think about this  template concept. One can use the LinearOperator class to implement     [2.x.15]    instead of implementing  them manually.  </dd>  
+
+ <dt class="concepts">@anchor ConceptMeshType [1.x.7][1.x.8]</dt>  
+
+ <dd>  Meshes can be thought of as arrays of vertices and connectivities, but a  more fruitful view is to consider them as [1.x.9]. In  C++, collections are often called [1.x.10] (typical containers are     [2.x.16]       [2.x.17]    etc.) and they are characterized by the ability to  iterate over the elements of the collection. The   <tt>MeshType</tt>   concept  refers to any container which defines appropriate methods (such as     [2.x.18]    and   <tt>typedefs</tt>   (such as     [2.x.19]    for managing collections of cells.  
+
+ Instances of Triangulation, DoFHandler, and    [2.x.20]    may  all be considered as containers of cells. In fact, the most important parts  of the public interface of these classes consists simply of the ability to  get iterators to their elements. Since these parts of the interface are  generic, i.e., the functions have the same name in all classes, it is  possible to write operations that do not actually care whether they work on  a triangulation or a DoF handler object. Examples abound, for example, in  the GridTools namespace, underlining the power of the abstraction that  meshes and DoF handlers can all be considered simply as collections  (containers) of cells.  
+
+ On the other hand, meshes are non-standard containers unlike    [2.x.21]    or     [2.x.22]    in that they can be sliced several ways. For example, one can  iterate over the subset of active cells or over all cells; likewise, cells  are organized into levels and one can get iterator ranges for only the  cells on one level. Generally, however, all classes that implement the  containers-of-cells concept use the same function names to provide the same  functionality.  
+
+ %Functions that may be called with either class indicate this by accepting  a template parameter like  [1.x.11]  
+
+ or  [1.x.12]  
+
+ The classes that satisfy this concept are collectively referred to as     [2.x.23]   mesh classes   [2.x.24]   . The exact definition of   <tt>MeshType</tt>   relies a  lot on library internals, but it can be summarized as any class with the  following properties:     [2.x.25]          [2.x.26]   A   <tt>typedef</tt> named <tt>active_cell_iterator</tt>  .       [2.x.27]          [2.x.28]   A method   <tt>get_triangulation()</tt>   which returns a reference to    the underlying geometrical description (one of the Triangulation classes)    of the collection of cells. If the mesh happens to be a Triangulation,    then the mesh just returns a reference to itself.       [2.x.29]          [2.x.30]   A method   <tt>begin_active()</tt>   which returns an iterator pointing    to the first active cell.       [2.x.31]          [2.x.32]   A static member value   <tt>dimension</tt>   containing the dimension in        which the object lives.       [2.x.33]          [2.x.34]   A static member value   <tt>space_dimension</tt>   containing the dimension        of the object (e.g., a 2D surface in a 3D setting would have          <tt>space_dimension = 2</tt>  ).       [2.x.35]        [2.x.36]     </dd>  
+
+ <dt class="concepts">@anchor ConceptNumber [1.x.13][1.x.14]</dt>  
+
+ <dd>  This concept describes scalars which make sense as vector or matrix  entries, which is usually some finite precision approximation of a field  element. The canonical examples are    [2.x.37]    in many places as well.  </dd>  
+
+ <dt class="concepts">@anchor ConceptPolynomialType [1.x.15][1.x.16]</dt>  
+
+ <dd>  See the description in    [2.x.38]    for more information. In some  contexts, anything that satisfies the interface resembling  [1.x.17]  
+
+
+
+
+ may be considered as a polynomial for the sake of implementing finite  elements.  </dd>  
+
+ <dt class="concepts">@anchor ConceptPreconditionerType [1.x.18][1.x.19]</dt>  
+
+ <dd>  This is essentially a synonym for    [2.x.39]    as applying some  approximation of the inverse of a linear operator to a vector, instead of  the action of a linear operator to a vector, for the preconditioner  classes.  </dd>  
+
+ <dt class="concepts">@anchor ConceptRelaxationType [1.x.20][1.x.21]</dt>  
+
+ <dd>  This is an object capable of relaxation for multigrid methods. One can  think of an object satisfying this constraint as having the following  interface as well as the constraints required by     [2.x.40]    "MatrixType":  [1.x.22]  
+
+ where these two member functions perform one step (or the transpose of such  a step) of the smoothing scheme. In other words, the operations performed by  these functions are     [2.x.41]    and    [2.x.42]   .  </dd>  
+
+ <dt class="concepts">@anchor ConceptSparsityPatternType [1.x.23][1.x.24]</dt>  
+
+ <dd>  Almost all functions (with the notable exception of     [2.x.43]    which take a sparsity pattern  as an argument can take either a regular SparsityPattern or a  DynamicSparsityPattern, or even one of the block sparsity patterns. See     [2.x.44]    for more information.  </dd>  
+
+ <dt class="concepts">@anchor ConceptStreamType [1.x.25][1.x.26]</dt>  
+
+ <dd>  Deriving new stream classes in C++ is well-known to be difficult. To get  around this, some functions accept a parameter which defines     [2.x.45]   , which allows for easy output to any kind of  output stream.  </dd>  
+
+ <dt class="concepts">@anchor ConceptVectorType [1.x.27][1.x.28]</dt>  
+
+ <dd>  deal.II supports many different vector classes, including bindings to  vectors in other libraries. These are similar to standard library vectors  (i.e., they define    [2.x.46]   . Some examples of VectorType include  Vector,    [2.x.47]    and BlockVector.  </dd>  
+
+ </dl> /

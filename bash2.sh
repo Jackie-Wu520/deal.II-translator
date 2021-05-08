@@ -1,4 +1,4 @@
 #!/bin/bash
 for filename in headers/*.h; do
-        ./to.py "$filename" 
+        ./to2.py "$filename" 
 done

@@ -162,4 +162,4 @@ Cells are stored based on a hierarchical structure of levels, therefore the abov
 
 
 
- [2.x.39]  @defgroup Accessors Accessor classes of the mesh iterators @ingroup Iterators   [2.x.40] 
+ [2.x.39]   @defgroup Accessors Accessor classes of the mesh iterators  @ingroup Iterators /

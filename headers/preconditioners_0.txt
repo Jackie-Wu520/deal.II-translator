@@ -23,8 +23,36 @@
 
 
 
- [2.x.0]  @defgroup Preconditioners Preconditioners and Relaxation Operators [1.x.0] Preconditioners are used to accelerate the iterative solution of linear systems. Typical preconditioners are Jacobi, Gauss-Seidel, or SSOR, but the library also supports more complex ones such as Vanka or incomplete LU decompositions (ILU). In addition, sparse direct solvers can be used as preconditioners when available. Broadly speaking, preconditioners are operators, which are multiplied with a matrix to improve conditioning. The idea is, that the preconditioned system [1.x.1] is much easier to solve than the original system [1.x.2]. What this means exactly depends on the structure of the matrix and cannot be discussed here in generality. For symmetric, positive definite matrices [1.x.3] and [1.x.4], it means that the spectral condition number (the quotient of greatest and smallest eigenvalue) of [1.x.5] is much smaller than the one of [1.x.6]. At hand of the simplest example, Richardson iteration, implemented in SolverRichardson, the preconditioned iteration looks like [1.x.7] Accordingly, preconditioning amounts to applying a linear operator to the residual, and consequently, the action of the preconditioner [1.x.8] is implemented as <tt>vmult()</tt>. Templates in deal.II that require a preconditioner indicate the requirement with  [2.x.1]  "the PreconditionerType concept". In practice, one can usually treat any matrix-like object which defines  [2.x.2]  as a preconditioner. All preconditioner classes in this module implement this interface. When used in Krylov space methods, it is up to the method, whether it simply replaces multiplications with [1.x.9] by those with [1.x.10] (for instance SolverBicgstab), or does more sophisticated things. SolverCG for instance uses [1.x.11] to define an inner product, which is the reason why it requires a symmetric, positive definite operator [1.x.12]. [1.x.13] Many preconditioners rely on an additive splitting [1.x.14] into two matrices. In this case, the iteration step of the Richardson method above can be simplified to [1.x.15] thus avoiding multiplication with [1.x.16] completely. We call operators mapping the previous iterate [1.x.17] to the next iterate in this way relaxation operators. Their generic interface is given by  [2.x.3]  "the RelaxationType concept". The classes with names starting with <tt>Relaxation</tt> in this module implement this interface, as well as the preconditioners PreconditionJacobi, PreconditionSOR, PreconditionBlockJacobi, PreconditionBlockSOR, and PreconditionBlockSSOR. [1.x.18] In this section, we discuss the interface preconditioners usually have to provide to work inside the deal.II library. [1.x.19] In order to be able to be stored in containers, all preconditioners have a constructor with no arguments. Since this will typically produce a useless object, all preconditioners have a function 
+ [2.x.0]   @defgroup Preconditioners Preconditioners and Relaxation Operators 
 
-[1.x.20] 
+ [1.x.0] 
 
-This function receives the matrix to be preconditioned as well as additional required parameters and sets up the internal structures of the preconditioner. [1.x.21] Some preconditioners, like SOR and Jacobi, were used as iterative solvers long before they were used as preconditioners. Thus, they satisfy both  [2.x.4]  "MatrixType" and  [2.x.5]  "RelaxationType" concepts. @ingroup LAC @ingroup Matrices   [2.x.6] 
+ Preconditioners are used to accelerate the iterative solution of linear  systems. Typical preconditioners are Jacobi, Gauss-Seidel, or SSOR, but the  library also supports more complex ones such as Vanka or incomplete LU  decompositions (ILU). In addition, sparse direct solvers can be used as  preconditioners when available. 
+
+ Broadly speaking, preconditioners are operators, which are multiplied with  a matrix to improve conditioning. The idea is, that the preconditioned  system [1.x.1] is much easier to solve  than the original system [1.x.2]. What this means exactly depends on  the structure of the matrix and cannot be discussed here in generality. For  symmetric, positive definite matrices [1.x.3] and [1.x.4], it means that  the spectral condition number (the quotient of greatest and smallest  eigenvalue) of [1.x.5] is much smaller than the one of  [1.x.6]. 
+
+ At hand of the simplest example, Richardson iteration, implemented in  SolverRichardson, the preconditioned iteration looks like  [1.x.7]  Accordingly, preconditioning amounts to applying a linear operator to the  residual, and consequently, the action of the preconditioner  [1.x.8] is implemented as <tt>vmult()</tt>.  Templates in deal.II that require a preconditioner indicate the  requirement with   [2.x.1]  "the PreconditionerType concept". In  practice, one can usually treat any matrix-like object which defines   [2.x.2]  as a preconditioner. All  preconditioner classes in this module implement this interface. 
+
+ When used  in Krylov space methods, it is up to the method, whether it simply  replaces multiplications with [1.x.9] by those with  [1.x.10] (for instance SolverBicgstab), or does more  sophisticated things. SolverCG for instance uses  [1.x.11] to define an inner product, which is the  reason why it requires a symmetric, positive definite operator [1.x.12]. 
+
+ [1.x.13] 
+
+ Many preconditioners rely on an additive splitting [1.x.14]  into two matrices. In this case, the iteration step of the  Richardson method above can be simplified to  [1.x.15]  thus avoiding multiplication with [1.x.16] completely. We call  operators mapping the previous iterate [1.x.17] to the  next iterate in this way relaxation operators. Their generic  interface is given by  [2.x.3]  "the RelaxationType concept".  The classes with names starting with <tt>Relaxation</tt> in this module  implement this interface, as well as the preconditioners  PreconditionJacobi, PreconditionSOR, PreconditionBlockJacobi,  PreconditionBlockSOR, and PreconditionBlockSSOR. 
+
+ [1.x.18] 
+
+ In this section, we discuss the interface preconditioners usually  have to provide to work inside the deal.II library. 
+
+ [1.x.19] 
+
+ In order to be able to be stored in containers, all preconditioners  have a constructor with no arguments. Since this will typically  produce a useless object, all preconditioners have a function  [1.x.20] 
+
+
+
+ This function receives the matrix to be preconditioned as well as  additional required parameters and sets up the internal structures  of the preconditioner. 
+
+ [1.x.21] 
+
+ Some preconditioners, like SOR and Jacobi, were used as iterative solvers  long before they were used as preconditioners. Thus, they satisfy both   [2.x.4]  "MatrixType" and   [2.x.5]  "RelaxationType" concepts. 
+
+ @ingroup LAC  @ingroup Matrices /

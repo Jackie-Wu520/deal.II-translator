@@ -22,4 +22,26 @@
 
 
 
- [2.x.0]  @defgroup simplex Simplex support (experimental) @brief This module describes the experimental simplex support in deal.II. @section simplex_reference_cells Reference cells In 2D, we provide triangles and quadrilaterals with the following possible orientations in 3D:  [2.x.1]  In 3D, tetrahedra, pyramids, wedges, and hexahedra are available:    [2.x.2]       [2.x.3]    </div>    [2.x.4]       [2.x.5]    </div>    [2.x.6]       [2.x.7]    </div>    [2.x.8]       [2.x.9]    </div> Each surface of a 3D reference cell consists of 2D reference cells. The documentation of the enumeration of the numbering of their vertices and lines are given in the right columns.   [2.x.10] 
+ [2.x.0]   @defgroup simplex Simplex support (experimental) 
+
+ @brief This module describes the experimental simplex support in deal.II. 
+
+ @section simplex_reference_cells Reference cells 
+
+ In 2D, we provide triangles and quadrilaterals with the following possible  orientations in 3D: 
+
+  [2.x.1]        [2.x.2]     </div>     [2.x.3]        [2.x.4]     </div>  </div> 
+
+ In 3D, tetrahedra, pyramids, wedges, and hexahedra are available: 
+
+    [2.x.5]        [2.x.6]     </div> 
+
+    [2.x.7]        [2.x.8]     </div> 
+
+    [2.x.9]        [2.x.10]     </div> 
+
+    [2.x.11]        [2.x.12]     </div> 
+
+ Each surface of a 3D reference cell consists of 2D reference cells. The  documentation of the enumeration of the numbering of their vertices and  lines are given in the right columns. 
+
+/

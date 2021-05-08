@@ -23,52 +23,63 @@
 
 
 
- [2.x.0]  @defgroup LAOperators Linear Operators [1.x.0] deal.II includes support for describing linear transformations in a very general way. This is done with a LinearOperator class that, like  [2.x.1]  "the MatrixType concept", defines a minimal interface for [1.x.1] a linear operation on a vector. 
+ [2.x.0]   @defgroup LAOperators Linear Operators 
 
-[1.x.2] 
+ [1.x.0] 
 
-Thus, such an object can be used as a matrix object in all  [2.x.2]  "iterative solver" classes, either as a matrix object, or as  [2.x.3]  "preconditioner". The big advantage of the LinearOperator class is that it provides syntactic sugar for complex matrix-vector operations. As an example consider the operation  [2.x.4] , where  [2.x.5] ,  [2.x.6]  and  [2.x.7]  denote (possibly different) SparseMatrix objects. In order to construct a LinearOperator  [2.x.8]  that performs above computation when applied on a vector, one can write: 
+ deal.II includes support for describing linear transformations in a very  general way. This is done with a LinearOperator class that, like   [2.x.1]  "the MatrixType concept",  defines a minimal interface for [1.x.1] a linear operation on a  vector. 
 
-[1.x.3] 
-
-Now,  [2.x.9]  can be used as a matrix object for further computation. The linear_operator() function can be used to wrap an ordinary matrix or preconditioner object into a LinearOperator. A linear operator can be transposed with transpose_operator(), or inverted by using the inverse_operator() together with an iterative solver. For objects of type LinearOperator, all vector space operations, i.e., addition and subtraction, scalar multiplication and composition (of compatible linear operators) are implemented: 
-
-[1.x.4] 
-
-block_operator() and block_diagonal_operator() provide further encapsulation of individual linear operators into blocked linear operator variants. The  [2.x.10]  tutorial program has a detailed usage example of the LinearOperator class. 
-
- [2.x.11]  As explained below, when using LinearOperator as  [2.x.12]  a PackagedOperation class instance is generated behind-the-curtains. Consequently, the user program has to include header files for both classes for compilation to be successful. In an attempt to make easier the decision of which headers to include in what circumstances and to prevent hidden templates-related compiler errors, all headers relevant to LinearOperator are grouped in the `<deal.II/lac/linear_operator_tools.h>` header file. [1.x.5] An  application of a LinearOperator object to a vector via  [2.x.13]  yields a PackagedOperation object that stores this computation. The PackagedOperation class allows lazy evaluation of expressions involving vectors and linear operators. This is done by storing the computational expression and only performing the computation when either the object is implicitly converted to a vector object, or  [2.x.14]  (or  [2.x.15]  is invoked by hand. This avoids unnecessary temporary storage of intermediate results. As an example consider the addition of multiple vectors: 
-
-[1.x.6] 
-
-Converting the PackagedOperation  [2.x.16]  to a vector results in code equivalent to the following code 
-
-[1.x.7] 
-
-that avoids any intermediate storage. As a second example (involving a LinearOperator object) consider the computation of a residual  [2.x.17] : 
-
-[1.x.8] 
-
-Here, the expression  [2.x.18]  results again in an object of type PackagedOperation that stores the [1.x.9] that should be performed using the two vectors and the linear operator. Converting the expression to a vector (as happens here with the assignment to the vector  [2.x.19] ) executes the computation (see the following note). 
-
- [2.x.20]  Lazy evaluation of a computational expression necessarily involves references to the underlying vector and matrix objects. For example, the creation of a  [2.x.21]  object 
-
-[1.x.10] 
-
-stores the computational expression of the residual with references to the vector  [2.x.22] . It does not perform any computation at this point. In particular, if  [2.x.23]  or  [2.x.24]  are changed [1.x.11] the creation of  [2.x.25]  every subsequent evaluation of the expression is performed with the new values 
-
-[1.x.12] 
-
-Thus, as a safeguard, if you want to compute the result of an expression right away, always explicitly use a vector type on the left side (and not  [2.x.26] ): 
-
-[1.x.13] 
+ [1.x.2] 
 
 
 
- [2.x.27]  The  [2.x.28]  tutorial program has a detailed usage example of the PackagedOperation class. 
+ Thus, such an object can be used as a matrix object in all   [2.x.2]  "iterative solver" classes, either as a matrix object, or as   [2.x.3]  "preconditioner". 
 
- [2.x.29]  Many use cases of LinearOperator lead to intermediate expressions requiring a PackagedOperation. In order to include all necessary header files in one go consider using 
+ The big advantage of the LinearOperator class is that it provides  syntactic sugar for complex matrix-vector operations. As an example  consider the operation  [2.x.4] , where  [2.x.5] ,  [2.x.6]  and  [2.x.7]  denote  (possibly different) SparseMatrix objects. In order to construct a  LinearOperator  [2.x.8]  that performs above computation when  applied on a vector, one can write:  [1.x.3] 
 
-[1.x.14] 
+ Now,  [2.x.9]  can be used as a matrix object for further  computation. 
 
-@ingroup LAC @ingroup MATRICES   [2.x.30] 
+ The linear_operator() function can be used to wrap an ordinary matrix or  preconditioner object into a LinearOperator. A linear operator can be  transposed with transpose_operator(), or inverted by using the  inverse_operator() together with an iterative solver. 
+
+ For objects of type LinearOperator, all vector space operations, i.e.,  addition and subtraction, scalar multiplication and composition (of  compatible linear operators) are implemented:  [1.x.4] 
+
+
+
+ block_operator() and block_diagonal_operator() provide further  encapsulation of individual linear operators into blocked linear  operator variants. 
+
+ The  [2.x.10]  tutorial program has a detailed usage example of the  LinearOperator class. 
+
+  [2.x.11]  As explained below, when using LinearOperator as  [2.x.12]   a PackagedOperation class instance is generated behind-the-curtains.  Consequently, the user program has to include header files for both classes  for compilation to be successful. In an attempt to make easier the decision of which  headers to include in what circumstances and to prevent hidden templates-related  compiler errors, all headers relevant to LinearOperator are grouped in the  `<deal.II/lac/linear_operator_tools.h>` header file. 
+
+ [1.x.5] 
+
+ An  application of a LinearOperator object to a vector via   [2.x.13]  yields a PackagedOperation object that stores  this computation. 
+
+ The PackagedOperation class allows lazy evaluation of expressions  involving vectors and linear operators. This is done by storing the  computational expression and only performing the computation when either  the object is implicitly converted to a vector object, or   [2.x.14]  (or  [2.x.15]  is  invoked by hand. This avoids unnecessary temporary storage of  intermediate results. 
+
+ As an example consider the addition of multiple vectors:  [1.x.6] 
+
+ Converting the PackagedOperation  [2.x.16]  to a vector  results in code equivalent to the following code  [1.x.7] 
+
+ that avoids any intermediate storage. As a second example (involving a  LinearOperator object) consider the computation of a residual  [2.x.17] : 
+
+ [1.x.8] 
+
+ Here, the expression  [2.x.18]  results again in an  object of type PackagedOperation that stores the [1.x.9] that should be performed using the two vectors and the  linear operator. Converting the expression to a vector (as happens here  with the assignment to the vector  [2.x.19] ) executes the  computation (see the following note). 
+
+  [2.x.20]   Lazy evaluation of a computational expression necessarily involves  references to the underlying vector and matrix objects. For example, the  creation of a  [2.x.21]  object  [1.x.10] 
+
+ stores the computational expression of the residual with references to  the vector  [2.x.22] . It does not perform  any computation at this point. In particular, if  [2.x.23]  or   [2.x.24]  are changed [1.x.11] the creation of   [2.x.25]  every subsequent evaluation of the expression  is performed with the new values  [1.x.12] 
+
+ Thus, as a safeguard, if you want to compute the result of an expression  right away, always explicitly use a vector type on the left side (and  not  [2.x.26] ):  [1.x.13] 
+
+
+
+  [2.x.27]  The  [2.x.28]  tutorial program has a detailed usage example of the  PackagedOperation class. 
+
+  [2.x.29]  Many use cases of LinearOperator lead to intermediate expressions  requiring a PackagedOperation. In order to include all necessary header  files in one go consider using  [1.x.14] 
+
+
+
+
+ @ingroup LAC  @ingroup MATRICES /

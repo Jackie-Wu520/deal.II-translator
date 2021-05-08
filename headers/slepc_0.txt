@@ -23,4 +23,12 @@
 
 
 
- [2.x.0]  @defgroup SLEPcWrappers SLEPcWrappers The classes in this module are wrappers around functionality provided by the SLEPc library. All classes and functions in this group reside in a namespace  [2.x.1]  These classes are only available if a SLEPc installation and a PETSc installation was detected during configuration of deal.II. Refer to the README file for more details about this. @author Toby D. Young, 2011 @ingroup LAC PETScWrappers   [2.x.2] 
+ [2.x.0]   @defgroup SLEPcWrappers SLEPcWrappers 
+
+ The classes in this module are wrappers around functionality  provided by the SLEPc library. All classes and functions in this  group reside in a namespace  [2.x.1]  
+
+ These classes are only available if a SLEPc installation and a  PETSc installation was detected during configuration of  deal.II. Refer to the README file for more details about this. 
+
+ @author Toby D. Young, 2011 
+
+ @ingroup LAC PETScWrappers /

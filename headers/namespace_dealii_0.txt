@@ -20,4 +20,6 @@
 
 
 
- [2.x.0]  This is the namespace in which everything in deal.II is. To avoid prefixing every class and function call with the namespace name, the  [2.x.1]  therefore have a  [2.x.2]  at the top of the code. Throughout the documentation, the namespace prefix is suppressed for brevity.   [2.x.3]  namespace dealii { }
+ [2.x.0]   This is the namespace in which everything in deal.II is. To avoid prefixing  every class and function call with the namespace name, the  [2.x.1]   therefore have a  [2.x.2]  at the top of the  code. 
+
+ Throughout the documentation, the namespace prefix is suppressed for  brevity. / namespace dealii { }

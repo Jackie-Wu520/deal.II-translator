@@ -22,8 +22,28 @@
 
 
 
- [2.x.0]  @defgroup mg Multilevel support Classes that have to do with multigrid algorithms. The main class with implementation of the multigrid scheme is Multigrid with its function  [2.x.1]  It uses the following abstract classes in order to perform the multigrid cycle:  [2.x.2]   [2.x.3]  MGMatrixBase contains the level matrices with a fairly general implementation in  [2.x.4]   [2.x.5]  MGCoarseGridBase is the solver on the coarsest level.  [2.x.6]  MGSmootherBase performs smoothing on each level.  [2.x.7]  MGTransferBase organizes the transfer between levels.  [2.x.8]  Additionally, there is a class PreconditionMG, which is a wrapper around Multigrid with the standard interface of deal.II  [2.x.9] . PreconditionMG also uses the classes inheriting from MGTransferBase, for instance MGTransferPrebuilt, where it uses  [2.x.10]  and  [2.x.11]  which transfer between the global vector and the level vectors. Finally, we have several auxiliary classes, namely MGLevelObject, which stores an object on each level* See the  [2.x.12] ,  [2.x.13] b, and  [2.x.14]  example programs on how to use this functionality. 
+ [2.x.0]   @defgroup mg Multilevel support 
 
-[1.x.0] Using multigrid methods on adaptively refined meshes involves more infrastructure than with regular refinement. First, in order to keep the complexity optimal, we need to decide how to do the smoothing on each level. And to this end, we have to define what a level is in the sense of multilevel decomposition. First, we define that a level in the multigrid sense is constituted by all cells of a certain level in the mesh hierarchy. Thus, smoothing on a certain level is restricted to the subdomain which consists of cells of this level or finer. This is usually referred to as local smoothing. The advantage of this definition is, that level matrices for the multigrid scheme can be assembled easily by traversing to all cells of a certain level, and that these level matrices do not contain hanging nodes. The disadvantage of this decomposition is, that we need additional matrices to handle the issues that arise at refinement edges. Furthermore, the treatment is different, depending on whether the method is continuous (thus having degrees of freedom on the refinement edge) or discontinuous (employs flux matrices at the refinement edge). While these matrices are small, we have to assemble them and notify the multigrid method of them.   [2.x.15]  
+ Classes that have to do with multigrid algorithms. 
 
- [2.x.16]  This namespace contains the reimplementation of multilevel support after we know what is needed in the context of local refinement and block systems. @ingroup mg   [2.x.17]  namespace mg { }
+ The main class with implementation of the multigrid scheme is  Multigrid with its function  [2.x.1]  It uses the  following abstract classes in order to perform the multigrid cycle: 
+
+  [2.x.2]    [2.x.3]  MGMatrixBase contains the level matrices with a fairly general  implementation in  [2.x.4]    [2.x.5]  MGCoarseGridBase is the solver on the coarsest level.   [2.x.6]  MGSmootherBase performs smoothing on each level.   [2.x.7]  MGTransferBase organizes the transfer between levels.   [2.x.8]  
+
+ Additionally, there is a class PreconditionMG, which is a wrapper  around Multigrid with the standard interface of deal.II @ref  Preconditioners. PreconditionMG also uses the classes inheriting  from MGTransferBase, for instance MGTransferPrebuilt, where it uses   [2.x.9]  and   [2.x.10]  which transfer between the  global vector and the level vectors. 
+
+ Finally, we have several auxiliary classes, namely MGLevelObject,  which stores an object on each level* 
+
+ See the  [2.x.11] ,  [2.x.12] b, and  [2.x.13]  example programs on how to use this  functionality. 
+
+ [1.x.0] 
+
+ Using multigrid methods on adaptively refined meshes involves  more infrastructure than with regular refinement. First, in order  to keep the complexity optimal, we need to decide how to do the  smoothing on each level. And to this end, we have to define what a  level is in the sense of multilevel decomposition. 
+
+ First, we define that a level in the multigrid sense is constituted  by all cells of a certain level in the mesh hierarchy. Thus,  smoothing on a certain level is restricted to the subdomain which  consists of cells of this level or finer. This is usually referred  to as local smoothing. The advantage of this definition is, that  level matrices for the multigrid scheme can be assembled easily by  traversing to all cells of a certain level, and that these level  matrices do not contain hanging nodes. 
+
+ The disadvantage of this decomposition is, that we need additional  matrices to handle the issues that arise at refinement  edges. Furthermore, the treatment is different, depending on  whether the method is continuous (thus having degrees of freedom on  the refinement edge) or discontinuous (employs flux matrices at the  refinement edge). While these matrices are small, we have to  assemble them and notify the multigrid method of them. / 
+
+ [2.x.14]   This namespace contains the reimplementation of multilevel support  after we know what is needed in the context of local refinement and  block systems. 
+
+ @ingroup mg / namespace mg { }
