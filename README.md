@@ -18,3 +18,8 @@ done
 for filename in examples/*_T.txt; do
         ./from.py ${filename} 
 done
+-在当前目录下，将所有aaaModule都替换为bbbName
+grep -rl 'aaaModule' ./  | xargs sed -i "" "s/aaaModule/bbbName/g"
+
+-r 表示搜索子目录
+-l 表示输出匹配的文件名
